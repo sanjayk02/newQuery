@@ -1,0 +1,102 @@
+package main
+
+import (
+    "fmt"
+    "net/http"
+    "strconv"
+
+    "github.com/gin-gonic/gin"
+)
+
+func main() {
+    router := gin.Default()
+
+    // API base group
+    apiRouter := router.Group("/api")
+
+    // ✅ your route here (DON’T repeat /api)
+    apiRouter.GET("/latest/review-submissions/:project", func(c *gin.Context) {
+        project := c.Param("project")
+        sort := c.Query("sort")
+        limitStr := c.DefaultQuery("limit", "50")
+        offsetStr := c.DefaultQuery("offset", "0")
+
+        limit, _ := strconv.Atoi(limitStr)
+        offset, _ := strconv.Atoi(offsetStr)
+
+        fmt.Printf("➡️ Project=%s Sort=%s Limit=%d Offset=%d\n", project, sort, limit, offset)
+
+        // TODO: call reviewInfoRepository.ListLatestSubmissionsWithSort here
+        c.JSON(http.StatusOK, gin.H{
+            "project": project,
+            "sort":    sort,
+            "limit":   limit,
+            "offset":  offset,
+            "data":    []string{}, // placeholder
+        })
+    })
+
+    router.Run(":3000")
+}
+
+
+http://localhost:3000/api/latest/review-submissions/potoodev
+
+
+
+// ============================================================================
+// UNAUTHENTICATED ROUTE (Public endpoint)
+// ============================================================================
+router.GET("/api/latest/review-submissions/:project", func(c *gin.Context) {
+	project := strings.TrimSpace(c.Param("project"))
+	if project == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "project is required"})
+		return
+	}
+
+	limitStr := c.DefaultQuery("limit", "50")
+	offsetStr := c.DefaultQuery("offset", "0")
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid 'limit' value"})
+		return
+	}
+	offset, err := strconv.Atoi(offsetStr)
+	if err != nil || offset < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid 'offset' value"})
+		return
+	}
+
+	out, err := reviewInfoRepository.ListLatestSubmissions(gormDB, project, limit, offset)
+	if err != nil {
+		log.Printf("[review-submissions] DB error for %s: %v", project, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	log.Printf("[review-submissions] Returned %d rows for %s", len(out), project)
+	c.IndentedJSON(http.StatusOK, out)
+})
+
+// ============================================================================
+// API ROUTES (General public API since no AuthMiddleware)
+// ============================================================================
+apiRouter := router.Group("/api")
+{
+	apiRouter.GET("/projects/:project/info", func(c *gin.Context) {
+		project := c.Param("project")
+		info, err := projectInfoRepository.GetProjectInfo(gormDB, project)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, info)
+	})
+
+	// Add other /api/... routes here as needed
+}
+
+
+http://localhost:4000/api/latest/review-submissions/potoodev
+
