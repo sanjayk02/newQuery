@@ -1,0 +1,45 @@
+	// =========================================================================
+	// START: UNUATHENTICATED ENDPOINT BLOCK (with dynamic sort)
+	// =========================================================================
+	// --- Latest Review Submissions Endpoint (Unauthenticated) ---
+	// GET /api/latest/review-submissions/:project?limit=50&offset=0&sort=submitted
+	router.GET("/api/latest/review-submissions/:project", func(c *gin.Context) {
+		// 1. Get and Validate Path/Query Parameters
+		project := strings.TrimSpace(c.Param("project"))
+
+		if project == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "project is required in the path"})
+			return
+		}
+
+		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+		offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+		
+		// --- Get optional sort parameter ---
+		sortParam := c.Query("sort") // e.g., submitted, -group_1, etc.
+		// -----------------------------------
+
+		// 2. Call the MODIFIED Repository method
+		out, err := reviewInfoRepository.ListLatestSubmissionsWithSort(
+			c.Request.Context(), 
+			gormDB, 
+			project, 
+			limit, 
+			offset, 
+			sortParam,
+		)
+		
+		if err != nil {
+			log.Printf("[review-submissions] query error for project %s: %v", project, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error: " + err.Error()})
+			return
+		}
+
+		// 3. Respond
+		log.Printf("[review-submissions] Fetched %d rows for project %s (limit=%d offset=%d)", len(out), project, limit, offset)
+		c.IndentedJSON(http.StatusOK, out)
+	})
+
+	// =========================================================================
+	// END: UNUATHENTICATED ENDPOINT BLOCK
+	// =========================================================================
