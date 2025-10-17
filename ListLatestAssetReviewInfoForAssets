@@ -1,0 +1,115 @@
+// ListLatestAssetReviewInfoForAssets implements the complex SQL logic from NewQuery.txt.
+// It retrieves the single most relevant/latest review info for each asset, prioritizing
+// the 'mdl' phase for overall sorting unless a custom OrderBy is provided.
+func (r *ReviewInfo) ListLatestAssetReviewInfoForAssets(
+	db *gorm.DB,
+	params *entity.AssetListParams,
+) ([]*entity.ReviewInfo, int, error) {
+	// 1. Define the base SQL query structure with all CTEs
+	// NOTE: Using `modified_at_utc` for MAX aggregation instead of `submitted_at_utc` 
+	// for consistency with existing methods like ListAssetReviewInfos.
+	baseSQL := `
+WITH ordered AS (
+    SELECT *, ROW_NUMBER() OVER (
+        ORDER BY group_1 ASC, relation ASC 
+    ) AS _order
+    FROM (
+        SELECT b.*
+        FROM (
+            SELECT project, root, group_1, relation, phase, MAX(modified_at_utc) AS modified_at_utc
+            FROM t_review_info
+            WHERE project = @Project AND root = 'assets' AND deleted = 0
+            GROUP BY project, root, group_1, relation, phase
+        ) AS a
+        LEFT JOIN (
+            SELECT *
+            FROM t_review_info
+            WHERE project = @Project AND root = 'assets' AND deleted = 0
+        ) AS b 
+        ON a.project = b.project 
+        AND a.root = b.root 
+        AND a.group_1 = b.group_1 
+        AND a.relation = b.relation 
+        AND a.phase = b.phase 
+        AND a.modified_at_utc = b.modified_at_utc
+    ) AS k
+),
+offset_ordered AS (
+    SELECT c.*,
+    CASE 
+        WHEN c.phase = 'mdl' THEN c._order 
+        ELSE 100000 + c._order 
+    END AS __order
+    FROM ordered c
+),
+ranked AS (
+    SELECT b.*,
+    ROW_NUMBER() OVER (
+        PARTITION BY b.root, b.project, b.group_1, b.relation
+        ORDER BY
+        CASE 
+            WHEN b.phase = 'mdl' THEN 0 
+            ELSE 1 
+        END
+    ) AS _rank
+    FROM offset_ordered b
+)
+SELECT * FROM
+(
+    SELECT *
+    FROM ranked
+    WHERE _rank=1
+) AS t
+`
+	// 2. Determine the dynamic ORDER BY clause
+	orderByClause := "ORDER BY __order ASC" // Default: Use phase priority
+	
+	// If a custom order is provided, use it and ignore the phase priority (__order)
+	if params.OrderBy != nil && *params.OrderBy != "" {
+		orderByClause = "ORDER BY " + *params.OrderBy
+	}
+
+	// 3. Assemble the final query
+	rawSQL := fmt.Sprintf("%s %s LIMIT @Limit OFFSET @Offset", baseSQL, orderByClause)
+
+	// 4. Calculate total count (distinct assets)
+	var total int64
+	countQuery := db.Model(&model.ReviewInfo{}).
+		Where("deleted = ?", 0).
+		Where("project = ?", params.Project).
+		Where("root = ?", "assets").
+		Group("project").
+		Group("root").
+		Group("group_1").
+		Group("relation")
+
+	if err := countQuery.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 5. Execute the main raw SQL query
+	limit := params.GetPerPage()
+	offset := limit * (params.GetPage() - 1)
+
+	var models []*model.ReviewInfo
+	// Use Raw() with Named parameters for safety
+	err := db.Raw(
+		rawSQL,
+		sql.Named("Project", params.Project),
+		sql.Named("Limit", limit),
+		sql.Named("Offset", offset),
+	).Scan(&models).Error
+
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, 0, err
+	}
+
+	// 6. Convert models to entities
+	var entities []*entity.ReviewInfo
+	for _, m := range models {
+		entities = append(entities, m.Entity(false))
+	}
+	return entities, int(total), nil
+}
+
+}
