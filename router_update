@@ -1,0 +1,33 @@
+router.GET("/api/latest/review-submissions/:project", func(c *gin.Context) {
+    project := c.Param("project")
+
+    // Optional query parameters from frontend
+    phaseBias := c.DefaultQuery("phase", "group_1") // e.g. mdl, rig, bld, dsn, ldv
+    sortOrder := c.DefaultQuery("order", "ASC")     // ASC or DESC
+    page := entity.GetIntQuery(c, "page", 1)
+    perPage := entity.GetIntQuery(c, "per_page", 15)
+
+    params := &entity.AssetListParams{
+        Project: project,
+        Page:    page,
+        PerPage: perPage,
+    }
+
+    // Run repository logic
+    repo := repository.NewReviewInfo(gormDB) // or injected if using DI
+    rows, total, err := repo.ListLatestAssetReviewInfoForAssets(gormDB, params, phaseBias, sortOrder)
+    if err != nil {
+        log.Printf("list latest error: %v", err)
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "total": total,
+        "page":  page,
+        "per_page": perPage,
+        "phase": phaseBias,
+        "order": sortOrder,
+        "data":  rows,
+    })
+})
