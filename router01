@@ -1,0 +1,59 @@
+// main.go (The updated unauthenticated endpoint block)
+
+// =========================================================================
+// START: NEW UNAUTHENTICATED ENDPOINT BLOCK (Must use 'router.GET')
+// =========================================================================
+// --- Latest Review Submissions Endpoint (Unauthenticated) ---
+// GET /api/latest/review-submissions/:project?limit=50&offset=0&sort={column_direction}
+router.GET("/api/latest/review-submissions/:project", func(c *gin.Context) {
+	// 1. Get and Validate Path/Query Parameters
+	project := strings.TrimSpace(c.Param("project"))
+
+	if project == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "project is required in the path"})
+		return
+	}
+
+	limitStr := c.DefaultQuery("limit", "50")
+	offsetStr := c.DefaultQuery("offset", "0")
+	
+	// --- NEW: Get optional sort parameter ---
+	sortParam := c.Query("sort") // e.g., "group_1 asc" or "submitted_at_utc desc"
+	// ----------------------------------------
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'limit' value"})
+		return
+	}
+	offset, err := strconv.Atoi(offsetStr)
+	if err != nil || offset < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'offset' value"})
+		return
+	}
+
+	// 2. Call the MODIFIED Repository method
+	// NOTE: This assumes you have defined ListLatestSubmissionsWithSort in repository/reviewInfo.go.
+	out, err := reviewInfoRepository.ListLatestSubmissionsWithSort(
+		c.Request.Context(), // Pass context
+		gormDB,              // Pass the database instance
+		project, 
+		limit, 
+		offset, 
+		sortParam, // Pass the new sort parameter for dynamic ordering
+	)
+	
+	if err != nil {
+		log.Printf("[review-submissions] query error for project %s: %v", project, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error: " + err.Error()})
+		return
+	}
+
+	// 3. Respond
+	log.Printf("[review-submissions] Fetched %d rows for project %s (limit=%d offset=%d)", len(out), project, limit, offset)
+	c.IndentedJSON(http.StatusOK, out)
+})
+
+// =========================================================================
+// END: NEW UNAUTHENTICATED ENDPOINT BLOCK
+// =========================================================================
