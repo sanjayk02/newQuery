@@ -57,3 +57,5 @@ router.GET("/api/latest/review-submissions/:project", func(c *gin.Context) {
 // =========================================================================
 // END: NEW UNAUTHENTICATED ENDPOINT BLOCK
 // =========================================================================
+
+$$\text{http://localhost:4000/api/latest/review-submissions/potoodev?limit=15\&offset=0\&sort=group\_1
