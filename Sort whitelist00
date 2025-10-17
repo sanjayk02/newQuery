@@ -338,4 +338,9 @@ type fakeMongoClient struct{}
 
 func (*fakeMongoClient) Ping(context.Context, *readpref.ReadPref) error { return nil }
 
+GET http://localhost:4000/api/latest/review-submissions/potoodev
+GET http://localhost:4000/api/latest/review-submissions/potoodev?sort=submitted
+GET http://localhost:4000/api/latest/review-submissions/potoodev?sort=-group_1&limit=25&offset=25
+
+
 
