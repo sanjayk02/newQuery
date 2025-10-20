@@ -1,0 +1,27 @@
+WITH latest AS (
+  SELECT project, root, group_1, relation, phase, MAX(modified_at_utc) AS modified_at_utc
+  FROM t_review_info
+  WHERE project='potoo' AND root='assets' AND relation='com' AND deleted=0
+  GROUP BY project, root, group_1, relation, phase
+),
+joined AS (
+  SELECT b.*
+  FROM latest a
+  JOIN t_review_info b
+    ON a.project=b.project AND a.root=b.root
+   AND a.group_1=b.group_1 AND a.relation=b.relation
+   AND a.phase=b.phase AND a.modified_at_utc=b.modified_at_utc
+),
+ranked AS (
+  SELECT j.*,
+         ROW_NUMBER() OVER (
+           PARTITION BY j.project,j.root,j.group_1,j.relation
+           ORDER BY CASE WHEN j.phase='mdl' THEN 0 ELSE 1 END,
+                    j.submitted_at_utc DESC
+         ) AS _rank
+  FROM joined j
+)
+SELECT root, project, group_1, relation, phase
+FROM ranked
+WHERE _rank=1
+ORDER BY group_1;
