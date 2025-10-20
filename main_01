@@ -1,0 +1,147 @@
+// allowSort converts a user "sort" token into a safe SQL ORDER BY fragment.
+// Examples: "submitted" -> "submitted_at_utc ASC", "-submitted" -> "submitted_at_utc DESC",
+//           "group_1" -> "group_1 ASC", "-group_1" -> "group_1 DESC".
+func allowSort(token string) (string, bool) {
+	switch token {
+	case "submitted":
+		return "submitted_at_utc ASC", true
+	case "-submitted":
+		return "submitted_at_utc DESC", true
+	case "modified":
+		return "modified_at_utc ASC", true
+	case "-modified":
+		return "modified_at_utc DESC", true
+	case "group_1":
+		return "group_1 ASC", true
+	case "-group_1":
+		return "group_1 DESC", true
+	case "__order":
+		return "__order ASC", true
+	case "-__order":
+		return "__order DESC", true
+	default:
+		return "", false
+	}
+}
+
+// =============================================================================================================
+
+// GET /api/latest/review-submissions/:project?root=assets&relation=com&limit=15&offset=0&sort=-group_1
+router.GET("/api/latest/review-submissions/:project", func(c *gin.Context) {
+	project := strings.TrimSpace(c.Param("project"))
+	if project == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "project is required"})
+		return
+	}
+
+	// Filters + pagination
+	root := c.DefaultQuery("root", "assets")
+	relation := c.DefaultQuery("relation", "com")
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "15"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+
+	// Sort token (examples: "submitted", "-submitted", "group_1", "-group_1", "__order")
+	sortToken := c.DefaultQuery("sort", "__order") // deterministic default that matches the CTE ranking
+
+	log.Printf("[latest-submissions] project=%s root=%s relation=%s sort=%s limit=%d offset=%d",
+		project, root, relation, sortToken, limit, offset)
+
+	rows, err := reviewInfoRepository.ListLatestAssetReviewInfoForAssets(
+		c.Request.Context(),
+		gormDB,
+		project,
+		root,
+		relation,
+		limit,
+		offset,
+		sortToken, // <— the repo will run allowSort(sortToken) internally
+	)
+	if err != nil {
+		log.Printf("DB error (latest-submissions): %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.IndentedJSON(http.StatusOK, rows)
+})
+
+//==================================================================================================
+
+// GET /api/projects/:project/reviews/assets/latest?assets=a,b,c&root=assets&relation=com&sort=group_1
+router.GET("/api/projects/:project/reviews/assets/latest", func(c *gin.Context) {
+	project := strings.TrimSpace(c.Param("project"))
+	if project == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "project is required"})
+		return
+	}
+
+	root := c.DefaultQuery("root", "assets")
+	relation := c.DefaultQuery("relation", "com")
+
+	assetsCSV := strings.TrimSpace(c.Query("assets"))
+	if assetsCSV == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "assets query param (csv) is required"})
+		return
+	}
+	var assets []string
+	for _, a := range strings.Split(assetsCSV, ",") {
+		a = strings.TrimSpace(a)
+		if a != "" {
+			assets = append(assets, a)
+		}
+	}
+	if len(assets) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no valid assets provided"})
+		return
+	}
+
+	// optional sort + pagination
+	orderByToken := c.Query("sort") // e.g., "group_1", "-group_1", "submitted", "-submitted"
+	var limitPtr, offsetPtr *int
+	if v := c.Query("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limitPtr = &n
+		}
+	}
+	if v := c.Query("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offsetPtr = &n
+		}
+	}
+
+	log.Printf("[latest-batch] project=%s root=%s relation=%s assets=%v sort=%s limit=%v offset=%v",
+		project, root, relation, assets, orderByToken, limitPtr, offsetPtr)
+
+	rows, err := reviewInfoRepository.ListLatestForAssetBatch(
+		c.Request.Context(),
+		gormDB,
+		project,
+		root,
+		relation,
+		assets,
+		limitPtr,
+		offsetPtr,
+		&orderByToken, // repo will run allowSort(orderByToken) internally; pass nil for default
+	)
+	if err != nil {
+		log.Printf("DB error (latest-batch): %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.IndentedJSON(http.StatusOK, rows)
+})
+
+
+# Global list: default sort (__order), 15 items
+curl "http://localhost:4000/api/latest/review-submissions/potoodev"
+
+# Global list: alphabetic by name
+curl "http://localhost:4000/api/latest/review-submissions/potoodev?sort=group_1&limit=10&offset=0"
+
+# Global list: reverse alphabetic
+curl "http://localhost:4000/api/latest/review-submissions/potoodev?sort=-group_1&limit=10&offset=10"
+
+# Batch (two assets), sorted by name
+curl "http://localhost:4000/api/projects/potoodev/reviews/assets/latest?assets=testAssetA,camHero&sort=group_1"
+
