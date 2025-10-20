@@ -1,0 +1,60 @@
+-- params
+SET @project := 'potoodev';
+SET @root    := 'assets';
+SET @phase   := 'mdl';
+SET @limit   := 15; 
+SET @offset  := 0;
+
+WITH
+latest AS (
+  SELECT project, root, group_1, relation, phase,
+         MAX(submitted_at_utc) AS submitted_at_utc
+  FROM t_review_info
+  WHERE project=@project AND root=@root AND deleted=0
+  GROUP BY project, root, group_1, relation, phase
+),
+joined AS (
+  SELECT b.*
+  FROM latest a
+  JOIN t_review_info b
+    ON a.project=b.project
+   AND a.root=b.root
+   AND a.group_1=b.group_1
+   AND a.relation=b.relation
+   AND a.phase=b.phase
+   AND a.submitted_at_utc=b.submitted_at_utc
+  WHERE b.deleted=0
+),
+ordered AS (
+  SELECT
+    j.*,
+    ROW_NUMBER() OVER (
+      -- >>> set your sort here <<<
+      ORDER BY
+        (j.work_status IS NULL),  -- put NULLs last; remove if not needed
+        j.work_status ASC,
+        j.group_1 ASC
+    ) AS _order
+  FROM joined j
+),
+offset_ordered AS (
+  SELECT
+    o.*,
+    CASE WHEN o.phase=@phase THEN o._order ELSE 100000 + o._order END AS __order
+  FROM ordered o
+),
+ranked AS (
+  SELECT
+    x.*,
+    ROW_NUMBER() OVER (
+      PARTITION BY x.root, x.project, x.group_1, x.relation
+      ORDER BY CASE WHEN x.phase=@phase THEN 0 ELSE 1 END,
+               x.submitted_at_utc DESC
+    ) AS _rank
+  FROM offset_ordered x
+)
+SELECT root, project, group_1, relation, phase
+FROM ranked
+WHERE _rank = 1
+ORDER BY __order ASC
+LIMIT @limit OFFSET @offset;
