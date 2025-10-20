@@ -1,0 +1,53 @@
+WITH ordered AS (
+  SELECT
+    b.*,
+    ROW_NUMBER() OVER (ORDER BY b.group_1 ASC) AS _order  -- set sort field here
+  FROM (
+    SELECT
+      project, root, group_1, relation, phase,
+      MAX(submitted_at_utc) AS submitted_at_utc
+    FROM t_review_info
+    WHERE project = 'potoodev'
+      AND root = 'assets'
+      AND deleted = 0                           -- < set filters here
+    GROUP BY project, root, group_1, relation, phase
+  ) AS a
+  JOIN (
+    SELECT *
+    FROM t_review_info
+    WHERE project = 'potoodev'
+      AND root = 'assets'
+      AND deleted = 0                           -- < set filters here
+  ) AS b
+    ON  a.project = b.project
+    AND a.root = b.root
+    AND a.group_1 = b.group_1
+    AND a.relation = b.relation
+    AND a.phase = b.phase
+    AND a.submitted_at_utc = b.submitted_at_utc
+),
+offset_ordered AS (
+  SELECT
+    c.*,
+    CASE WHEN c.phase = 'mdl' THEN c._order ELSE 100000 + c._order END AS __order
+    -- ↑ prefer rows whose latest phase is MDL; everything else sorts after
+  FROM ordered c
+),
+ranked AS (
+  SELECT
+    b.*,
+    ROW_NUMBER() OVER (
+      PARTITION BY b.root, b.project, b.group_1, b.relation
+      ORDER BY CASE WHEN b.phase = 'mdl' THEN 0 ELSE 1 END  -- prefer MDL per asset
+    ) AS _rank
+  FROM offset_ordered b
+)
+SELECT
+  root, project, group_1, relation       -- < set fields to return here
+FROM (
+  SELECT *
+  FROM ranked
+  WHERE _rank = 1
+) AS t
+ORDER BY __order ASC
+LIMIT 15 OFFSET 0;
