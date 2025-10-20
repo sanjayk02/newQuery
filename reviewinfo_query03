@@ -99,23 +99,79 @@ LIMIT ? OFFSET ?;
 
 // ----------------------------
 
-sortParam := c.DefaultQuery("sort", "submitted_at_utc:asc")
-sortParts := strings.Split(sortParam, ":")
-sortField := sortParts[0]
-sortDir := "ASC"
-if len(sortParts) > 1 && strings.ToLower(sortParts[1]) == "desc" {
-	sortDir = "DESC"
-}
+// GET /api/latest/review-submissions/:project?sort=submitted_at_utc:asc&limit=15&offset=0&root=assets&relation=com
+router.GET("/api/latest/review-submissions/:project", func(c *gin.Context) {
+	project := strings.TrimSpace(c.Param("project"))
+	if project == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "project is required"})
+		return
+	}
 
-rows, err := reviewInfoRepository.ListLatestAssetReviewInfoForAssets(
-	c.Request.Context(),
-	gormDB,
-	project,
-	"assets",
-	"com",
-	15,
-	0,
-	sortField,
-	sortDir,
-)
+	// pagination + filters
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "15"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	root := c.DefaultQuery("root", "assets")
+	relation := c.DefaultQuery("relation", "com")
+
+	// --- sort parsing (supports "field:dir" and shorthand "-field") ---
+	sortParam := c.DefaultQuery("sort", "submitted_at_utc:asc")
+	sortField := sortParam
+	sortDir := "ASC"
+
+	if strings.Contains(sortParam, ":") {
+		parts := strings.Split(sortParam, ":")
+		sortField = parts[0]
+		if len(parts) > 1 && strings.EqualFold(parts[1], "desc") {
+			sortDir = "DESC"
+		}
+	}
+	if strings.HasPrefix(sortField, "-") {
+		sortField = strings.TrimPrefix(sortField, "-")
+		sortDir = "DESC"
+	}
+
+	// whitelist allowed sort fields to prevent SQL injection
+	switch sortField {
+	case "submitted_at_utc", "modified_at_utc", "group_1", "phase":
+		// ok
+	default:
+		sortField = "submitted_at_utc"
+	}
+
+	log.Printf("✅ latest review submissions: project=%s root=%s relation=%s sort=%s %s limit=%d offset=%d",
+		project, root, relation, sortField, sortDir, limit, offset)
+
+	// call repo (updated signature with sortField/sortDir)
+	rows, err := reviewInfoRepository.ListLatestAssetReviewInfoForAssets(
+		c.Request.Context(),
+		gormDB,
+		project,
+		root,
+		relation,
+		limit,
+		offset,
+		sortField,
+		sortDir,
+	)
+	if err != nil {
+		log.Printf("❌ DB error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.IndentedJSON(http.StatusOK, rows)
+})
+
+And make sure your repository function signature matches (i.e., it accepts sortField, sortDir and uses them in the ROW_NUMBER() OVER (ORDER BY ...) of your CTE), like we wrote earlier.
+
+Quick tests:
+
+/api/latest/review-submissions/potoodev?sort=submitted_at_utc:desc
+
+/api/latest/review-submissions/potoodev?sort=-group_1
+
+/api/latest/review-submissions/potoodev?sort=group_1:asc&limit=10&offset=0
+
+If you want multi-column sorting next (e.g., sort=submitted_at_utc:desc,group_1:asc), say the word and I’ll extend both the handler and SQL safely.
+
 
