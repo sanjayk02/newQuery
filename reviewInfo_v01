@@ -1,0 +1,132 @@
+// Latest row per asset across phases (prefer mdl), sorted + paginated.
+// Mirrors the style used in ListAssetReviewInfos (joins A/B) but for all assets.
+func (r *ReviewInfo) ListLatestAssetReviewInfoForAssets(
+	ctx context.Context,
+	db *gorm.DB,
+	project, root, relation string,
+	limit, offset int,
+	sortToken string, // e.g. "submitted", "-group_1", "__order" (see allowSort)
+) ([]*model.ReviewInfo, error) {
+
+	// resolve ORDER BY safely via your existing whitelist
+	orderBy, ok := allowSort(sortToken)
+	if !ok {
+		orderBy = "__order ASC" // deterministic default
+	}
+
+	// CTE version (keeps your original query semantics)
+	sql := fmt.Sprintf(`
+WITH ordered AS (
+    SELECT b.*,
+           ROW_NUMBER() OVER (ORDER BY submitted_at_utc ASC) AS _order
+    FROM (
+        SELECT project, root, group_1, relation, phase, MAX(modified_at_utc) AS modified_at_utc
+        FROM t_review_info
+        WHERE project = ? AND root = ? AND relation = ? AND deleted = 0
+        GROUP BY project, root, group_1, relation, phase
+    ) a
+    LEFT JOIN t_review_info b
+      ON a.project=b.project
+     AND a.root=b.root
+     AND a.group_1=b.group_1
+     AND a.relation=b.relation
+     AND a.phase=b.phase
+     AND a.modified_at_utc=b.modified_at_utc
+),
+offset_ordered AS (
+    SELECT c.*,
+           CASE WHEN c.phase='mdl' THEN c._order ELSE 100000 + c._order END AS __order
+    FROM ordered c
+),
+ranked AS (
+    SELECT b.*,
+           ROW_NUMBER() OVER (
+             PARTITION BY b.root, b.project, b.group_1, b.relation
+             ORDER BY CASE WHEN b.phase='mdl' THEN 0 ELSE 1 END
+           ) AS _rank
+    FROM offset_ordered b
+)
+SELECT *
+FROM ranked
+WHERE _rank=1
+ORDER BY %s
+LIMIT ? OFFSET ?;
+`, orderBy)
+
+	var out []*model.ReviewInfo
+	args := []any{project, root, relation, limit, offset}
+	if err := db.WithContext(ctx).Raw(sql, args...).Scan(&out).Error; err != nil {
+		return nil, fmt.Errorf("ListLatestAssetReviewInfoForAssets: %w", err)
+	}
+	return out, nil
+}
+
+// ===============================================================================================================================
+// Latest rows per (phase) for a batch of assets under the same project/root/relation.
+// Returns one row per (asset, relation, phase). Add ORDER BY/LIMIT if you want a single-row pick later.
+// ===============================================================================================================================
+func (r *ReviewInfo) ListLatestForAssetBatch(
+	ctx context.Context,
+	db *gorm.DB,
+	project, root, relation string,
+	assets []string, // group_1 list
+	limit, offset *int, // optional; pass nil for no pagination here
+	orderByToken *string, // optional; e.g., ptr("submitted") or ptr("-group_1")
+) ([]*model.ReviewInfo, error) {
+
+	if len(assets) == 0 {
+		return []*model.ReviewInfo{}, nil
+	}
+
+	// build ?,?,?,? for IN (...)
+	in := strings.Repeat("?,", len(assets))
+	in = in[:len(in)-1]
+
+	orderBy := "b.group_1 ASC, b.phase ASC"
+	if orderByToken != nil {
+		if frag, ok := allowSort(*orderByToken); ok {
+			orderBy = frag
+		}
+	}
+
+	sql := fmt.Sprintf(`
+SELECT b.*
+FROM (
+  SELECT project, root, group_1, relation, phase,
+         MAX(modified_at_utc) AS modified_at_utc
+  FROM t_review_info
+  WHERE project = ?
+    AND root = ?
+    AND relation = ?
+    AND group_1 IN (%s)
+    AND deleted = 0
+  GROUP BY project, root, group_1, relation, phase
+) a
+JOIN t_review_info b
+  ON  a.project=b.project
+  AND a.root=b.root
+  AND a.group_1=b.group_1
+  AND a.relation=b.relation
+  AND a.phase=b.phase
+  AND a.modified_at_utc=b.modified_at_utc
+ORDER BY %s
+`, in, orderBy)
+
+	var args []any
+	args = append(args, project, root, relation)
+	for _, g := range assets {
+		args = append(args, g)
+	}
+
+	// optional LIMIT/OFFSET
+	if limit != nil && offset != nil {
+		sql += ` LIMIT ? OFFSET ?`
+		args = append(args, *limit, *offset)
+	}
+
+	var rows []*model.ReviewInfo
+	if err := db.WithContext(ctx).Raw(sql, args...).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("ListLatestForAssetBatch: %w", err)
+	}
+	return rows, nil
+}
