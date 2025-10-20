@@ -137,5 +137,46 @@ curl "http://localhost:8080/api/latest/review-submissions/potoo"
 # custom pagination and relation
 curl "http://localhost:8080/api/latest/review-submissions/potoo?relation=com&limit=30&offset=0"
 
+// --- Latest Review Submissions Endpoint (Unauthenticated) ---
+// GET /api/latest/review-submissions/:project?limit=15&offset=0
+router.GET("/api/latest/review-submissions/:project", func(c *gin.Context) {
+    project := strings.TrimSpace(c.Param("project"))
+    if project == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "project is required"})
+        return
+    }
+
+    // Optional query parameters
+    limit, _ := strconv.Atoi(c.DefaultQuery("limit", "15"))
+    offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+    root := c.DefaultQuery("root", "assets")
+    relation := c.DefaultQuery("relation", "com")
+
+    log.Printf("✅ Route hit: project=%s root=%s relation=%s limit=%d offset=%d",
+        project, root, relation, limit, offset)
+
+    // Call your working repository function (the SQL query you validated)
+    out, err := reviewInfoRepository.ListLatestAssetReviewInfoForAssets(
+        c.Request.Context(),
+        gormDB,
+        project,
+        root,
+        relation,
+        limit,
+        offset,
+    )
+    if err != nil {
+        log.Printf("❌ DB query error for project=%s: %v", project, err)
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    // Log and respond
+    log.Printf("✅ Retrieved %d rows for project=%s", len(out), project)
+    c.IndentedJSON(http.StatusOK, out)
+})
+
+
+
 
 
