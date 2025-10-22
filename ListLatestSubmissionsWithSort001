@@ -179,3 +179,87 @@ func (r *ReviewInfoRepository) ListLatestSubmissionsWithSort(
 
     return out, nil
 }
+
+
+
+package main
+
+import (
+	"context"
+	"log"
+	"net/http"
+	"strconv"
+	"strings"
+	
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+    
+    // Replace with the actual path to your reviewinfo package
+	"your_module_path/reviewinfo" 
+)
+
+// Global (or dependency injected) database and repository instances
+var (
+	gormDB *gorm.DB
+	reviewInfoRepository = &reviewinfo.ReviewInfoRepository{} 
+)
+
+// NOTE: In a real application, you'd initialize gormDB in your main function 
+// and pass dependencies via structs/interfaces (Dependency Injection).
+
+// SetupRouter configures the API route.
+func SetupRouter(router *gin.Engine) {
+
+    // --- The Handler You Requested ---
+    router.GET("/api/latest/review-submissions/:project", func(c *gin.Context) {
+        
+        // 1. Get and Validate Path/Query Parameters
+        project := strings.TrimSpace(c.Param("project"))
+
+        if project == "" {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "project is required in the path"})
+            return
+        }
+
+        // Use c.DefaultQuery for safe type conversion with defaults
+        limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+        offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+        
+        // --- Get optional sort parameter ---
+        sortParam := c.Query("sort") // e.g., submitted, -group_1, etc.
+        // -----------------------------------
+
+        // 2. Call the MODIFIED Repository method
+        // Use c.Request.Context() for proper request cancellation/timeout handling
+        out, err := reviewInfoRepository.ListLatestSubmissionsWithSort(
+            c.Request.Context(), 
+            gormDB, 
+            project, 
+            limit, 
+            offset, 
+            sortParam,
+        )
+        
+        if err != nil {
+            log.Printf("[review-submissions] query error for project %s: %v", project, err)
+            // Log the error but return a generic message to the client for security
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal database error occurred."})
+            return
+        }
+
+        // 3. Respond
+        log.Printf("[review-submissions] Fetched %d rows for project %s (limit=%d offset=%d)", len(out), project, limit, offset)
+        c.IndentedJSON(http.StatusOK, out)
+    })
+    // -----------------------------------
+}
+
+Goal	URL Example			
+Basic Call (Default limit/offset)	/api/latest/review-submissions/potoo			
+Pagination (Page 2, 20 items per page)	/api/latest/review-submissions/potoo?limit=20&offset=20			
+Sorting (Sort by group_1 descending)	/api/latest/review-submissions/potoo?sort=-group_1			
+Combined (Paginated, sorted results)	/api/latest/review-submissions/potoo?limit=10&offset=50&sort=submitted			
+				
+				
+				
+				
