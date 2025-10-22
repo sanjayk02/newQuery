@@ -1,0 +1,200 @@
+package reviewinfo
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"gorm.io/gorm"
+)
+
+type AssetMinimal struct {
+	Root     string `json:"root"`
+	Project  string `json:"project"`
+	Group1   string `json:"group_1"`
+	Relation string `json:"relation"`
+	Phase    string `json:"phase"`
+}
+
+type ReviewInfoRepository struct{}
+
+// 3 placeholders: WHERE(t1), WHERE(b), ORDER BY
+const assetsMinimalSQL = `
+WITH latest AS (
+  SELECT
+    project, root, group_1, relation, phase,
+    MAX(modified_at_utc) AS modified_at_utc
+  FROM t_review_info AS t1
+  WHERE %s
+  GROUP BY project, root, group_1, relation, phase
+),
+joined AS (
+  SELECT
+    b.project, b.root, b.group_1, b.relation, b.phase
+  FROM latest a
+  JOIN t_review_info b
+    ON  a.project = b.project
+    AND a.root    = b.root
+    AND a.group_1 = b.group_1
+    AND a.relation= b.relation
+    AND a.phase   = b.phase
+    AND a.modified_at_utc = b.modified_at_utc
+  WHERE %s
+),
+-- pick ONE row per asset; prefer 'rel' if present, else most recent phase by name for stability
+ranked AS (
+  SELECT j.*,
+         ROW_NUMBER() OVER (
+           PARTITION BY j.project, j.root, j.group_1, j.relation
+           ORDER BY CASE WHEN j.phase='rel' THEN 0 ELSE 1 END, j.phase
+         ) AS rn
+  FROM joined j
+)
+SELECT root, project, group_1, relation, phase
+FROM ranked
+WHERE rn = 1
+%s
+LIMIT ? OFFSET ?;
+`
+
+// ListAssetsMinimal returns one flat row per asset (root/project/group_1/relation) + chosen phase.
+func (r *ReviewInfoRepository) ListAssetsMinimal(
+	ctx context.Context,
+	db *gorm.DB,
+	project, rootParam, phaseParam string, // all optional except project
+	limit, offset int,
+	sortParam string, // e.g. "group_1" | "-group_1" | "phase" | "-phase" | "relation"
+) ([]AssetMinimal, error) {
+
+	// base WHERE used twice (t1 and b)
+	base := "project = ? AND deleted = 0"
+	if rootParam != "" {
+		base += " AND root = ?"
+	}
+	// If phase filter supplied, keep only that phase
+	if phaseParam != "" {
+		base += " AND phase = ?"
+	}
+
+	// alias the filters
+	whereT1 := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(
+		base, "project", "t1.project"),
+		"root", "t1.root"),
+		"phase", "t1.phase")
+	whereT1 = strings.ReplaceAll(whereT1, "deleted", "t1.deleted")
+
+	whereB := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(
+		base, "project", "b.project"),
+		"root", "b.root"),
+		"phase", "b.phase")
+	whereB = strings.ReplaceAll(whereB, "deleted", "b.deleted")
+
+	// ORDER BY whitelist (only minimal columns)
+	allowed := map[string]string{
+		"root":     "root",
+		"project":  "project",
+		"group_1":  "group_1",
+		"relation": "relation",
+		"phase":    "phase",
+	}
+	order := "ORDER BY group_1 ASC" // default like your grid
+	if sortParam != "" {
+		dir := "ASC"
+		col := sortParam
+		if strings.HasPrefix(col, "-") {
+			dir = "DESC"
+			col = strings.TrimPrefix(col, "-")
+		}
+		if c, ok := allowed[col]; ok {
+			order = fmt.Sprintf("ORDER BY %s %s", c, dir)
+		}
+	}
+
+	sql := fmt.Sprintf(assetsMinimalSQL, whereT1, whereB, order)
+
+	// params appear twice (t1, b) then LIMIT/OFFSET
+	build := func() []interface{} {
+		ps := []interface{}{project}
+		if rootParam != "" {
+			ps = append(ps, rootParam)
+		}
+		if phaseParam != "" {
+			ps = append(ps, phaseParam)
+		}
+		return ps
+	}
+	args := append([]interface{}{}, build()...)
+	args = append(args, build()...)
+	args = append(args, limit, offset)
+
+	var rows []AssetMinimal
+	if err := db.WithContext(ctx).Raw(sql, args...).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+
+
+package main
+
+import (
+	"log"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+
+	reviewinfo "your/module/path/reviewinfo" // change to your module path
+)
+
+// keep it super simple
+func RegisterAssetsMinimalRoute(router *gin.Engine, db *gorm.DB, repo *reviewinfo.ReviewInfoRepository) {
+	router.GET("/api/assets/:project", func(c *gin.Context) {
+		project := strings.TrimSpace(c.Param("project"))
+		if project == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "project is required"})
+			return
+		}
+		root := c.Query("root")    // optional, e.g. assets
+		phase := c.Query("phase")  // optional, e.g. mdl/bld/ldv...
+		sort := c.Query("sort")    // e.g. group_1 | -group_1 | phase | -phase
+
+		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
+		if limit <= 0 {
+			limit = 100
+		}
+		if limit > 1000 {
+			limit = 1000
+		}
+		offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+		if offset < 0 {
+			offset = 0
+		}
+
+		rows, err := repo.ListAssetsMinimal(c.Request.Context(), db, project, root, phase, limit, offset, sort)
+		if err != nil {
+			log.Printf("[assets-min] error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
+
+		c.IndentedJSON(http.StatusOK, gin.H{
+			"count":   len(rows),
+			"data":    rows,
+			"project": project,
+			"root":    root,
+			"phase":   phase,
+			"sort":    sort,
+			"limit":   limit,
+			"offset":  offset,
+			"ts":      time.Now().UTC().Format(time.RFC3339),
+		})
+	})
+}
+
+GET http://localhost:4000/api/assets/potoo?root=assets&sort=group_1&phase=mdl
+
