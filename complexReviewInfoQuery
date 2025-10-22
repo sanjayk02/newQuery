@@ -19,19 +19,16 @@ type ReviewInfo struct {
 	SubmittedAtUtc       string `json:"submitted_at_utc"`
 	ModifiedAtUtc        string `json:"modified_at_utc"`
 	ExecutedComputer     string `json:"executed_computer"`
-	// Note: We don't need __order in the struct unless we want to return it. 
-    // GORM/Scan will typically ignore extra columns if they are not mapped.
 }
 
 // ReviewInfoRepository defines the methods for interacting with the t_review_info table.
 type ReviewInfoRepository struct {
-    // In a real app, you might inject the DB here: DB *gorm.DB
+    // In a production app, you might inject the DB here.
 }
 
 // --- CORRECTED SQL CONSTANT ---
 
-// complexReviewInfoQuery uses '?' placeholders for GORM/database/sql.
-// It includes __order in the final SELECT to fix the "Unknown column" error.
+// complexReviewInfoQuery uses %s for dynamic WHERE clauses and ? for LIMIT/OFFSET.
 const complexReviewInfoQuery = `
 WITH max_modified AS (
     SELECT
@@ -44,7 +41,7 @@ WITH max_modified AS (
     FROM
         t_review_info
     WHERE
-        project = ? AND deleted = 0
+        %s -- Dynamic WHERE clause 1
     GROUP BY
         project, root, group_1, relation, phase
 ),
@@ -71,7 +68,7 @@ latest_reviews AS (
         a.phase = b.phase AND
         a.modified_at_utc = b.modified_at_utc
     WHERE
-        b.project = ? AND b.deleted = 0
+        %s -- Dynamic WHERE clause 2 (must match)
     ORDER BY
         b.submitted_at_utc ASC 
 ),
@@ -79,7 +76,7 @@ ordered AS (
     SELECT
         t1.*,
         ROW_NUMBER() OVER (
-            ORDER BY t1.group_1 ASC -- DEFAULT SORT
+            ORDER BY t1.group_1 ASC -- Initial sort based on group_1
         ) AS _order
     FROM
         latest_reviews t1
@@ -87,7 +84,7 @@ ordered AS (
 offset_ordered AS (
     SELECT
         c.*,
-        CASE WHEN c.phase = '' THEN c._order ELSE 100000 + c._order END AS __order
+        CASE WHEN c.phase = 'rel' THEN c._order ELSE 100000 + c._order END AS __order -- Phase prioritization ('rel' first)
     FROM
         ordered c
 ),
@@ -96,7 +93,7 @@ ranked AS (
         b.*,
         ROW_NUMBER() OVER (
             PARTITION BY b.root, b.project, b.group_1, b.relation
-            ORDER BY CASE WHEN b.phase = '' THEN 0 ELSE 1 END -- phase filter for ranking
+            ORDER BY CASE WHEN b.phase = 'rel' THEN 0 ELSE 1 END -- Ranking: 'rel' first
         ) AS _rank
     FROM
         offset_ordered b
@@ -111,7 +108,7 @@ SELECT
     submitted_at_utc,
     modified_at_utc,
     executed_computer,
-    __order -- <--- CORRECTED: Includes the column needed for the outer ORDER BY
+    __order -- Necessary for final ORDER BY
 FROM
 (
     SELECT
@@ -121,7 +118,7 @@ FROM
     WHERE
         _rank = 1
 ) AS t
-%s -- Placeholder for dynamic ORDER BY clause
+%s -- Placeholder for dynamic final ORDER BY clause
 LIMIT ? OFFSET ?
 `
 
@@ -130,46 +127,53 @@ func (r *ReviewInfoRepository) ListLatestSubmissionsWithSort(
 	ctx context.Context,
 	db *gorm.DB,
 	project string,
+	rootParam string, // Now accepts root
 	limit, offset int,
 	sortParam string,
 ) ([]ReviewInfo, error) {
 
-	// 1. Determine the dynamic ORDER BY clause
-	orderByClause := ""
-	
-	// Default to the complex order from the query if no valid sortParam is provided
-	orderByClause = "ORDER BY __order ASC"
+	// 1. Build the Dynamic WHERE Clause and parameters
+	filterQuery := "project = ? AND deleted = 0"
+	var queryParams []interface{}
+	queryParams = append(queryParams, project)
 
+	if rootParam != "" {
+		filterQuery += " AND root = ?"
+		queryParams = append(queryParams, rootParam)
+	}
+
+	// 2. Determine the dynamic ORDER BY clause
+	orderByClause := "ORDER BY __order ASC" // Default order
 	if sortParam != "" {
 		sortField := strings.TrimPrefix(sortParam, "-")
 		direction := "ASC"
 		if strings.HasPrefix(sortParam, "-") {
 			direction = "DESC"
 		}
-		
-		// Whitelist fields for security
+
 		switch sortField {
 		case "submitted":
 			orderByClause = fmt.Sprintf("ORDER BY t.submitted_at_utc %s", direction)
 		case "group_1":
 			orderByClause = fmt.Sprintf("ORDER BY t.group_1 %s", direction)
-		// Default case uses the complex __order
 		}
 	}
 
-	// 2. Construct the final query string
-	finalQuery := fmt.Sprintf(complexReviewInfoQuery, orderByClause)
+	// 3. Construct the final query string and parameter list
+	finalQuery := fmt.Sprintf(complexReviewInfoQuery, filterQuery, filterQuery, orderByClause)
 
-	// 3. Execute the query using GORM's Raw method
+	// We pass the parameters for the two WHERE clauses, plus limit and offset.
+	var finalParams []interface{}
+	finalParams = append(finalParams, queryParams...) // Params for max_modified WHERE
+	finalParams = append(finalParams, queryParams...) // Params for latest_reviews WHERE
+	finalParams = append(finalParams, limit, offset)  // Params for LIMIT and OFFSET
+
+	// 4. Execute the query using GORM's Raw method
 	var out []ReviewInfo
 
-	// Parameters: project, project, limit, offset
 	result := db.WithContext(ctx).Raw(
 		finalQuery,
-		project, // ?1: max_modified WHERE project
-		project, // ?2: latest_reviews WHERE project
-		limit,   // ?3: LIMIT
-		offset,  // ?4: OFFSET
+		finalParams..., // Pass the combined array of parameters
 	).Scan(&out)
 
 	if result.Error != nil {
@@ -178,6 +182,7 @@ func (r *ReviewInfoRepository) ListLatestSubmissionsWithSort(
 
 	return out, nil
 }
+
 
 package main
 
@@ -190,7 +195,7 @@ import (
 
 	"myapp/reviewservice/reviewinfo" // Adjust the import path based on your go.mod
 	"github.com/gin-gonic/gin"
-    "gorm.io/driver/postgres" // Or: gorm.io/driver/mysql
+	"gorm.io/driver/postgres" // Use appropriate driver (e.g., mysql)
 	"gorm.io/gorm"
 )
 
@@ -201,7 +206,7 @@ var (
 )
 
 func main() {
-	// 1. Initialize Database Connection (Replace with your actual DSN)
+	// 1. Initialize Database Connection (MOCK/REPLACE THIS WITH YOUR REAL DSN)
     // Example for PostgreSQL:
     dsn := "host=localhost user=youruser password=yourpassword dbname=yourdb port=5432 sslmode=disable TimeZone=Asia/Shanghai"
     
@@ -214,8 +219,6 @@ func main() {
 
 	// 2. Setup Gin Router
 	router := gin.Default()
-	
-	// Register the API handler
 	setupRoutes(router)
 
 	// 3. Start the server
@@ -227,7 +230,8 @@ func setupRoutes(router *gin.Engine) {
 	router.GET("/api/latest/review-submissions/:project", func(c *gin.Context) {
 		// 1. Get and Validate Path/Query Parameters
 		project := strings.TrimSpace(c.Param("project"))
-
+        rootParam := c.Query("root") // <-- Extract the optional root query parameter
+        
 		if project == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "project is required in the path"})
 			return
@@ -236,16 +240,14 @@ func setupRoutes(router *gin.Engine) {
 		// Use c.DefaultQuery for safe type conversion with defaults
 		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 		offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
-		
-		// --- Get optional sort parameter ---
 		sortParam := c.Query("sort") 
-		// -----------------------------------
 
-		// 2. Call the Repository method
+		// 2. Call the Repository method with all parameters
 		out, err := reviewInfoRepository.ListLatestSubmissionsWithSort(
 			c.Request.Context(), 
 			gormDB, 
 			project, 
+			rootParam, // Pass the root parameter
 			limit, 
 			offset, 
 			sortParam,
@@ -258,21 +260,8 @@ func setupRoutes(router *gin.Engine) {
 		}
 
 		// 3. Respond
-		log.Printf("[review-submissions] Fetched %d rows for project %s (limit=%d offset=%d)", len(out), project, limit, offset)
+		log.Printf("[review-submissions] Fetched %d rows for project %s (root=%s limit=%d offset=%d)", 
+            len(out), project, rootParam, limit, offset)
 		c.IndentedJSON(http.StatusOK, out)
 	})
 }
-
-
-
-
-
-Goal	URL Example			
-Basic Call (Default limit/offset)	/api/latest/review-submissions/potoo			
-Pagination (Page 2, 20 items per page)	/api/latest/review-submissions/potoo?limit=20&offset=20			
-Sorting (Sort by group_1 descending)	/api/latest/review-submissions/potoo?sort=-group_1			
-Combined (Paginated, sorted results)	/api/latest/review-submissions/potoo?limit=10&offset=50&sort=submitted			
-				
-				
-				
-				
