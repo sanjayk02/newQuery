@@ -1,0 +1,174 @@
+package repository
+
+import (
+	"context"
+
+	"gorm.io/gorm"
+)
+
+// AssetKeyRow is the simple model for the final result.
+type AssetKeyRow struct {
+	Project  string `json:"project"  gorm:"column:project"`
+	Root     string `json:"root"     gorm:"column:root"`
+	Group1   string `json:"group_1"  gorm:"column:group_1"`
+	Relation string `json:"relation" gorm:"column:relation"`
+}
+
+// ReviewInfo Repository type
+type ReviewInfo struct{}
+
+// ========================================================================
+// ListAssetKeysDefault
+// ========================================================================
+// ListAssetKeysDefault retrieves unique asset keys for a project, 
+// using a fixed internal sorting logic (group_1 ASC) and pagination.
+func (r *ReviewInfo) ListAssetKeysDefault(
+	ctx context.Context,
+	db *gorm.DB,
+	project string,
+	limit, offset int,
+) ([]AssetKeyRow, error) {
+
+	// The SQL query provided in the request
+	const q = `
+WITH ordered AS (
+	SELECT
+		*,
+		ROW_NUMBER() OVER (
+			ORDER BY group_1 ASC 
+		) AS _order
+	FROM (
+		SELECT b.* FROM (
+			SELECT project, root, group_1, relation, phase, MAX(modified_at_utc) AS modified_at_utc
+			FROM t_review_info
+			WHERE project = ? AND root = 'assets' AND deleted = 0 
+			GROUP BY project, root, group_1, relation, phase
+		) AS a 
+		LEFT JOIN
+		(
+			SELECT root, project, group_1, phase, relation, work_status, submitted_at_utc, modified_at_utc, executed_computer 
+			FROM t_review_info
+			WHERE project = ? AND root = 'assets' AND deleted = 0
+		) AS b 
+		ON a.project = b.project AND a.root = b.root AND a.group_1 = b.group_1 AND
+		a.relation = b.relation AND a.phase = b.phase AND a.modified_at_utc = b.modified_at_utc
+		ORDER BY submitted_at_utc ASC -- This inner sort is harmless but can be removed
+	) AS k
+),
+offset_ordered AS (
+	SELECT c.*,
+	CASE WHEN c.phase = '' THEN c._order ELSE 100000 + c._order END AS __order 
+	FROM ordered c
+),
+ranked AS (
+	SELECT b.*,
+	ROW_NUMBER() OVER (
+		PARTITION BY b.root, b.project, b.group_1, b.relation
+		ORDER BY CASE WHEN b.phase = '' THEN 0 ELSE 1 END
+	) AS _rank
+	FROM offset_ordered b
+)
+SELECT root, project, group_1, relation 
+FROM (
+	SELECT *
+	FROM ranked
+	WHERE _rank=1
+) AS t
+ORDER BY __order ASC
+LIMIT ? OFFSET ?;`
+
+	args := []any{
+		project, // First project filter
+		project, // Second project filter
+		limit,   // LIMIT
+		offset,  // OFFSET
+	}
+
+	var out []AssetKeyRow
+	if err := db.WithContext(ctx).Raw(q, args...).Scan(&out).Error; err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+
+// ... (lines 400-405, after gormDB is initialized)
+
+	reviewInfoRepository, err := repository.NewReviewInfo(gormDB)
+	if err != nil {
+		log.Fatalln(err)
+	}
+    // End of early initialization. The rest of the repositories are initialized below.
+    
+	// =========================================================================
+	// START: UNUATHENTICATED ENDPOINT BLOCK (ASSET LISTING WITH DYNAMIC SORT)
+	// =========================================================================
+	// --- Asset Listing Endpoint (Unauthenticated) ---
+	// GET /api/assets/:project?limit=15&offset=0&sort=group_1%20desc
+	// OR: GET /api/assets/:project?limit=15&offset=0&field=relation&dir=asc
+	router.GET("/api/assets/:project", func(c *gin.Context) {
+		// 1. Get and Validate Path/Query Parameters
+		project := strings.TrimSpace(c.Param("project"))
+
+		if project == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "project is required in the path"})
+			return
+		}
+
+		// Use strconv.Atoi but provide clear defaults for pagination
+		limit := 15
+		if v, err := strconv.Atoi(c.DefaultQuery("limit", "15")); err == nil {
+			limit = v
+		}
+		offset := 0
+		if v, err := strconv.Atoi(c.DefaultQuery("offset", "0")); err == nil {
+			offset = v
+		}
+		
+		// --- Get optional sort parameter (Logic from previous discussion) ---
+		sort := strings.TrimSpace(c.Query("sort"))
+		if sort == "" {
+			field := strings.TrimSpace(c.Query("field"))
+			dir := strings.TrimSpace(c.Query("dir"))
+			if field != "" && dir != "" {
+				// normalize to "group_1 desc" or "relation asc"
+				sort = fmt.Sprintf("%s %s", field, dir)
+			} else {
+				sort = "group_1 asc" // Final default sort
+			}
+		}
+		// ------------------------------------------------------------------
+
+		ctx := c.Request.Context()
+
+		// 2. Call the ListAssetsSorted Repository method (The function we developed)
+		rows, err := reviewInfoRepository.ListAssetsSorted(
+			ctx, 
+			gormDB, // Assuming gormDB is accessible in this closure scope
+			project, 
+			limit, 
+			offset, 
+			sort,
+		)
+		
+		if err != nil {
+			log.Printf("[assets] query error for project %s: %v", project, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error: " + err.Error()})
+			return
+		}
+
+		// 3. Respond with full context
+		c.JSON(http.StatusOK, gin.H{
+			"project": project,
+			"limit":   limit,
+			"offset":  offset,
+			"sort":    sort,
+			"count":   len(rows),
+			"results": rows,
+		})
+	})
+	// =========================================================================
+	// END: UNUATHENTICATED ENDPOINT BLOCK
+	// =========================================================================
+	
+	// ... (The rest of your main function continues here)
