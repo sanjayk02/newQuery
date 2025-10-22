@@ -287,3 +287,19 @@ func parseIntDefault(s string, def int) int {
 	}
 	return n
 }
+
+Base fields
+
+/api/assets/potoodev?field=group_1&dir=desc
+
+/api/assets/potoodev?field=relation&dir=asc
+
+Phase fields (latest row of that phase per asset)
+
+/api/assets/potoodev?sort=mdl:submitted_at:desc
+
+/api/assets/potoodev?sort=rig:work:asc
+
+/api/assets/potoodev?sort=bld:appr:asc
+
+/api/assets/potoodev?sort=dsn:modified_at:desc
