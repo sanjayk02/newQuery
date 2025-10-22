@@ -1,0 +1,312 @@
+package main
+
+import (
+	"log"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+
+	reviewinfo "your/module/path/reviewinfo" // TODO: change to your real module path
+)
+
+// --- tiny helper: normalize sort into "-field1,field2" ---
+func canonicalizeSort(sortCSV, dirCSV, descFlag string) string {
+	sortCSV = strings.TrimSpace(sortCSV)
+	dirCSV = strings.TrimSpace(strings.ToUpper(dirCSV))
+	descFlag = strings.TrimSpace(strings.ToLower(descFlag))
+
+	if sortCSV == "" {
+		return ""
+	}
+	// already using minus form and no extra hints
+	if strings.HasPrefix(sortCSV, "-") && dirCSV == "" && descFlag == "" {
+		return sortCSV
+	}
+
+	// make single-field canonical; easy to extend for multi later
+	field := strings.TrimPrefix(sortCSV, "-")
+	isDesc := dirCSV == "DESC" || descFlag == "true" || descFlag == "1" || descFlag == "yes"
+
+	if isDesc {
+		return "-" + field
+	}
+	return field
+}
+
+func RegisterLatestReviewSubmissionsRoute(
+	router *gin.Engine,
+	gormDB *gorm.DB,
+	repo *reviewinfo.ReviewInfoRepository,
+) {
+	router.GET("/api/latest/review-submissions/:project", func(c *gin.Context) {
+		project := strings.TrimSpace(c.Param("project"))
+		if project == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "project is required in the path"})
+			return
+		}
+
+		rootParam := c.Query("root")    // optional
+		phaseParam := c.Query("phase")  // optional
+
+		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+		if limit <= 0 {
+			limit = 50
+		}
+		if limit > 500 {
+			limit = 500
+		}
+		offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+		if offset < 0 {
+			offset = 0
+		}
+
+		// hybrid sort inputs
+		sortParam := canonicalizeSort(
+			c.Query("sort"),
+			c.DefaultQuery("dir", ""),
+			c.DefaultQuery("desc", ""),
+		)
+
+		out, err := repo.ListLatestSubmissionsWithSort(
+			c.Request.Context(),
+			gormDB,
+			project,
+			rootParam,
+			phaseParam, // <-- now passed through
+			limit,
+			offset,
+			sortParam,
+		)
+		if err != nil {
+			log.Printf("[review-submissions] query error project=%s: %v", project, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal database error"})
+			return
+		}
+
+		log.Printf("[review-submissions] fetched=%d project=%s root=%s phase=%s limit=%d offset=%d sort=%s",
+			len(out), project, rootParam, phaseParam, limit, offset, sortParam)
+
+		c.IndentedJSON(http.StatusOK, gin.H{
+			"project": project,
+			"root":    rootParam,
+			"phase":   phaseParam,
+			"limit":   limit,
+			"offset":  offset,
+			"sort":    sortParam,
+			"count":   len(out),
+			"data":    out,
+			"ts":      time.Now().UTC().Format(time.RFC3339),
+		})
+	})
+}
+
+
+
+package reviewinfo
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"gorm.io/gorm"
+)
+
+// Output row
+type ReviewInfo struct {
+	Root             string `json:"root"`
+	Project          string `json:"project"`
+	Group1           string `json:"group_1"`
+	Relation         string `json:"relation"`
+	Phase            string `json:"phase"`
+	WorkStatus       string `json:"work_status"`
+	SubmittedAtUtc   string `json:"submitted_at_utc"`
+	ModifiedAtUtc    string `json:"modified_at_utc"`
+	ExecutedComputer string `json:"executed_computer"`
+}
+
+type ReviewInfoRepository struct{}
+
+// 3 string placeholders:
+//   1) WHERE for max_modified (alias t1)
+//   2) WHERE for latest_reviews (alias b)
+//   3) final ORDER BY
+const complexReviewInfoQuery = `
+WITH max_modified AS (
+    SELECT
+        project,
+        root,
+        group_1,
+        relation,
+        phase,
+        MAX(modified_at_utc) AS modified_at_utc
+    FROM t_review_info AS t1
+    WHERE %s
+    GROUP BY project, root, group_1, relation, phase
+),
+latest_reviews AS (
+    SELECT
+        b.root,
+        b.project,
+        b.group_1,
+        b.phase,
+        b.relation,
+        b.work_status,
+        b.submitted_at_utc,
+        b.modified_at_utc,
+        b.executed_computer
+    FROM max_modified AS a
+    INNER JOIN t_review_info AS b
+      ON  a.project = b.project
+      AND a.root    = b.root
+      AND a.group_1 = b.group_1
+      AND a.relation= b.relation
+      AND a.phase   = b.phase
+      AND a.modified_at_utc = b.modified_at_utc
+    WHERE %s
+),
+ordered AS (
+    SELECT
+        t1.*,
+        ROW_NUMBER() OVER (ORDER BY t1.group_1 ASC, t1.relation ASC) AS _order
+    FROM latest_reviews t1
+),
+offset_ordered AS (
+    SELECT
+        c.*,
+        CASE WHEN c.phase = 'rel' THEN c._order ELSE 100000 + c._order END AS __order
+    FROM ordered c
+),
+ranked AS (
+    SELECT
+        b.*,
+        ROW_NUMBER() OVER (
+            PARTITION BY b.root, b.project, b.group_1, b.relation
+            ORDER BY
+              CASE WHEN b.phase = 'rel' THEN 0 ELSE 1 END,
+              b.submitted_at_utc DESC,
+              b.modified_at_utc  DESC
+        ) AS _rank
+    FROM offset_ordered b
+)
+SELECT
+    root,
+    project,
+    group_1,
+    relation,
+    phase,
+    work_status,
+    submitted_at_utc,
+    modified_at_utc,
+    executed_computer,
+    __order
+FROM (
+    SELECT * FROM ranked WHERE _rank = 1
+) AS t
+%s
+LIMIT ? OFFSET ?;
+`
+
+// ListLatestSubmissionsWithSort supports optional root & phase filters and safe sorting.
+func (r *ReviewInfoRepository) ListLatestSubmissionsWithSort(
+	ctx context.Context,
+	db *gorm.DB,
+	project string,
+	rootParam string,   // optional
+	phaseParam string,  // optional
+	limit, offset int,
+	sortParam string,   // "-group_1" | "submitted" | etc.
+) ([]ReviewInfo, error) {
+
+	// ---------- WHERE base (reused for t1 and b) ----------
+	baseFilter := "project = ? AND deleted = 0"
+	if rootParam != "" {
+		baseFilter += " AND root = ?"
+	}
+	if phaseParam != "" {
+		baseFilter += " AND phase = ?"
+	}
+
+	// alias the filter for both CTEs
+	filterClauseT1 := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(
+		baseFilter, "project", "t1.project"),
+		"root", "t1.root"),
+		"phase", "t1.phase")
+	filterClauseT1 = strings.ReplaceAll(filterClauseT1, "deleted", "t1.deleted")
+
+	filterClauseB := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(
+		baseFilter, "project", "b.project"),
+		"root", "b.root"),
+		"phase", "b.phase")
+	filterClauseB = strings.ReplaceAll(filterClauseB, "deleted", "b.deleted")
+
+	// ---------- ORDER BY (whitelist) ----------
+	allowed := map[string]string{
+		"group_1":           "t.group_1",
+		"relation":          "t.relation",
+		"phase":             "t.phase",
+		"work_status":       "t.work_status",
+		"submitted":         "t.submitted_at_utc",
+		"submitted_at_utc":  "t.submitted_at_utc",
+		"modified":          "t.modified_at_utc",
+		"modified_at_utc":   "t.modified_at_utc",
+		"executed_computer": "t.executed_computer",
+		"__order":           "t.__order",
+	}
+
+	orderByClause := "ORDER BY t.__order ASC, t.group_1 ASC, t.relation ASC"
+	if sortParam != "" {
+		dir := "ASC"
+		field := sortParam
+		if strings.HasPrefix(field, "-") {
+			dir = "DESC"
+			field = strings.TrimPrefix(field, "-")
+		}
+		if col, ok := allowed[field]; ok {
+			orderByClause = fmt.Sprintf("ORDER BY %s %s, t.group_1 ASC, t.relation ASC", col, dir)
+		}
+	}
+
+	// ---------- Build final SQL ----------
+	finalQuery := fmt.Sprintf(complexReviewInfoQuery, filterClauseT1, filterClauseB, orderByClause)
+
+	// ---------- Params (appear twice for t1/b), then LIMIT/OFFSET ----------
+	buildParamSet := func() []interface{} {
+		ps := []interface{}{project}
+		if rootParam != "" {
+			ps = append(ps, rootParam)
+		}
+		if phaseParam != "" {
+			ps = append(ps, phaseParam)
+		}
+		return ps
+	}
+
+	params := append([]interface{}{}, buildParamSet()...) // for t1
+	params = append(params, buildParamSet()...)           // for b
+	params = append(params, limit, offset)                // LIMIT/OFFSET
+
+	var out []ReviewInfo
+	if err := db.WithContext(ctx).Raw(finalQuery, params...).Scan(&out).Error; err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+
+api/latest/review-submissions/potoodev?root=assets&sort=group_1&dir=asc
+Filter by phase only:
+
+bash
+Copy code
+/api/latest/review-submissions/potoodev?phase=mdl&sort=submitted&dir=desc
+Filter by both:
+
+bash
+Copy code
+/api/latest/review-submissions/potoodev?root=assets&phase=mdl&sort=submitted&dir=desc&limit=50&offset=0
+
