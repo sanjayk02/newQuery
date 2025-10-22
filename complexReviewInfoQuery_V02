@@ -199,3 +199,104 @@ func (r *ReviewInfoRepository) ListLatestSubmissionsWithSort(
 
 	return out, nil
 }
+
+
+
+// ============================================================================
+// START: UNAUTHENTICATED ENDPOINT BLOCK (ASSET LISTING WITH DYNAMIC SORT)
+// ============================================================================
+
+router.GET("/api/latest/review-submissions/:project", func(c *gin.Context) {
+	// --------------------------------------------------
+	// 1. Get and Validate Path / Query Parameters
+	// --------------------------------------------------
+	project := strings.TrimSpace(c.Param("project"))
+	rootParam := c.Query("root") // optional root filter
+
+	if project == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "project is required in the path"})
+		return
+	}
+
+	// Safe integer parsing with defaults
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	if limit <= 0 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Sorting parameter (can be "-group_1", "group_1&dir=desc", etc.)
+	sortParam := c.Query("sort")
+	dir := c.DefaultQuery("dir", "")
+	desc := c.DefaultQuery("desc", "")
+
+	// Hybrid support (if front-end doesn't send "-field")
+	sortParam = canonicalizeSort(sortParam, dir, desc)
+
+	// --------------------------------------------------
+	// 2. Execute repository method
+	// --------------------------------------------------
+	out, err := reviewInfoRepository.ListLatestSubmissionsWithSort(
+		c.Request.Context(),
+		gormDB,
+		project,
+		rootParam,
+		limit,
+		offset,
+		sortParam,
+	)
+
+	if err != nil {
+		log.Printf("[review-submissions] query error for project %s: %v", project, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal database error"})
+		return
+	}
+
+	// --------------------------------------------------
+	// 3. Respond
+	// --------------------------------------------------
+	log.Printf("[review-submissions] fetched %d rows for project=%s root=%s (limit=%d offset=%d sort=%s)",
+		len(out), project, rootParam, limit, offset, sortParam)
+
+	c.IndentedJSON(http.StatusOK, gin.H{
+		"project": project,
+		"root":    rootParam,
+		"limit":   limit,
+		"offset":  offset,
+		"sort":    sortParam,
+		"count":   len(out),
+		"data":    out,
+	})
+})
+
+// ============================================================================
+// END: UNAUTHENTICATED ENDPOINT BLOCK
+// ============================================================================
+
+
+func canonicalizeSort(sortCSV, dirCSV, descFlag string) string {
+	sortCSV = strings.TrimSpace(sortCSV)
+	dirCSV = strings.TrimSpace(strings.ToUpper(dirCSV))
+	descFlag = strings.TrimSpace(strings.ToLower(descFlag))
+
+	if sortCSV == "" {
+		return ""
+	}
+
+	// if UI sends "-group_1" form already
+	if strings.HasPrefix(sortCSV, "-") && dirCSV == "" && descFlag == "" {
+		return sortCSV
+	}
+
+	// if UI sends dir=desc or desc=true
+	if dirCSV == "DESC" || descFlag == "true" || descFlag == "1" || descFlag == "yes" {
+		if !strings.HasPrefix(sortCSV, "-") {
+			sortCSV = "-" + sortCSV
+		}
+	}
+	return sortCSV
+}
+
