@@ -8,37 +8,32 @@ import (
 	"gorm.io/gorm"
 )
 
-// AssetKey is the minimal row your current SELECT returns.
-type AssetKey struct {
+// ---------------------------------------------------------------------------
+// Entity: the minimal columns returned from the dynamic sort query
+// ---------------------------------------------------------------------------
+
+type ReviewAssetRow struct {
 	Project  string `json:"project"  gorm:"column:project"`
 	Root     string `json:"root"     gorm:"column:root"`
 	Group1   string `json:"group_1"  gorm:"column:group_1"`
 	Relation string `json:"relation" gorm:"column:relation"`
 }
 
-// ReviewInfoRepo provides queries over t_review_info.
-type ReviewInfoRepo struct{}
+// ---------------------------------------------------------------------------
+// Repository
+// ---------------------------------------------------------------------------
 
-// NewReviewInfo creates a new repo (kept as a value type so it's easy to pass around).
-func NewReviewInfo() *ReviewInfoRepo { return &ReviewInfoRepo{} }
+type ReviewInfo struct{}
 
-// Base SQL with dynamic ORDER BY driven by params (no pivot).
-// Params binding order (critical!):
-//   1:  project (for CTE a)
-//   2:  project (for CTE b)
-//   3:  sortPhase           -> phase_latest WHERE o.phase = ?
-//   4:  sortField (ASC)     -> 'work' | 'appr' | 'submitted_at' | 'modified_at'
-//   5:  sortField (ASC)
-//   6:  sortField (ASC)
-//   7:  sortField (ASC)
-//   8:  sortDir   ('desc'?) -> controls DESC block on/off
-//   9:  sortField (DESC)
-//   10: sortField (DESC)
-//   11: sortField (DESC)
-//   12: sortField (DESC)
-//   13: limit
-//   14: offset
-const listLatestAssetKeysDynamicSQL = `
+func NewReviewInfo(db *gorm.DB) (*ReviewInfo, error) {
+	return &ReviewInfo{}, nil
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic sort SQL (no pivot, no MAX/CASE)
+// ---------------------------------------------------------------------------
+
+const listLatestSubmissionsDynamicSQL = `
 WITH ordered AS (
   SELECT
     b.*,
@@ -89,14 +84,12 @@ LEFT JOIN phase_latest pl
  AND pl.group_1=w.group_1 AND pl.relation=w.relation
 ORDER BY
   w.__order ASC,
-  -- ASC block
   CASE
     WHEN ?='work'         THEN pl.work_status
     WHEN ?='appr'         THEN pl.approval_status
     WHEN ?='submitted_at' THEN pl.submitted_at_utc
     WHEN ?='modified_at'  THEN pl.modified_at_utc
   END ASC,
-  -- DESC block (enabled only when sort_dir='desc')
   CASE WHEN ?='desc' THEN
     CASE
       WHEN ?='work'         THEN pl.work_status
@@ -109,30 +102,52 @@ ORDER BY
 LIMIT ? OFFSET ?;
 `
 
-// ListLatestAssetKeysDynamic returns the four-key rows with dynamic end-sort by phase/field/direction.
-func (r *ReviewInfoRepo) ListLatestAssetKeysDynamic(
+// ---------------------------------------------------------------------------
+// Main Function
+// ---------------------------------------------------------------------------
+
+func (r *ReviewInfo) ListLatestSubmissionsWithSort(
 	ctx context.Context,
 	db *gorm.DB,
 	project string,
-	sortPhase string, // mdl | rig | bld | dsn | ldv
-	sortField string, // work | appr | submitted_at | modified_at
-	sortDir string,   // asc | desc
-	limit, offset int,
-) ([]*AssetKey, error) {
+	limit int,
+	offset int,
+	sortParam string, // e.g., "mdl:work:asc" or "rig:submitted_at:desc"
+) ([]*ReviewAssetRow, error) {
 
-	// --- Whitelists & defaults (safety) ---
+	// Default project (just ensure)
+	if project == "" {
+		project = "potoodev"
+	}
+
+	// Defaults
+	sortPhase := "mdl"
+	sortField := "submitted_at"
+	sortDir := "asc"
+
+	// Parse param like "mdl:work:desc"
+	if sortParam != "" {
+		parts := strings.Split(sortParam, ":")
+		if len(parts) >= 1 && parts[0] != "" {
+			sortPhase = strings.ToLower(parts[0])
+		}
+		if len(parts) >= 2 && parts[1] != "" {
+			sortField = strings.ToLower(parts[1])
+		}
+		if len(parts) >= 3 && parts[2] != "" {
+			sortDir = strings.ToLower(parts[2])
+		}
+	}
+
+	// Whitelists
 	phaseOK := map[string]bool{"mdl": true, "rig": true, "bld": true, "dsn": true, "ldv": true}
 	fieldOK := map[string]bool{"work": true, "appr": true, "submitted_at": true, "modified_at": true}
-
-	sortPhase = strings.ToLower(sortPhase)
 	if !phaseOK[sortPhase] {
 		sortPhase = "mdl"
 	}
-	sortField = strings.ToLower(sortField)
 	if !fieldOK[sortField] {
 		sortField = "submitted_at"
 	}
-	sortDir = strings.ToLower(sortDir)
 	if sortDir != "desc" {
 		sortDir = "asc"
 	}
@@ -143,22 +158,20 @@ func (r *ReviewInfoRepo) ListLatestAssetKeysDynamic(
 		offset = 0
 	}
 
-	// Bind in the exact order required by the SQL above.
+	// Ordered params
 	args := []any{
-		project, // a: project
-		project, // b: project
+		project,
+		project,
 		sortPhase,
-		// ASC block 4×
 		sortField, sortField, sortField, sortField,
-		// DESC guard + 4×
 		sortDir,
 		sortField, sortField, sortField, sortField,
 		limit, offset,
 	}
 
-	var out []*AssetKey
-	if err := db.WithContext(ctx).Raw(listLatestAssetKeysDynamicSQL, args...).Scan(&out).Error; err != nil {
+	var result []*ReviewAssetRow
+	if err := db.WithContext(ctx).Raw(listLatestSubmissionsDynamicSQL, args...).Scan(&result).Error; err != nil {
 		return nil, err
 	}
-	return out, nil
+	return result, nil
 }
