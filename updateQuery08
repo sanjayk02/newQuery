@@ -1,0 +1,47 @@
+WITH latest_info AS (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (
+            PARTITION BY project, root, group_1, relation, phase
+            ORDER BY modified_at_utc DESC
+        ) AS rn
+    FROM t_review_info
+    WHERE
+        project = 'potoo'
+        AND root = 'assets'
+        AND deleted = 0
+),
+filtered_latest AS (
+    SELECT
+        root, project, group_1, relation, phase,
+        work_status, submitted_at_utc, modified_at_utc, executed_computer,
+        -- Changed ORDER BY to DESC here: The highest '_order' now means the most recent submission.
+        ROW_NUMBER() OVER (ORDER BY submitted_at_utc DESC) AS _order
+    FROM latest_info
+    WHERE rn = 1
+),
+offset_ordered AS (
+    SELECT
+        c.*,
+        -- Logic remains the same: 'mdl' phase gets a lower number (higher priority).
+        CASE WHEN c.phase = 'mdl' THEN c._order ELSE 100000 + c._order END AS __order
+    FROM filtered_latest c
+),
+ranked AS (
+    SELECT
+        b.*,
+        ROW_NUMBER() OVER (
+            PARTITION BY b.root, b.project, b.group_1, b.relation
+            -- Logic remains the same: 'mdl' is prioritized for the asset grouping.
+            ORDER BY CASE WHEN b.phase = 'mdl' THEN 0 ELSE 1 END, __order ASC
+        ) AS _rank
+    FROM offset_ordered b
+)
+SELECT root, project, group_1, relation
+FROM ranked
+WHERE _rank = 1
+-- The final results are now ordered by the custom '__order' (ASC), meaning:
+-- 1. All 'mdl' phases, ordered by most recent submission (_order DESC).
+-- 2. All non-'mdl' phases, ordered by most recent submission (_order DESC).
+ORDER BY __order ASC
+LIMIT 15 OFFSET 0;
