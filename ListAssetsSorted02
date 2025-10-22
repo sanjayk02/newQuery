@@ -1,0 +1,247 @@
+package repository
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"gorm.io/gorm"
+)
+
+// Simple model: just the asset keys
+type AssetKeyRow struct {
+	Project  string `json:"project"  gorm:"column:project"`
+	Root     string `json:"root"     gorm:"column:root"`
+	Group1   string `json:"group_1"  gorm:"column:group_1"`
+	Relation string `json:"relation" gorm:"column:relation"`
+}
+
+// Full model for retrieval (used by GetAssetFull)
+type ReviewInfoRow struct {
+	Project          string `gorm:"column:project"`
+	Root             string `gorm:"column:root"`
+	Group1           string `gorm:"column:group_1"`
+	Relation         string `gorm:"column:relation"`
+	Phase            string `gorm:"column:phase"`
+	WorkStatus       string `gorm:"column:work_status"`
+	ApprovalStatus   string `gorm:"column:approval_status"`
+	SubmittedAtUtc   string `gorm:"column:submitted_at_utc"`
+	ModifiedAtUtc    string `gorm:"column:modified_at_utc"`
+}
+
+// Repository type
+type ReviewInfo struct{}
+
+// ========================================================================
+// ListAssetsSorted (Corrected for base sort and pagination)
+// ========================================================================
+func (r *ReviewInfo) ListAssetsSorted(
+	ctx context.Context,
+	db *gorm.DB,
+	project string,
+	limit, offset int,
+	sort string,
+) ([]AssetKeyRow, error) {
+	mode, phase, field, dir := parseSortForAssets(sort)
+
+	const q = `
+WITH ordered AS (
+  SELECT
+    b.*,
+    ROW_NUMBER() OVER (ORDER BY b.group_1 ASC) AS _order
+  FROM (
+    SELECT project, root, group_1, relation, phase, MAX(modified_at_utc) AS modified_at_utc
+    FROM t_review_info
+    WHERE project = ? AND root = 'assets' AND deleted = 0
+    GROUP BY project, root, group_1, relation, phase
+  ) a
+  LEFT JOIN (
+    SELECT root, project, group_1, phase, relation,
+           work_status, approval_status, submitted_at_utc, modified_at_utc
+    FROM t_review_info
+    WHERE project = ? AND root = 'assets' AND deleted = 0
+  ) b
+    ON a.project=b.project AND a.root=b.root AND a.group_1=b.group_1
+   AND a.relation=b.relation AND a.phase=b.phase AND a.modified_at_utc=b.modified_at_utc
+),
+offset_ordered AS (
+  SELECT c.*,
+         CASE WHEN c.phase = '' THEN c._order ELSE 100000 + c._order END AS __order
+  FROM ordered c
+),
+ranked AS (
+  SELECT b.*,
+         ROW_NUMBER() OVER (
+           PARTITION BY b.root, b.project, b.group_1, b.relation
+           ORDER BY CASE WHEN b.phase = '' THEN 0 ELSE 1 END
+         ) AS _rank
+  FROM offset_ordered b
+),
+phase_latest AS (
+  SELECT o.project, o.root, o.group_1, o.relation,
+         o.work_status, o.approval_status, o.submitted_at_utc, o.modified_at_utc
+  FROM ordered o
+  WHERE o.phase = ?
+),
+winner AS (
+  SELECT r.root, r.project, r.group_1, r.relation, r.__order
+  FROM ranked r
+  WHERE r._rank = 1
+)
+SELECT w.project, w.root, w.group_1, w.relation
+FROM winner w
+LEFT JOIN phase_latest pl
+  ON pl.project=w.project AND pl.root=w.root AND pl.group_1=w.group_1 AND pl.relation=w.relation
+ORDER BY
+	-- ** 1. USER-REQUESTED BASE SORTING (PRIORITY FIX) **
+	-- ASC mode for group_1
+	CASE WHEN ?='base' AND ?='group_1' AND ?='asc' THEN w.group_1 END ASC,
+	-- DESC mode for group_1
+	CASE WHEN ?='base' AND ?='group_1' AND ?='desc' THEN w.group_1 END DESC,
+	-- ASC mode for relation
+	CASE WHEN ?='base' AND ?='relation' AND ?='asc' THEN w.relation END ASC,
+	-- DESC mode for relation
+	CASE WHEN ?='base' AND ?='relation' AND ?='desc' THEN w.relation END DESC,
+
+	-- ** 2. Internal order (as secondary tie-breaker/default when not base mode) **
+	w.__order ASC,
+
+	-- ** 3. Phase sort (NULLS LAST) **
+	CASE WHEN ?='phase' AND ?='work'         THEN (pl.work_status IS NULL) END ASC,
+	CASE WHEN ?='phase' AND ?='appr'         THEN (pl.approval_status IS NULL) END ASC,
+	CASE WHEN ?='phase' AND ?='submitted_at' THEN (pl.submitted_at_utc IS NULL) END ASC,
+	CASE WHEN ?='phase' AND ?='modified_at'  THEN (pl.modified_at_utc IS NULL) END ASC,
+
+	-- ** 4. Phase sort (ASC mode) **
+	CASE WHEN ?='phase' AND ?='work'         THEN pl.work_status END ASC,
+	CASE WHEN ?='phase' AND ?='appr'         THEN pl.approval_status END ASC,
+	CASE WHEN ?='phase' AND ?='submitted_at' THEN pl.submitted_at_utc END ASC,
+	CASE WHEN ?='phase' AND ?='modified_at'  THEN pl.modified_at_utc END ASC,
+
+	-- ** 5. Phase sort (DESC mode) **
+	CASE WHEN ?='phase' AND ?='desc' AND ?='work'         THEN pl.work_status END DESC,
+	CASE WHEN ?='phase' AND ?='desc' AND ?='appr'         THEN pl.approval_status END DESC,
+	CASE WHEN ?='phase' AND ?='desc' AND ?='submitted_at' THEN pl.submitted_at_utc END DESC,
+	CASE WHEN ?='phase' AND ?='desc' AND ?='modified_at'  THEN pl.modified_at_utc END DESC,
+
+	w.group_1 ASC -- Final tie-breaker
+LIMIT ? OFFSET ?;`
+
+	args := []any{
+		project, project, // two project filters
+		phase,            // phase filter
+		
+		// 1. USER-REQUESTED BASE SORTING (8 arguments)
+		mode, "group_1", "asc", // group_1 ASC
+		mode, "group_1", "desc",// group_1 DESC
+		mode, "relation", "asc",// relation ASC
+		mode, "relation", "desc",// relation DESC
+
+		// phase NULLs
+		mode, "work", mode, "appr", mode, "submitted_at", mode, "modified_at",
+		// phase ASC
+		mode, "work", mode, "appr", mode, "submitted_at", mode, "modified_at",
+		// phase DESC
+		mode, dir, field,
+		mode, dir, field,
+		mode, dir, field,
+		mode, dir, field,
+		limit, offset,
+	}
+
+	var out []AssetKeyRow
+	if err := db.WithContext(ctx).Raw(q, args...).Scan(&out).Error; err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ========================================================================
+// GetAssetFull (Fetch the single 'winning' row for a specific asset key)
+// ========================================================================
+func (r *ReviewInfo) GetAssetFull(
+	ctx context.Context,
+	db *gorm.DB,
+	project, group1, relation string,
+) (*ReviewInfoRow, error) {
+	const q = `
+WITH latest_per_phase AS (
+  	SELECT project, root, group_1, relation, phase, MAX(modified_at_utc) AS modified_at_utc
+  	FROM t_review_info
+  	WHERE project = ? AND root = 'assets' AND group_1 = ? AND relation = ? AND deleted = 0
+  	GROUP BY project, root, group_1, relation, phase
+),
+full_latest AS (
+  	SELECT b.*
+  	FROM latest_per_phase a
+  	INNER JOIN t_review_info b
+  	ON a.project=b.project AND a.root=b.root AND a.group_1=b.group_1
+  	AND a.relation=b.relation AND a.phase=b.phase AND a.modified_at_utc=b.modified_at_utc
+),
+winner AS (
+  	SELECT f.*
+  	FROM full_latest f
+  	ORDER BY CASE WHEN f.phase = '' THEN 0 ELSE 1 END DESC, f.modified_at_utc DESC
+  	LIMIT 1
+)
+SELECT project, root, group_1, relation, phase,
+       work_status, approval_status, submitted_at_utc, modified_at_utc
+FROM winner;`
+
+	args := []any{project, group1, relation}
+
+	var out ReviewInfoRow
+	if err := db.WithContext(ctx).Raw(q, args...).Scan(&out).Error; err != nil {
+		return nil, err
+	}
+	
+	if out.Project == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+    
+	return &out, nil
+}
+
+// ============================================================
+// Helper: Parse Sort String
+// ============================================================
+func parseSortForAssets(sort string) (mode, phase, field, dir string) {
+	mode, phase, field, dir = "base", "", "group_1", "asc"
+	s := strings.TrimSpace(strings.ToLower(sort))
+	if s == "" {
+		return
+	}
+
+	// Phase mode: mdl:submitted_at:desc
+	if strings.Contains(s, ":") {
+		parts := strings.Split(s, ":")
+		if len(parts) >= 3 {
+			phase, field, dir = parts[0], parts[1], parts[2]
+		}
+		if _, ok := map[string]bool{"mdl": true, "rig": true, "bld": true, "dsn": true, "ldv": true}[phase]; !ok {
+			phase = "mdl"
+		}
+		if _, ok := map[string]bool{"work": true, "appr": true, "submitted_at": true, "modified_at": true}[field]; !ok {
+			field = "submitted_at"
+		}
+		if dir != "desc" {
+			dir = "asc"
+		}
+		return "phase", phase, field, dir
+	}
+
+	// Base mode: "group_1 desc" or "relation asc"
+	dir = "asc"
+	if strings.HasSuffix(s, " desc") {
+		s = strings.TrimSuffix(s, " desc")
+		dir = "desc"
+	} else if strings.HasSuffix(s, " asc") {
+		s = strings.TrimSuffix(s, " asc")
+	}
+
+	f := strings.TrimSpace(s)
+	if _, ok := map[string]bool{"group_1": true, "relation": true}[f]; ok {
+		field = f
+	}
+	return "base", "", field, dir
+}
