@@ -1,0 +1,269 @@
+package repository
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"gorm.io/gorm"
+)
+
+// ============ existing types from earlier messages ============
+
+type ReviewInfoRepo struct {
+	DB *gorm.DB
+}
+func NewReviewInfo(db *gorm.DB) (*ReviewInfoRepo, error) { return &ReviewInfoRepo{DB: db}, nil }
+
+// Minimal asset row (from First query)
+type AssetKeyRow struct {
+	Project  string `json:"project"  gorm:"column:project"`
+	Root     string `json:"root"     gorm:"column:root"`
+	Group1   string `json:"group_1"  gorm:"column:group_1"`
+	Relation string `json:"relation" gorm:"column:relation"`
+}
+
+// Raw latest-per-phase row (from Second query)
+type AssetPhaseRow struct {
+	Project          string     `json:"project"            gorm:"column:project"`
+	Root             string     `json:"root"               gorm:"column:root"`
+	Group1           string     `json:"group_1"            gorm:"column:group_1"`
+	Relation         string     `json:"relation"           gorm:"column:relation"`
+	Phase            string     `json:"phase"              gorm:"column:phase"`
+	WorkStatus       *string    `json:"work_status"        gorm:"column:work_status"`
+	ApprovalStatus   *string    `json:"approval_status"    gorm:"column:approval_status"`
+	SubmittedAtUTC   *time.Time `json:"submitted_at_utc"   gorm:"column:submitted_at_utc"`
+	ModifiedAtUTC    *time.Time `json:"modified_at_utc"    gorm:"column:modified_at_utc"`
+	ExecutedComputer *string    `json:"executed_computer"  gorm:"column:executed_computer"`
+}
+
+// Final merged row, FLAT (pivoted for the UI), built in Go (no SQL pivot)
+type AssetMerged struct {
+	Project  string `json:"project"`
+	Root     string `json:"root"`
+	Group1   string `json:"group_1"`
+	Relation string `json:"relation"`
+
+	MdlWorkStatus      *string    `json:"mdl_work_status"`
+	MdlApprovalStatus  *string    `json:"mdl_approval_status"`
+	MdlSubmittedAtUtc  *time.Time `json:"mdl_submitted_at_utc"`
+	MdlModifiedAtUtc   *time.Time `json:"mdl_modified_at_utc"`
+
+	RigWorkStatus      *string    `json:"rig_work_status"`
+	RigApprovalStatus  *string    `json:"rig_approval_status"`
+	RigSubmittedAtUtc  *time.Time `json:"rig_submitted_at_utc"`
+	RigModifiedAtUtc   *time.Time `json:"rig_modified_at_utc"`
+
+	BldWorkStatus      *string    `json:"bld_work_status"`
+	BldApprovalStatus  *string    `json:"bld_approval_status"`
+	BldSubmittedAtUtc  *time.Time `json:"bld_submitted_at_utc"`
+	BldModifiedAtUtc   *time.Time `json:"bld_modified_at_utc"`
+
+	DsnWorkStatus      *string    `json:"dsn_work_status"`
+	DsnApprovalStatus  *string    `json:"dsn_approval_status"`
+	DsnSubmittedAtUtc  *time.Time `json:"dsn_submitted_at_utc"`
+	DsnModifiedAtUtc   *time.Time `json:"dsn_modified_at_utc"`
+
+	LdvWorkStatus      *string    `json:"ldv_work_status"`
+	LdvApprovalStatus  *string    `json:"ldv_approval_status"`
+	LdvSubmittedAtUtc  *time.Time `json:"ldv_submitted_at_utc"`
+	LdvModifiedAtUtc   *time.Time `json:"ldv_modified_at_utc"`
+}
+
+// ---------------------- SQL constants (same logic you use) ----------------------
+
+const firstQuerySQL = `
+WITH ordered AS (
+  SELECT b.*, ROW_NUMBER() OVER (ORDER BY b.group_1 ASC) AS _order
+  FROM (
+    SELECT project, root, group_1, relation, phase, MAX(modified_at_utc) AS modified_at_utc
+    FROM t_review_info
+    WHERE project = ? AND root='assets' AND deleted=0
+    GROUP BY project, root, group_1, relation, phase
+  ) a
+  LEFT JOIN (
+    SELECT root, project, group_1, phase, relation,
+           work_status, approval_status, submitted_at_utc, modified_at_utc, executed_computer
+    FROM t_review_info
+    WHERE project = ? AND root='assets' AND deleted=0
+  ) b
+    ON a.project=b.project AND a.root=b.root AND a.group_1=b.group_1
+   AND a.relation=b.relation AND a.phase=b.phase AND a.modified_at_utc=b.modified_at_utc
+),
+offset_ordered AS (
+  SELECT c.*,
+         CASE WHEN c.phase='' THEN c._order ELSE 100000+c._order END AS __order
+  FROM ordered c
+),
+ranked AS (
+  SELECT b.*,
+         ROW_NUMBER() OVER (
+           PARTITION BY b.root,b.project,b.group_1,b.relation
+           ORDER BY CASE WHEN b.phase='' THEN 0 ELSE 1 END
+         ) AS _rank
+  FROM offset_ordered b
+)
+SELECT root, project, group_1, relation
+FROM ranked
+WHERE _rank=1
+ORDER BY __order ASC
+LIMIT ? OFFSET ?;
+`
+
+// Second query for a list of assets (root, project, group_1, relation)
+func (r *ReviewInfoRepo) buildSecondQueryTargets(project string, assets [][2]string) string {
+	var sb strings.Builder
+	for i, a := range assets {
+		if i > 0 {
+			sb.WriteString(" UNION ALL ")
+		}
+		// root='assets' fixed by your use-case
+		fmt.Fprintf(&sb, "SELECT 'assets' AS root, '%s' AS project, '%s' AS group_1, '%s' AS relation",
+			project, a[0], a[1])
+	}
+	return sb.String()
+}
+
+func (r *ReviewInfoRepo) secondQuerySQL(targetsSQL string) string {
+	return fmt.Sprintf(`
+WITH targets AS (
+  %s
+),
+latest AS (
+  SELECT
+    t.project, t.root, t.group_1, t.relation, b.phase,
+    MAX(b.modified_at_utc) AS modified_at_utc
+  FROM targets t
+  JOIN t_review_info b
+    ON  b.project=t.project AND b.root=t.root AND b.group_1=t.group_1 AND b.relation=t.relation
+  WHERE b.deleted=0
+  GROUP BY t.project, t.root, t.group_1, t.relation, b.phase
+)
+SELECT b.*
+FROM latest a
+JOIN t_review_info b
+  ON  a.project=b.project AND a.root=b.root AND a.group_1=b.group_1
+  AND a.relation=b.relation AND a.phase=b.phase AND a.modified_at_utc=b.modified_at_utc
+ORDER BY b.project,b.root,b.group_1,b.relation,b.phase;
+`, targetsSQL)
+}
+
+// ---------------------------- public functions ----------------------------
+
+// ListAndMergeAssets returns pivoted rows (flat) per asset, built in Go.
+func (r *ReviewInfoRepo) ListAndMergeAssets(
+	ctx context.Context,
+	project string,
+	limit, offset int,
+) ([]*AssetMerged, error) {
+
+	// 1) First query: base asset list
+	var keys []AssetKeyRow
+	if err := r.DB.WithContext(ctx).Raw(firstQuerySQL, project, project, limit, offset).Scan(&keys).Error; err != nil {
+		return nil, err
+	}
+	if len(keys) == 0 {
+		return []*AssetMerged{}, nil
+	}
+
+	// Prepare assets list for step 2
+	assets := make([][2]string, 0, len(keys))
+	for _, k := range keys {
+		assets = append(assets, [2]string{k.Group1, k.Relation})
+	}
+
+	// 2) Second query: latest rows per phase for these assets
+	targets := r.buildSecondQueryTargets(project, assets)
+	sql2 := r.secondQuerySQL(targets)
+
+	var phases []AssetPhaseRow
+	if err := r.DB.WithContext(ctx).Raw(sql2).Scan(&phases).Error; err != nil {
+		return nil, err
+	}
+
+	// 3) Merge/pivot in Go
+	// Build lookup map
+	type key struct{ prj, root, g1, rel string }
+	m := make(map[key]*AssetMerged, len(keys))
+
+	for _, k := range keys {
+		kd := key{k.Project, k.Root, k.Group1, k.Relation}
+		m[kd] = &AssetMerged{
+			Project:  k.Project,
+			Root:     k.Root,
+			Group1:   k.Group1,
+			Relation: k.Relation,
+		}
+	}
+
+	for _, p := range phases {
+		kd := key{p.Project, p.Root, p.Group1, p.Relation}
+		row := m[kd]
+		if row == nil {
+			continue
+		}
+		switch strings.ToLower(p.Phase) {
+		case "mdl":
+			row.MdlWorkStatus = p.WorkStatus
+			row.MdlApprovalStatus = p.ApprovalStatus
+			row.MdlSubmittedAtUtc = p.SubmittedAtUTC
+			row.MdlModifiedAtUtc = p.ModifiedAtUTC
+		case "rig":
+			row.RigWorkStatus = p.WorkStatus
+			row.RigApprovalStatus = p.ApprovalStatus
+			row.RigSubmittedAtUtc = p.SubmittedAtUTC
+			row.RigModifiedAtUtc = p.ModifiedAtUTC
+		case "bld":
+			row.BldWorkStatus = p.WorkStatus
+			row.BldApprovalStatus = p.ApprovalStatus
+			row.BldSubmittedAtUtc = p.SubmittedAtUTC
+			row.BldModifiedAtUtc = p.ModifiedAtUTC
+		case "dsn":
+			row.DsnWorkStatus = p.WorkStatus
+			row.DsnApprovalStatus = p.ApprovalStatus
+			row.DsnSubmittedAtUtc = p.SubmittedAtUTC
+			row.DsnModifiedAtUtc = p.ModifiedAtUTC
+		case "ldv":
+			row.LdvWorkStatus = p.WorkStatus
+			row.LdvApprovalStatus = p.ApprovalStatus
+			row.LdvSubmittedAtUtc = p.SubmittedAtUTC
+			row.LdvModifiedAtUtc = p.ModifiedAtUTC
+		}
+	}
+
+	// Maintain order of keys for stable UI
+	out := make([]*AssetMerged, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, m[key{k.Project, k.Root, k.Group1, k.Relation}])
+	}
+	return out, nil
+}
+
+
+// GET /api/review/assets/merged/:project
+// Returns one row per asset with flat MDL/RIG/BLD/DSN/LDV columns (no SQL pivot; merged in Go).
+router.GET("/api/review/assets/merged/:project", func(c *gin.Context) {
+	project := c.Param("project")
+	if project == "" {
+		project = "potoodev"
+	}
+	limit := parseIntDefault(c.Query("limit"), 15)
+	offset := parseIntDefault(c.Query("offset"), 0)
+
+	ctx := c.Request.Context()
+
+	rows, err := reviewInfoRepo.ListAndMergeAssets(ctx, project, limit, offset)
+	if err != nil {
+		c.String(500, fmt.Sprintf("DB error: %v", err))
+		return
+	}
+	c.JSON(200, gin.H{
+		"project": project,
+		"limit":   limit,
+		"offset":  offset,
+		"count":   len(rows),
+		"results": rows,
+	})
+})
+
