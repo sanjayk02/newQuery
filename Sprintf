@@ -1,0 +1,57 @@
+orderedSQL := fmt.Sprintf(`
+WITH asset_keys AS (
+  SELECT
+    t.project,
+    t.root,
+    t.group_1,
+    t.relation
+  FROM t_review_info t
+  WHERE t.project = ? AND t.root = ? AND t.deleted = 0
+  GROUP BY t.project, t.root, t.group_1, t.relation
+),
+ordered AS (
+  SELECT
+    project, root, group_1, relation,
+    ROW_NUMBER() OVER (ORDER BY %s %s) AS seq
+  FROM asset_keys
+)
+SELECT project, root, group_1, relation, seq
+FROM ordered
+ORDER BY seq
+LIMIT ? OFFSET ?;
+`, col, dir)
+
+
+
+sql := fmt.Sprintf(`
+WITH sel(root, project, group_1, relation, seq) AS (
+  %s
+),
+max_modified AS (
+  SELECT
+    b.project, b.root, b.group_1, b.relation, b.phase,
+    MAX(b.modified_at_utc) AS modified_at_utc,
+    MIN(sel.seq)           AS seq
+  FROM t_review_info b
+  JOIN sel
+    ON  sel.project  = b.project
+    AND sel.root     = b.root
+    AND sel.group_1  = b.group_1
+    AND sel.relation = b.relation
+  WHERE b.deleted = 0
+  GROUP BY b.project, b.root, b.group_1, b.relation, b.phase
+)
+SELECT
+  a.seq, b.project, b.root, b.group_1, b.relation, b.phase,
+  b.work_status, b.approval_status, b.submitted_at_utc,
+  b.modified_at_utc, b.executed_computer
+FROM max_modified a
+JOIN t_review_info b
+  ON  a.project         = b.project
+ AND a.root            = b.root
+ AND a.group_1         = b.group_1
+ AND a.relation        = b.relation
+ AND a.phase           = b.phase
+ AND a.modified_at_utc = b.modified_at_utc
+ORDER BY a.seq, b.group_1, b.relation;
+`, sel)
