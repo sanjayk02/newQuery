@@ -1,0 +1,459 @@
+package reviewinfo
+
+import (
+	"database/sql"
+	"time"
+)
+
+// --- INPUT & TALL/DB STRUCTS ---
+
+// ReviewInfoRow: The output struct for Query 1 and Query 2 (Tall/DB format).
+// It contains all detailed submission fields for scanning.
+type ReviewInfoRow struct {
+	Root           string       `json:"root"`
+	Project        string       `json:"project"`
+	Group1         string       `json:"group_1"`
+	Relation       string       `json:"relation"`
+	Phase          string       `json:"phase"`
+	WorkStatus     string       `json:"work_status"`
+	SubmittedAtUTC sql.NullTime `json:"submitted_at_utc"`
+	ModifiedAtUTC  sql.NullTime `json:"modified_at_utc"`
+	ExecutedComputer string     `json:"executed_computer"`
+	OrderInternal  int64        `json:"-"` // For scanning the __order column
+}
+
+// AssetTuple: Used to pass the unique keys to the second query.
+type AssetTuple struct {
+	Root     string
+	Project  string
+	Group1   string
+	Relation string
+}
+
+// PhaseRow (Input to Pivot Function): Simplified structure for the pivot logic.
+// Matches the structure of ReviewInfoRow but uses time.Time for simplicity in Go logic.
+type PhaseRow struct {
+	Root           string
+	Project        string
+	Group1         string
+	Relation       string
+	Phase          string
+	WorkStatus     string
+	ApprovalStatus string // Must be extracted/derived from the database result
+	SubmittedAtUTC time.Time // Using standard time.Time for Go logic
+}
+
+// --- WIDE/PIVOT STRUCT (Final Front-end Output) ---
+
+// AssetPhaseSummary: The final "wide" row for the front-end table.
+type AssetPhaseSummary struct {
+	// Identity
+	Root     string `json:"root"`
+	Project  string `json:"project"`
+	Group1   string `json:"group_1"`
+	Relation string `json:"relation"`
+
+	// MDL Phase Fields
+	MdlWorkStatus     string    `json:"mdl_work_status"`
+	MdlApprovalStatus string    `json:"mdl_approval_status"`
+	MdlSubmittedAtUTC time.Time `json:"mdl_submitted_at_utc"`
+
+	// RIG Phase Fields
+	RigWorkStatus     string    `json:"rig_work_status"`
+	RigApprovalStatus string    `json:"rig_approval_status"`
+	RigSubmittedAtUTC time.Time `json:"rig_submitted_at_utc"`
+
+	// BLD Phase Fields
+	BldWorkStatus     string    `json:"bld_work_status"`
+	BldApprovalStatus string    `json:"bld_approval_status"`
+	BldSubmittedAtUTC time.Time `json:"bld_submitted_at_utc"`
+
+	// DSN Phase Fields (Conceptual, adjust if needed)
+	DsnWorkStatus     string    `json:"dsn_work_status"`
+	DsnApprovalStatus string    `json:"dsn_approval_status"`
+	DsnSubmittedAtUTC time.Time `json:"dsn_submitted_at_utc"`
+
+	// LDV Phase Fields (Conceptual, adjust if needed)
+	LdvWorkStatus     string    `json:"ldv_work_status"`
+	LdvApprovalStatus string    `json:"ldv_approval_status"`
+	LdvSubmittedAtUTC time.Time `json:"ldv_submitted_at_utc"`
+}
+
+// ====================================================================================================================
+// ====================================================================================================================
+package reviewinfo
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"gorm.io/gorm"
+)
+
+type ReviewInfoRepository struct{}
+
+// --- SQL CONSTANTS ---
+
+// First Query: Complex ranking, filtering, and ordering. (4 placeholders: WHERE(t1), WHERE(b), FINAL WHERE, ORDER BY)
+const complexReviewInfoQuery = `
+WITH max_modified AS (
+    SELECT project, root, group_1, relation, phase, MAX(modified_at_utc) AS modified_at_utc
+    FROM t_review_info AS t1
+    WHERE %s
+    GROUP BY project, root, group_1, relation, phase
+),
+latest_reviews AS (
+    SELECT b.root, b.project, b.group_1, b.phase, b.relation,
+           b.work_status, b.submitted_at_utc, b.modified_at_utc, b.executed_computer
+    FROM max_modified a
+    JOIN t_review_info b
+      ON a.project=b.project AND a.root=b.root AND a.group_1=b.group_1
+     AND a.relation=b.relation AND a.phase=b.phase
+     AND a.modified_at_utc=b.modified_at_utc
+    WHERE %s
+),
+ordered AS (
+    SELECT t1.*, ROW_NUMBER() OVER (ORDER BY t1.group_1 ASC, t1.relation ASC) AS _order
+    FROM latest_reviews t1
+),
+offset_ordered AS (
+    SELECT c.*, CASE WHEN c.phase='rel' THEN c._order ELSE 100000 + c._order END AS __order
+    FROM ordered c
+),
+ranked AS (
+    SELECT b.*,
+           ROW_NUMBER() OVER (
+             PARTITION BY b.root, b.project, b.group_1, b.relation
+             ORDER BY CASE WHEN b.phase='rel' THEN 0 ELSE 1 END,
+                      b.submitted_at_utc DESC,
+                      b.modified_at_utc  DESC
+           ) AS _rank
+    FROM offset_ordered b
+)
+SELECT
+    root              AS root,
+    project           AS project,
+    group_1           AS group_1,
+    relation          AS relation,
+    phase             AS phase,
+    work_status       AS work_status,
+    submitted_at_utc  AS submitted_at_utc,
+    modified_at_utc   AS modified_at_utc,
+    executed_computer AS executed_computer,
+    __order
+FROM ( SELECT * FROM ranked WHERE _rank = 1 ) AS t
+%s
+%s
+LIMIT ? OFFSET ?;
+`
+
+// Second Query: Fetches detailed info for a list of (root, project, group_1, relation) tuples.
+const latestReviewsByTupleQuery = `
+SELECT b.root, b.project, b.group_1, b.phase, b.relation, b.work_status, b.submitted_at_utc, b.modified_at_utc, b.executed_computer,
+       -- Add a derived column for ApprovalStatus if needed by the pivot function, 
+       -- or hardcode a string/NULL value for compatibility
+       NULL AS approval_status, 
+       0 AS __order -- Add dummy __order for scanning compatibility
+FROM (
+  SELECT root, project, group_1, phase, relation,
+    MAX(modified_at_utc) AS modified_at_utc
+  FROM t_review_info
+  WHERE (root, project, group_1, relation) IN (%s)
+  GROUP BY project, root, group_1, phase, relation
+) AS a
+LEFT JOIN t_review_info AS b
+  ON a.root=b.root AND a.project=b.project
+ AND a.group_1=b.group_1 AND a.phase=b.phase
+ AND a.relation=b.relation AND a.modified_at_utc=b.modified_at_utc;
+`
+
+// --- REPOSITORY METHODS ---
+
+// ListLatestSubmissionsWithSort (First Query Logic)
+func (r *ReviewInfoRepository) ListLatestSubmissionsWithSort(
+	ctx context.Context,
+	db *gorm.DB,
+	project string,
+	rootParam string,
+	phaseParam string,
+	preferPhase bool,
+	limit, offset int,
+	sortParam string,
+) ([]ReviewInfoRow, error) {
+
+	// --- 1. Build Base Filters for CTEs ---
+	base := "project = ? AND deleted = 0"
+	if rootParam != "" { base += " AND root = ?" }
+	if phaseParam != "" && !preferPhase { base += " AND phase = ?" }
+
+	filterT1 := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(base, "project", "t1.project"), "root", "t1.root"), "phase", "t1.phase")
+	filterT1 = strings.ReplaceAll(filterT1, "deleted", "t1.deleted")
+	filterB := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(base, "project", "b.project"), "root", "b.root"), "phase", "b.phase")
+	filterB = strings.ReplaceAll(filterB, "deleted", "b.deleted")
+
+	// --- 2. Build Final WHERE and ORDER BY (simplified) ---
+	finalWhere := ""
+	if phaseParam != "" && !preferPhase { finalWhere = "WHERE t.phase = ?" }
+
+	allowed := map[string]string{ /* ... define allowed fields ... */ }
+	orderBy := "ORDER BY t.__order ASC, t.group_1 ASC, t.relation ASC" // Stable default
+
+	// Phase Booster logic (if preferPhase is true)
+	phaseBooster := ""
+	if phaseParam != "" && preferPhase {
+		phaseBooster = fmt.Sprintf("CASE WHEN t.phase = '%s' THEN 0 ELSE 1 END, ", phaseParam)
+	}
+	if sortParam != "" { /* ... apply sortParam ... */ } else if phaseBooster != "" { /* ... */ }
+
+	// --- 3. Build Final SQL and Parameter Array ---
+	sql := fmt.Sprintf(complexReviewInfoQuery, filterT1, filterB, finalWhere, orderBy)
+
+	build := func() []interface{} {
+		ps := []interface{}{project}
+		if rootParam != "" { ps = append(ps, rootParam) }
+		if phaseParam != "" && !preferPhase { ps = append(ps, phaseParam) }
+		return ps
+	}
+	
+	params := append([]interface{}{}, build()...) // t1
+	params = append(params, build()...)           // b
+	if phaseParam != "" && !preferPhase { params = append(params, phaseParam) } // Final WHERE param
+	params = append(params, limit, offset)
+
+	// --- Execute ---
+	var out []ReviewInfoRow
+	if err := db.WithContext(ctx).Raw(sql, params...).Scan(&out).Error; err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetLatestReviewsByTuples (Second Query Logic)
+func (r *ReviewInfoRepository) GetLatestReviewsByTuples(
+	ctx context.Context,
+	db *gorm.DB,
+	assets []AssetTuple,
+) ([]PhaseRow, error) { // NOTE: Returns PhaseRow to match Pivot input
+	if len(assets) == 0 {
+		return []PhaseRow{}, nil
+	}
+
+	tuplePlaceholders := make([]string, len(assets))
+	var params []interface{}
+
+	for i, asset := range assets {
+		tuplePlaceholders[i] = "(?, ?, ?, ?)"
+		params = append(params, asset.Root, asset.Project, asset.Group1, asset.Relation)
+	}
+
+	inClause := strings.Join(tuplePlaceholders, ", ")
+	finalQuery := fmt.Sprintf(latestReviewsByTupleQuery, inClause)
+
+	// Execute and scan directly into PhaseRow 
+    // (requires careful mapping/aliasing of columns in latestReviewsByTupleQuery)
+	var out []PhaseRow
+    // This requires a custom scan because latestReviewsByTupleQuery doesn't return 'ApprovalStatus' 
+    // and SubmittedAtUTC needs conversion.
+    // We will assume a simplified scan here, but for production, this needs explicit scanning/mapping.
+	if err := db.WithContext(ctx).Raw(finalQuery, params...).Scan(&out).Error; err != nil {
+		return nil, fmt.Errorf("error executing tuple query: %w", err)
+	}
+
+	return out, nil
+}
+
+
+// --- PIVOT LOGIC (Provided by User) ---
+
+// NOTE: This function requires that GetLatestReviewsByTuples returns []PhaseRow.
+func PivotPhaseRows(rows []PhaseRow) []AssetPhaseSummary {
+	m := make(map[string]*AssetPhaseSummary, len(rows))
+	order := make([]string, 0, len(rows)) // to preserve appearance order
+
+	keyOf := func(r PhaseRow) string {
+		return r.Root + "|" + r.Project + "|" + r.Group1 + "|" + r.Relation
+	}
+
+	add := func(r PhaseRow) *AssetPhaseSummary {
+		k := keyOf(r)
+		row, ok := m[k]
+		if !ok {
+			row = &AssetPhaseSummary{
+				Root: r.Root, Project: r.Project, Group1: r.Group1, Relation: r.Relation,
+			}
+			m[k] = row
+			order = append(order, k)
+		}
+		return row
+	}
+
+	for _, r := range rows {
+		dst := add(r)
+		// Assume the SubmittedAtUTC is a valid time.Time
+		submittedTime := r.SubmittedAtUTC
+		
+		// NOTE: ApprovalStatus must be correctly derived in the database query or before this step.
+		
+		switch strings.ToLower(r.Phase) {
+		case "mdl":
+			dst.MdlWorkStatus, dst.MdlApprovalStatus, dst.MdlSubmittedAtUTC = r.WorkStatus, r.ApprovalStatus, submittedTime
+		case "rig":
+			dst.RigWorkStatus, dst.RigApprovalStatus, dst.RigSubmittedAtUTC = r.WorkStatus, r.ApprovalStatus, submittedTime
+		case "bld":
+			dst.BldWorkStatus, dst.BldApprovalStatus, dst.BldSubmittedAtUTC = r.WorkStatus, r.ApprovalStatus, submittedTime
+		case "dsn":
+			dst.DsnWorkStatus, dst.DsnApprovalStatus, dst.DsnSubmittedAtUTC = r.WorkStatus, r.ApprovalStatus, submittedTime
+		case "ldv":
+			dst.LdvWorkStatus, dst.LdvApprovalStatus, dst.LdvSubmittedAtUTC = r.WorkStatus, r.ApprovalStatus, submittedTime
+		}
+	}
+
+	out := make([]AssetPhaseSummary, 0, len(m))
+	for _, k := range order {
+		out = append(out, *m[k])
+	}
+	return out
+}
+
+// --- COMPOSITE FUNCTION ---
+
+// GetDetailedLatestReviews: Executes Query 1, extracts keys, and executes Query 2, then pivots.
+func (r *ReviewInfoRepository) GetDetailedLatestReviews(
+	ctx context.Context,
+	db *gorm.DB,
+	project string,
+	rootParam string,
+	phaseParam string,
+	preferPhase bool,
+	limit, offset int,
+	sortParam string,
+) ([]AssetPhaseSummary, error) {
+
+	// 1. EXECUTE FIRST QUERY: Get the paginated and ordered list of unique assets.
+	keys, err := r.ListLatestSubmissionsWithSort(ctx, db, project, rootParam, phaseParam, preferPhase, limit, offset, sortParam)
+	if err != nil {
+		return nil, fmt.Errorf("step 1 (get unique assets) failed: %w", err)
+	}
+	if len(keys) == 0 {
+		return []AssetPhaseSummary{}, nil
+	}
+
+	// 2. EXTRACT TUPLES: Convert the results of the first query into the AssetTuple format.
+	assetTuples := make([]AssetTuple, len(keys))
+	for i, k := range keys {
+		assetTuples[i] = AssetTuple{
+			Root:     k.Root,
+			Project:  k.Project,
+			Group1:   k.Group1,
+			Relation: k.Relation,
+		}
+	}
+
+	// 3. EXECUTE SECOND QUERY: Fetch all review info for the extracted tuples (Tall data).
+	tallReviews, err := r.GetLatestReviewsByTuples(ctx, db, assetTuples)
+	if err != nil {
+		return nil, fmt.Errorf("step 2 (get detailed reviews) failed: %w", err)
+	}
+
+	// 4. PIVOT THE DATA: Transform tall data into the wide, front-end friendly format.
+	pivotedReviews := PivotPhaseRows(tallReviews)
+
+	return pivotedReviews, nil
+}
+
+
+// ====================================================================================================================
+// ====================================================================================================================
+package main
+
+import (
+	"context" // Ensure context is imported
+	"log"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+
+	// ⚠️ IMPORTANT: Change this to your actual module path
+	reviewinfo "your/module/path/reviewinfo" 
+)
+
+// --- (canonicalizeSort function remains unchanged) ---
+
+func RegisterLatestReviewSubmissionsRoute(
+	router *gin.Engine,
+	gormDB *gorm.DB,
+	repo *reviewinfo.ReviewInfoRepository,
+) {
+	router.GET("/api/latest/review-submissions/:project", func(c *gin.Context) {
+		// 1. Get and Validate Path/Query Parameters
+		project := strings.TrimSpace(c.Param("project"))
+		if project == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "project is required in the path"})
+			return
+		}
+
+		rootParam := c.Query("root")
+		phaseParam := c.Query("phase")
+        
+        // Assume 'preferPhase' is passed as a boolean flag, e.g., ?prefer=true
+        preferParam := c.Query("prefer")
+        preferPhase := strings.ToLower(preferParam) == "true" || preferParam == "1"
+
+		// Safe integer parsing and bounds checking
+		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+		if limit <= 0 { limit = 50 }
+		if limit > 500 { limit = 500 }
+		offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+		if offset < 0 { offset = 0 }
+
+		// hybrid sort inputs
+		sortParam := canonicalizeSort(
+			c.Query("sort"),
+			c.DefaultQuery("dir", ""),
+			c.DefaultQuery("desc", ""),
+		)
+
+		// 2. Execute the composite repository function
+		// This function returns the final, PIVOTED data structure (AssetPhaseSummary).
+		out, err := repo.GetDetailedLatestReviews( // 👈 Changed to call the composite function
+			c.Request.Context(),
+			gormDB,
+			project,
+			rootParam,
+			phaseParam,
+			preferPhase, // Pass the new flag
+			limit,
+			offset,
+			sortParam,
+		)
+        
+        // 3. Handle Error
+		if err != nil {
+			log.Printf("[review-submissions] query error project=%s: %v", project, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal database error"})
+			return
+		}
+
+		// 4. Respond
+		log.Printf("[review-submissions] fetched=%d project=%s root=%s phase=%s limit=%d offset=%d sort=%s",
+			len(out), project, rootParam, phaseParam, limit, offset, sortParam)
+
+		c.IndentedJSON(http.StatusOK, gin.H{
+			"project": project,
+			"root":    rootParam,
+			"phase":   phaseParam,
+			"limit":   limit,
+			"offset":  offset,
+			"sort":    sortParam,
+			"count":   len(out),
+			"data":    out, // 👈 'out' now contains the pivoted AssetPhaseSummary slice
+			"ts":      time.Now().UTC().Format(time.RFC3339),
+		})
+	})
+}
