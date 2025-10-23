@@ -1,0 +1,16 @@
+SELECT b.*
+FROM (
+  SELECT root, project, group_1, phase, relation,
+         MAX(modified_at_utc) AS modified_at_utc
+  FROM t_review_info
+  WHERE (root, project, group_1, relation) IN (
+    ('assets','potoo','camHero','com'),
+    ('assets','potoo','chAsunaPilot','com'),
+    ('assets','potoo','chrLightRim','com')
+  )
+  GROUP BY project, root, group_1, phase, relation
+) AS a
+LEFT JOIN t_review_info AS b
+  ON a.root=b.root AND a.project=b.project
+ AND a.group_1=b.group_1 AND a.phase=b.phase
+ AND a.relation=b.relation AND a.modified_at_utc=b.modified_at_utc;
