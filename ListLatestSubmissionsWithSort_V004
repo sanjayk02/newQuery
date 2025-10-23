@@ -1,0 +1,199 @@
+package reviewinfo
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"gorm.io/gorm"
+)
+
+// Output row (unchanged)
+type ReviewInfo struct {
+	Root             string `json:"root"`
+	Project          string `json:"project"`
+	Group1           string `json:"group_1"`
+	Relation         string `json:"relation"`
+	Phase            string `json:"phase"`
+	WorkStatus       string `json:"work_status"`
+	SubmittedAtUtc   string `json:"submitted_at_utc"`
+	ModifiedAtUtc    string `json:"modified_at_utc"`
+	ExecutedComputer string `json:"executed_computer"`
+	OrderInternal    int64  `json:"-"` // Added for scanning the __order column
+}
+
+type ReviewInfoRepository struct{}
+
+// SQL with 4 placeholders: WHERE(t1), WHERE(b), FINAL WHERE (outer), ORDER BY
+const complexReviewInfoQuery = `
+WITH max_modified AS (
+    SELECT project, root, group_1, relation, phase,
+           MAX(modified_at_utc) AS modified_at_utc
+    FROM t_review_info AS t1
+    WHERE %s
+    GROUP BY project, root, group_1, relation, phase
+),
+latest_reviews AS (
+    SELECT b.root, b.project, b.group_1, b.phase, b.relation,
+           b.work_status, b.submitted_at_utc, b.modified_at_utc, b.executed_computer
+    FROM max_modified a
+    JOIN t_review_info b
+      ON a.project=b.project AND a.root=b.root AND a.group_1=b.group_1
+     AND a.relation=b.relation AND a.phase=b.phase
+     AND a.modified_at_utc=b.modified_at_utc
+    WHERE %s
+),
+ordered AS (
+    SELECT t1.*, ROW_NUMBER() OVER (ORDER BY t1.group_1 ASC, t1.relation ASC) AS _order
+    FROM latest_reviews t1
+),
+offset_ordered AS (
+    SELECT c.*, CASE WHEN c.phase='rel' THEN c._order ELSE 100000 + c._order END AS __order
+    FROM ordered c
+),
+ranked AS (
+    SELECT b.*,
+           ROW_NUMBER() OVER (
+             PARTITION BY b.root, b.project, b.group_1, b.relation
+             ORDER BY CASE WHEN b.phase='rel' THEN 0 ELSE 1 END,
+                      b.submitted_at_utc DESC,
+                      b.modified_at_utc  DESC
+           ) AS _rank
+    FROM offset_ordered b
+)
+SELECT
+    root              AS root,
+    project           AS project,
+    group_1           AS group_1,
+    relation          AS relation,
+    phase             AS phase,
+    work_status       AS work_status,
+    submitted_at_utc  AS submitted_at_utc,
+    modified_at_utc   AS modified_at_utc,
+    executed_computer AS executed_computer,
+    __order
+FROM ( SELECT * FROM ranked WHERE _rank = 1 ) AS t
+%s
+%s
+LIMIT ? OFFSET ?;
+`
+
+func (r *ReviewInfoRepository) ListLatestSubmissionsWithSort(
+	ctx context.Context,
+	db *gorm.DB,
+	project string,
+	rootParam string,
+	phaseParam string,
+	preferPhase bool,   // <- NEW: prefer instead of filter
+	limit, offset int,
+	sortParam string,
+) ([]ReviewInfo, error) {
+
+	// --- 1. Build Base Filters for CTEs ---
+
+	// Base filters inside the CTEs
+	base := "project = ? AND deleted = 0"
+	if rootParam != "" {
+		base += " AND root = ?"
+	}
+	// Only add phase filter inside CTEs when we're in FILTER mode
+	if phaseParam != "" && !preferPhase {
+		base += " AND phase = ?"
+	}
+
+	// Alias filters
+	filterT1 := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(
+		base, "project", "t1.project"), "root", "t1.root"), "phase", "t1.phase")
+	filterT1 = strings.ReplaceAll(filterT1, "deleted", "t1.deleted")
+
+	filterB := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(
+		base, "project", "b.project"), "root", "b.root"), "phase", "b.phase")
+	filterB = strings.ReplaceAll(filterB, "deleted", "b.deleted")
+
+	// --- 2. Build Final WHERE and ORDER BY ---
+
+	// Final WHERE (outer) — apply only in FILTER mode
+	finalWhere := ""
+	if phaseParam != "" && !preferPhase {
+		finalWhere = "WHERE t.phase = ?"
+	}
+
+	// ORDER BY whitelist (unchanged)
+	allowed := map[string]string{
+		"group_1":           "t.group_1",
+		"relation":          "t.relation",
+		"phase":             "t.phase",
+		"work":              "t.work_status",
+		"submitted":         "t.submitted_at_utc",
+		"modified":          "t.modified_at_utc",
+		"__order":           "t.__order",
+	}
+
+	// Default order (stable)
+	orderBy := "ORDER BY t.__order ASC, t.group_1 ASC, t.relation ASC"
+
+	// Prefer mode: Build the phase booster string with the VALUE injected (FIX)
+	phaseBooster := ""
+	if phaseParam != "" && preferPhase {
+		// FIX: Inject the actual value (quoted) into the SQL string. 
+		// Use t.phase since the ordering is on the final SELECT results (aliased as 't').
+		phaseBooster = fmt.Sprintf("CASE WHEN t.phase = '%s' THEN 0 ELSE 1 END, ", phaseParam)
+	}
+
+	// Apply user sort preference, including the booster if present
+	if sortParam != "" {
+		dir := "ASC"
+		field := sortParam
+		if strings.HasPrefix(field, "-") {
+			dir = "DESC"
+			field = strings.TrimPrefix(field, "-")
+		}
+		if col, ok := allowed[field]; ok {
+			orderBy = fmt.Sprintf("ORDER BY %s%s %s, t.group_1 ASC, t.relation ASC", phaseBooster, col, dir)
+		} else if phaseBooster != "" {
+			// Unknown sort field but still honor the phaseBooster
+			orderBy = "ORDER BY " + phaseBooster + " t.group_1 ASC, t.relation ASC"
+		}
+	} else if phaseBooster != "" {
+		orderBy = "ORDER BY " + phaseBooster + " t.group_1 ASC, t.relation ASC"
+	}
+
+	// --- 3. Build Final SQL String ---
+	// Placeholder count is now correct (4 strings: filterT1, filterB, finalWhere, orderBy)
+	sql := fmt.Sprintf(complexReviewInfoQuery, filterT1, filterB, finalWhere, orderBy)
+
+	// --- 4. Build Parameter Array ---
+
+	// Base params for one pass of the CTE WHERE clause
+	build := func() []interface{} {
+		ps := []interface{}{project}
+		if rootParam != "" {
+			ps = append(ps, rootParam)
+		}
+		if phaseParam != "" && !preferPhase {
+			ps = append(ps, phaseParam)
+		}
+		return ps
+	}
+	
+	params := append([]interface{}{}, build()...) // t1 params
+	params = append(params, build()...)           // b params
+
+	// Final WHERE param (filter mode)
+	if phaseParam != "" && !preferPhase {
+		params = append(params, phaseParam)
+	}
+
+    // NOTE: The phaseBooster parameter is NO LONGER needed here because its value 
+    // was injected directly into the SQL string in step 2.
+
+	// LIMIT/OFFSET params
+	params = append(params, limit, offset)
+
+	// --- 5. Execute ---
+	var out []ReviewInfo
+	if err := db.WithContext(ctx).Raw(sql, params...).Scan(&out).Error; err != nil {
+		return nil, err
+	}
+	return out, nil
+}
