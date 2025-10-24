@@ -1,0 +1,125 @@
+// src/components/AssetsDataTable.tsx
+import React from 'react';
+import type { AssetPhaseSummary } from '../types';
+
+type Column = {
+  id: string;         // e.g. "group_1", "mdl_work", "ldv_submitted"
+  label: string;
+  sortable?: boolean;
+};
+
+export type SortDir = 'asc' | 'desc';
+
+const arrow = (isActive: boolean, dir: SortDir) => {
+  if (!isActive) return '';
+  return dir === 'asc' ? ' ▲' : ' ▼';
+};
+
+const cell = (v: string | null | undefined) => (v ?? '');
+
+export function AssetsDataTable({
+  rows,
+  columns,
+  sort,
+  dir,
+  onSortClick,
+}: {
+  rows: AssetPhaseSummary[];
+  columns: Column[];
+  sort: string;
+  dir: SortDir;
+  onSortClick?: (columnId: string) => void;
+}) {
+  return (
+    <div style={{ overflow: 'auto', border: '1px solid #ddd', borderRadius: 8 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ background: '#fafafa' }}>
+            {columns.map(c => (
+              <th
+                key={c.id}
+                onClick={() => c.sortable && onSortClick?.(c.id)}
+                style={{
+                  padding: '10px 12px',
+                  textAlign: 'left',
+                  cursor: c.sortable ? 'pointer' : 'default',
+                  borderBottom: '1px solid #eee',
+                  whiteSpace: 'nowrap',
+                  background: sort === c.id ? '#fffbe6' : 'transparent',
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 1,
+                }}
+                title={c.sortable ? 'Click to sort' : undefined}
+              >
+                {c.label}{c.sortable && arrow(sort === c.id, dir)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && (
+            <tr><td colSpan={columns.length} style={{ padding: 16, color: '#888' }}>No data</td></tr>
+          )}
+          {rows.map((r, i) => (
+            <tr key={`${r.group_1}|${r.relation}|${i}`} style={{ borderBottom: '1px solid #f2f2f2' }}>
+              <td style={{ padding: '8px 12px' }}>{r.group_1}</td>
+              <td style={{ padding: '8px 12px' }}>{r.relation}</td>
+
+              {/* MDL */}
+              <td style={{ padding: '8px 12px' }}>{cell(r.mdl_work_status)}</td>
+              <td style={{ padding: '8px 12px' }}>{cell(r.mdl_approval_status)}</td>
+              <td style={{ padding: '8px 12px' }}>{cell(r.mdl_submitted_at_utc)}</td>
+
+              {/* RIG */}
+              <td style={{ padding: '8px 12px' }}>{cell(r.rig_work_status)}</td>
+              <td style={{ padding: '8px 12px' }}>{cell(r.rig_approval_status)}</td>
+              <td style={{ padding: '8px 12px' }}>{cell(r.rig_submitted_at_utc)}</td>
+
+              {/* BLD */}
+              <td style={{ padding: '8px 12px' }}>{cell(r.bld_work_status)}</td>
+              <td style={{ padding: '8px 12px' }}>{cell(r.bld_approval_status)}</td>
+              <td style={{ padding: '8px 12px' }}>{cell(r.bld_submitted_at_utc)}</td>
+
+              {/* DSN */}
+              <td style={{ padding: '8px 12px' }}>{cell(r.dsn_work_status)}</td>
+              <td style={{ padding: '8px 12px' }}>{cell(r.dsn_approval_status)}</td>
+              <td style={{ padding: '8px 12px' }}>{cell(r.dsn_submitted_at_utc)}</td>
+
+              {/* LDV */}
+              <td style={{ padding: '8px 12px' }}>{cell(r.ldv_work_status)}</td>
+              <td style={{ padding: '8px 12px' }}>{cell(r.ldv_approval_status)}</td>
+              <td style={{ padding: '8px 12px' }}>{cell(r.ldv_submitted_at_utc)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// default column set
+export const DEFAULT_COLUMNS: Column[] = [
+  { id: 'group_1', label: 'Asset', sortable: true },
+  { id: 'relation', label: 'Relation', sortable: true },
+
+  { id: 'mdl_work', label: 'MDL Work', sortable: true },
+  { id: 'mdl_appr', label: 'MDL Appr', sortable: true },
+  { id: 'mdl_submitted', label: 'MDL Submitted', sortable: true },
+
+  { id: 'rig_work', label: 'RIG Work', sortable: true },
+  { id: 'rig_appr', label: 'RIG Appr', sortable: true },
+  { id: 'rig_submitted', label: 'RIG Submitted', sortable: true },
+
+  { id: 'bld_work', label: 'BLD Work', sortable: true },
+  { id: 'bld_appr', label: 'BLD Appr', sortable: true },
+  { id: 'bld_submitted', label: 'BLD Submitted', sortable: true },
+
+  { id: 'dsn_work', label: 'DSN Work', sortable: true },
+  { id: 'dsn_appr', label: 'DSN Appr', sortable: true },
+  { id: 'dsn_submitted', label: 'DSN Submitted', sortable: true },
+
+  { id: 'ldv_work', label: 'LDV Work', sortable: true },
+  { id: 'ldv_appr', label: 'LDV Appr', sortable: true },
+  { id: 'ldv_submitted', label: 'LDV Submitted', sortable: true },
+];
