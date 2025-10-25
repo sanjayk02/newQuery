@@ -1,68 +1,220 @@
-// src/components/AssetsDataTablePanel.tsx
-import React, { useMemo, useState } from 'react';
-import { usePivotAssets } from '../hooks';
-import { AssetsDataTable, DEFAULT_COLUMNS } from './AssetsDataTable';
-import { nextSortForColumn } from '../utils/pivotSort';
+import React, {
+  FC,
+  useEffect,
+  useState,
+} from 'react';
+import { RouteComponentProps } from "react-router-dom";
+import { Container, Paper, styled } from '@material-ui/core';
+import { ButtonProps } from '@material-ui/core/Button';
+import { SelectProps } from '@material-ui/core/Select';
+import { TablePaginationProps } from '@material-ui/core/TablePagination';
+import { TextFieldProps } from '@material-ui/core/TextField';
+import { useFetchAssetsPivot } from './hooks'; 
+import { FilterProps, PageProps } from './types';
+import AssetsDataTable from './AssetsDataTable'
+import AssetTableFilter from './AssetDataTableFilter';
+import AssetsDataTableFooter from './AssetsDataTableFooter';
+import { useCurrentProject } from '../hooks';
+import { useCurrentStudio } from '../../studio/hooks';
+import { queryConfig } from '../../new-pipeline-setting/api';
 
-export default function AssetsDataTablePanel({
-  project,
-  root = 'assets',
-}: {
-  project: string;
-  root?: string;
-}) {
-  const [page, setPage] = useState(1);         // 1-based
-  const [perPage, setPerPage] = useState(15);
-  const [sort, setSort] = useState<string>('group_1');
-  const [dir, setDir] = useState<'asc' | 'desc'>('asc');
-  const [phase, setPhase] = useState<string>('');
+const StyledContainer = styled(Container)(({ theme }) => ({
+  position: 'relative',
+  display: 'flex',
+  flexDirection: 'column',
+  padding: 0,
+  '& > *': {
+    display: 'flex',
+    overflow: 'hidden',
+    padding: theme.spacing(1),
+    paddingBottom: 0,
+  },
+  '& > *:last-child': {
+    paddingBottom: theme.spacing(1),
+  },
+}));
 
-  const { data, total, loading, error } = usePivotAssets({
-    project, root, sort, dir, phase, page, per_page: perPage,
-  });
+const StyledPaper = styled(Paper)({
+  width: '100%',
+  display: 'flex',
+  flexDirection: 'column',
+  overflow: 'auto',
+});
 
-  const onSortClick = (columnId: string) => {
-    const next = nextSortForColumn(columnId, { sort, dir, phase });
-    setSort(next.sort);
-    setDir(next.dir);
-    setPhase(next.phase ?? '');
-    setPage(1); // reset to first page on sort change
+const StyledContentDiv = styled('div')(({ theme }) => ({
+  backgroundColor: theme.palette.background.paper,
+  display: 'flex',
+  flexDirection: 'row',
+}));
+
+const StyledTableDiv = styled('div')(({
+  paddingBottom: 8,
+}));
+
+const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
+  const initPageProps = {
+    page: 0,
+    rowsPerPage: 15,
+  };
+  const initFilterProps = {
+    assetNameKey: '',
+    applovalStatues: [],
+    workStatues: [],
+  };
+  const [pageProps, setPageProps] = useState<PageProps>(initPageProps);
+  const [filterProps, setFilterProps] = useState<FilterProps>(initFilterProps);
+  const [sortKey, setSortKey] = useState<string>('group_1');
+
+  const { currentProject } = useCurrentProject();
+  
+  const { assets, total } = useFetchAssetsPivot(
+    currentProject,
+    pageProps.page,
+    pageProps.rowsPerPage,
+    sortKey,
+  );
+  const { currentStudio } = useCurrentStudio();
+  const [timeZone, setTimeZone] = useState<string | undefined>();
+
+  useEffect(() => {
+    if (currentStudio == null) {
+      return
+    }
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res: string | null = await queryConfig(
+          'studio',
+          currentStudio.key_name,
+          'timezone',
+        ).catch(e => {
+          if (e.name === 'AbortError') {
+            return;
+          }
+          throw e;
+        });
+        if (res != null) {
+          setTimeZone(res);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+    return () => {
+      controller.abort();
+    };
+  }, [currentStudio]);
+
+  const handleRowsPerPageChange: TablePaginationProps['onChangeRowsPerPage'] = event => {
+    setPageProps({
+      page: 0,
+      rowsPerPage: parseInt(event.target.value),
+    });
   };
 
-  const totalPages = useMemo(() => Math.max(1, Math.ceil(total / perPage)), [total, perPage]);
+  const handlePageChange: TablePaginationProps['onChangePage'] = (event, newPage) => {
+    setPageProps({
+      ...pageProps,
+      page: newPage,
+    });
+  };
+
+  const handleSortChange = (newSortKey: string) => {
+    setSortKey(newSortKey);
+    setPageProps({ ...pageProps, page: 0 });
+  };
+
+  const handleFilterAssetNameChange: TextFieldProps['onChange'] = event => {
+    setFilterProps({
+      ...filterProps,
+      assetNameKey: event.target.value,
+    });
+    setPageProps({ ...pageProps, page: 0 });
+  };
+
+  const handleApprovalStatusesChange: SelectProps['onChange'] = (event: React.ChangeEvent<{ value: unknown }>) => {
+    setFilterProps({
+      ...filterProps,
+      applovalStatues: event.target.value as string[],
+    });
+    setPageProps({ ...pageProps, page: 0 });
+  };
+
+  const handleWorkStatusesChange: SelectProps['onChange'] = (event: React.ChangeEvent<{ value: unknown }>) => {
+    setFilterProps({
+      ...filterProps,
+      workStatues: event.target.value as string[],
+    });
+    setPageProps({ ...pageProps, page: 0 });
+  };
+
+  const handleApprovalStatusesChipDelete = (name: string) => {
+    setFilterProps({
+      ...filterProps,
+      applovalStatues: filterProps.applovalStatues.filter(value => value !== name),
+    });
+    setPageProps({ ...pageProps, page: 0 });
+  };
+
+  const handleWorkStatusesChipDelete = (name: string) => {
+    setFilterProps({
+      ...filterProps,
+      workStatues: filterProps.workStatues.filter(value => value !== name),
+    });
+    setPageProps({ ...pageProps, page: 0 });
+  };
+
+  const handleFilterResetClick: ButtonProps['onClick'] = () => { setFilterProps(initFilterProps); };
+
+  const dateTimeFormat = new Intl.DateTimeFormat(
+    undefined,
+    {
+      timeZone: timeZone,
+      dateStyle: 'medium',
+      timeStyle: 'medium'
+    }
+  );
+
+  const tableFooter = (
+    <AssetsDataTableFooter
+      count={total}
+      page={pageProps.page}
+      rowsPerPage={pageProps.rowsPerPage}
+      onChangePage={handlePageChange}
+      onChangeRowsPerPage={handleRowsPerPageChange}
+    />
+  );
 
   return (
-    <section>
-      <header style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-        <strong>Project:</strong> <code>{project}</code>
-        <span>•</span> <strong>Root:</strong> <code>{root}</code>
-        <span style={{ marginLeft: 'auto' }}>
-          {loading ? 'Loading…' : error ? <span style={{ color: 'crimson' }}>Error</span> : `${total} assets`}
-        </span>
-      </header>
-
-      <AssetsDataTable
-        rows={data}
-        columns={DEFAULT_COLUMNS}
-        sort={sort}
-        dir={dir}
-        onSortClick={onSortClick}
-      />
-
-      <footer style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 }}>
-        <button disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>Prev</button>
-        <span>Page {page} / {totalPages}</span>
-        <button disabled={page >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>Next</button>
-
-        <span style={{ marginLeft: 16 }}>Per page:</span>
-        <select value={perPage} onChange={e => { setPerPage(Number(e.target.value)); setPage(1); }}>
-          {[15, 25, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
-        </select>
-
-        {phase && <span style={{ marginLeft: 'auto' }}>
-          Phase boosting: <strong>{phase.toUpperCase()}</strong> <button onClick={() => setPhase('')}>clear</button>
-        </span>}
-      </footer>
-    </section>
+    <StyledContainer maxWidth="xl">
+      <AssetTableFilter
+        filterAssetName={filterProps.assetNameKey}
+        selectApprovalStatuses={filterProps.applovalStatues}
+        selectWorkStatuses={filterProps.workStatues}
+        onAssetNameChange={handleFilterAssetNameChange}
+        onApprovalStatusesChange={handleApprovalStatusesChange}
+        onWorkStatusesChange={handleWorkStatusesChange}
+        onApprovalStatusChipDelete={handleApprovalStatusesChipDelete}
+        onWorkStatusChipDelete={handleWorkStatusesChipDelete}
+        onResetClick={handleFilterResetClick}
+      >
+      </AssetTableFilter>
+      <StyledTableDiv>
+        <StyledPaper>
+          <StyledContentDiv>
+            <AssetsDataTable
+              project={currentProject}
+              assets={assets}
+              tableFooter={tableFooter}
+              dateTimeFormat={dateTimeFormat}
+              onSortChange={handleSortChange}
+              currentSortKey={sortKey}
+            />
+          </StyledContentDiv>
+        </StyledPaper>
+      </StyledTableDiv>
+    </StyledContainer>
   );
-}
+};
+
+export default AssetsDataTablePanel;

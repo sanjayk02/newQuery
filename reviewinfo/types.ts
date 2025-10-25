@@ -4,9 +4,11 @@ import { Project } from '../types';
 
 export type AssetsDataTableProps = {
   project: Project | null | undefined,
-  assets: Asset[],
+  assets: AssetPhaseSummary[],
   tableFooter: ReactElement,
   dateTimeFormat: Intl.DateTimeFormat,
+  onSortChange: (sortKey: string) => void,
+  currentSortKey: string,
 };
 
 export type RecordTableHeadProps = {
@@ -18,17 +20,59 @@ export type Colors = Readonly<{
   backgroundColor: string,
 }>;
 
+export type SortDir = 'asc' | 'desc' | 'none';
+
 export type Column = Readonly<{
   id: string,
   label: string,
   colors?: Colors,
   align?: TableCellProps['align'],
+  sortable?: boolean,
+  sortKey?: string,
 }>;
 
 export type PageProps = Readonly<{
   page: number,
   rowsPerPage: number,
 }>;
+
+export type AssetPhaseSummary = {
+  root: string,
+  project: string,
+  group_1: string,
+  relation: string,
+
+  mdl_work_status: string | null,
+  mdl_approval_status: string | null,
+  mdl_submitted_at_utc: string | null,
+
+  rig_work_status: string | null,
+  rig_approval_status: string | null,
+  rig_submitted_at_utc: string | null,
+
+  bld_work_status: string | null,
+  bld_approval_status: string | null,
+  bld_submitted_at_utc: string | null,
+
+  dsn_work_status: string | null,
+  dsn_approval_status: string | null,
+  dsn_submitted_at_utc: string | null,
+
+  ldv_work_status: string | null,
+  ldv_approval_status: string | null,
+  ldv_submitted_at_utc: string | null,
+};
+
+export type AssetsPivotResponse = {
+  project: string,
+  root: string,
+  page: number,
+  per_page: number,
+  total: number,
+  count: number,
+  data: AssetPhaseSummary[],
+  ts: string,
+}
 
 export type ReviewInfo = {
   task_id: string,
@@ -72,54 +116,8 @@ export type FilterProps = Readonly<{
 export type ChipDeleteFunction = (value: string) => void;
 
 export type AssetRowProps = Readonly<{
-  asset: Asset,
-  reviewInfos: { [key: string]: ReviewInfo },
+  asset: AssetPhaseSummary,
   thumbnails: { [key: string]: string },
   dateTimeFormat: Intl.DateTimeFormat,
   isLastRow: boolean,
 }>;
-
-
-// ===================================================================
-// Archived types below -- src/types.ts
-// ===================================================================
-export type PhaseKey = 'mdl' | 'rig' | 'bld' | 'dsn' | 'ldv';
-
-export interface AssetPhaseSummary {
-  root: string;
-  project: string;
-  group_1: string;
-  relation: string;
-
-  mdl_work_status?: string | null;
-  mdl_approval_status?: string | null;
-  mdl_submitted_at_utc?: string | null;
-
-  rig_work_status?: string | null;
-  rig_approval_status?: string | null;
-  rig_submitted_at_utc?: string | null;
-
-  bld_work_status?: string | null;
-  bld_approval_status?: string | null;
-  bld_submitted_at_utc?: string | null;
-
-  dsn_work_status?: string | null;
-  dsn_approval_status?: string | null;
-  dsn_submitted_at_utc?: string | null;
-
-  ldv_work_status?: string | null;
-  ldv_approval_status?: string | null;
-  ldv_submitted_at_utc?: string | null;
-}
-
-export interface PivotResponse {
-  project: string;
-  root: string;
-  page: number;
-  per_page: number;
-  total: number;
-  count: number;
-  data: AssetPhaseSummary[];
-  ts: string;
-}
-
