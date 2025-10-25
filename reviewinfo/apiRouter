@@ -1,0 +1,51 @@
+apiRouter.GET("/api/assets/:project/pivot", func(c *gin.Context) {
+    project := c.Param("project")
+    root := c.DefaultQuery("root", "assets")
+
+    // Accept either "sort" & "dir" or a combined "-field" style
+    rawSort := c.DefaultQuery("sort", "group_1")
+    dir := c.DefaultQuery("dir", "asc")
+    // If client sent "-field" form, derive dir
+    if strings.HasPrefix(rawSort, "-") {
+        rawSort = strings.TrimPrefix(rawSort, "-")
+        dir = "desc"
+    }
+    sortKey := canonicalizeSort(rawSort, dir)
+
+    phaseCSV := c.DefaultQuery("phase", "")
+
+    // Frontend sends zero-based page; clamp and convert to what repo expects:
+    page0, _ := strconv.Atoi(c.DefaultQuery("page", "0")) // 0-based from UI
+    perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "15"))
+    if perPage > 500 {
+        perPage = 500
+    }
+    if page0 < 0 {
+        page0 = 0
+    }
+
+    // If your repo expects 1-based pages, convert here:
+    page1 := page0 + 1
+
+    data, total, err := reviewInfoRepository.GetAssetsPivotPage(
+        c.Request.Context(), gormDB,
+        project, root, sortKey, phaseCSV, page1, perPage, // or page0 if repo is 0-based
+    )
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    // Return what the frontend expects: "assets" and "total"
+    c.IndentedJSON(http.StatusOK, gin.H{
+        "project":   project,
+        "root":      root,
+        "page":      page0,    // echo zero-based back to UI
+        "per_page":  perPage,
+        "total":     total,
+        "count":     len(data),
+        "assets":    data,     // <-- critical for the UI
+        "data":      data,     // optional: keep for compatibility
+        "ts":        time.Now().UTC().Format(time.RFC3339),
+    })
+})
