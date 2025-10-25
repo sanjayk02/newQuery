@@ -1,0 +1,207 @@
+type AssetKey struct {
+    Root     string `json:"root"`
+    Project  string `json:"project"`
+    Group1   string `json:"group_1"`
+    Relation string `json:"relation"`
+}
+
+type PhaseRow struct {
+    Root             string     `gorm:"column:root" json:"root"`
+    Project          string     `gorm:"column:project" json:"project"`
+    Group1           string     `gorm:"column:group_1" json:"group_1"`
+    Relation         string     `gorm:"column:relation" json:"relation"`
+    Phase            string     `gorm:"column:phase" json:"phase"`
+    WorkStatus       *string    `gorm:"column:work_status" json:"work_status"`
+    ApprovalStatus   *string    `gorm:"column:approval_status" json:"approval_status"`
+    SubmittedAtUTC   *time.Time `gorm:"column:submitted_at_utc" json:"submitted_at_utc"`
+    ModifiedAtUTC    *time.Time `gorm:"column:modified_at_utc" json:"modified_at_utc"`
+    ExecutedComputer *string    `gorm:"column:executed_computer" json:"executed_computer"`
+}
+
+func (r *Repository) ListOrderedAssetKeys(
+    ctx context.Context,
+    db *gorm.DB,
+    project, root string,
+    sortField string, // expect "group_1" (matches your sample)
+    sortDir   string, // "asc" or "desc"
+    limit, offset int,
+) ([]AssetKey, error) {
+
+    // whitelist sort
+    orderExpr := "group_1"
+    if strings.EqualFold(sortField, "group_1") {
+        orderExpr = "group_1"
+    }
+    dir := "ASC"
+    if strings.EqualFold(sortDir, "desc") || strings.HasPrefix(sortField, "-") {
+        dir = "DESC"
+    }
+
+    // NOTE: keep your original CASE/phase='' logic intact
+    firstSQL := fmt.Sprintf(`
+WITH ordered AS (
+  SELECT *, ROW_NUMBER() OVER (
+    ORDER BY %s %s
+  ) AS _order
+  FROM (
+    SELECT b.* 
+    FROM (
+      SELECT project, root, group_1, relation, phase, MAX(modified_at_utc) AS modified_at_utc
+      FROM t_review_info
+      WHERE project = ? AND root = ? AND deleted = 0
+      GROUP BY project, root, group_1, relation, phase
+    ) AS a
+    LEFT JOIN t_review_info AS b
+      ON a.project=b.project AND a.root=b.root
+     AND a.group_1=b.group_1 AND a.relation=b.relation
+     AND a.phase=b.phase AND a.modified_at_utc=b.modified_at_utc
+    ORDER BY submitted_at_utc ASC
+  ) AS k
+),
+offset_ordered AS (
+  SELECT c.*, CASE WHEN c.phase = '' THEN c._order ELSE 100000 + c._order END AS __order
+  FROM ordered c
+),
+ranked AS (
+  SELECT b.*,
+         ROW_NUMBER() OVER (
+           PARTITION BY b.root, b.project, b.group_1, b.relation
+           ORDER BY CASE WHEN b.phase = '' THEN 0 ELSE 1 END
+         ) AS _rank
+  FROM offset_ordered b
+)
+SELECT root, project, group_1, relation
+FROM ranked
+WHERE _rank = 1
+ORDER BY __order ASC
+LIMIT ? OFFSET ?;
+`, orderExpr, dir)
+
+    params := []interface{}{project, root, limit, offset}
+    var keys []AssetKey
+    if err := db.WithContext(ctx).Raw(firstSQL, params...).Scan(&keys).Error; err != nil {
+        return nil, err
+    }
+    return keys, nil
+}
+
+func (r *Repository) HydrateLatestPhasesForKeys(
+    ctx context.Context,
+    db *gorm.DB,
+    keys []AssetKey,
+) ([]PhaseRow, error) {
+    if len(keys) == 0 {
+        return []PhaseRow{}, nil
+    }
+
+    // Build VALUES table for (root, project, group_1, relation)
+    //   keys_v(root, project, group_1, relation)
+    var (
+        valuesSQL strings.Builder
+        params    []interface{}
+    )
+    valuesSQL.WriteString("SELECT ? AS root, ? AS project, ? AS group_1, ? AS relation")
+    params = append(params, keys[0].Root, keys[0].Project, keys[0].Group1, keys[0].Relation)
+    for i := 1; i < len(keys); i++ {
+        valuesSQL.WriteString(" UNION ALL SELECT ?, ?, ?, ?")
+        params = append(params, keys[i].Root, keys[i].Project, keys[i].Group1, keys[i].Relation)
+    }
+
+    // Now plug into your second query shape
+    // We restrict t_review_info by an INNER JOIN to keys_v instead of (row constructor) IN list
+    secondSQL := fmt.Sprintf(`
+WITH keys_v AS (
+  %s
+),
+a AS (
+  SELECT
+    t.root, t.project, t.group_1, t.phase, t.relation,
+    MAX(t.modified_at_utc) AS modified_at_utc
+  FROM t_review_info t
+  INNER JOIN keys_v kv
+    ON  kv.root = t.root
+    AND kv.project = t.project
+    AND kv.group_1 = t.group_1
+    AND kv.relation = t.relation
+  GROUP BY t.project, t.root, t.group_1, t.phase, t.relation
+)
+SELECT b.*
+FROM a
+LEFT JOIN t_review_info AS b
+  ON  a.root     = b.root
+  AND a.project  = b.project
+  AND a.group_1  = b.group_1
+  AND a.phase    = b.phase
+  AND a.relation = b.relation
+  AND a.modified_at_utc = b.modified_at_utc;
+`, valuesSQL.String())
+
+    var rows []PhaseRow
+    if err := db.WithContext(ctx).Raw(secondSQL, params...).Scan(&rows).Error; err != nil {
+        return nil, err
+    }
+    return rows, nil
+}
+
+
+func (r *Repository) GetPivotPage(
+    ctx context.Context,
+    db *gorm.DB,
+    project, root, sortField, sortDir string,
+    page, perPage int,
+) ([]PhaseRow, int64, error) {
+
+    if perPage <= 0 { perPage = 15 }
+    if page   <= 0 { page = 1 }
+    offset := (page - 1) * perPage
+
+    // 1) fetch ordered keys (page)
+    keys, err := r.ListOrderedAssetKeys(ctx, db, project, root, sortField, sortDir, perPage, offset)
+    if err != nil {
+        return nil, 0, err
+    }
+
+    // 2) count (stable, same as before, no need to re-run first CTE)
+    var total int64
+    if err := db.WithContext(ctx).Raw(`
+SELECT COUNT(*) FROM (
+  SELECT project, root, group_1, relation
+  FROM t_review_info
+  WHERE project = ? AND root = ? AND deleted = 0
+  GROUP BY project, root, group_1, relation
+) x;`, project, root).Scan(&total).Error; err != nil {
+        return nil, 0, err
+    }
+
+    // 3) hydrate pivot rows for those keys
+    rows, err := r.HydrateLatestPhasesForKeys(ctx, db, keys)
+    if err != nil {
+        return nil, 0, err
+    }
+
+    return rows, total, nil
+}
+
+
+// routes.go
+router.GET("/api/projects/:project/reviews/assets/pivot", func(c *gin.Context) {
+    project := c.Param("project")
+    root := c.DefaultQuery("root", "assets")
+    sort := c.DefaultQuery("sort", "group_1") // e.g. group_1 | mdl_submitted | -bld_appr ...
+    dir  := c.DefaultQuery("dir", "asc")      // asc|desc (minus in sort also supported)
+    page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+    per,  _ := strconv.Atoi(c.DefaultQuery("per_page", "15"))
+    if per <= 0 { per = 15 }
+
+    rows, total, err := repo.GetPivotPage(c.Request.Context(), gormDB, project, root, sort, dir, page, per)
+    if err != nil {
+        c.JSON(500, gin.H{"error": err.Error()})
+        return
+    }
+    c.JSON(200, gin.H{
+        "total":   total,
+        "page":    page,
+        "perPage": per,
+        "data":    rows,
+    })
+})
