@@ -1,0 +1,130 @@
+// LIST ORDERED ASSETS - First Query (fixed)
+func (r *Repository) ListOrderedAssets(
+	ctx context.Context,
+	db *gorm.DB,
+	project, root, sortField, sortDir string,
+	limit, offset int,
+) ([]AssetKey, int64, error) {
+
+	// 1) Direction
+	dir := "ASC"
+	if strings.EqualFold(sortDir, "DESC") || strings.HasPrefix(sortField, "-") {
+		dir = "DESC"
+	}
+	// 2) Normalize field
+	normalizedField := strings.TrimPrefix(strings.ToLower(sortField), "-")
+
+	// 3) Work out ORDER BY expression and optional JOIN
+	isPhaseSort := false
+	sortExpr := "k.group_1" // default
+	joinClause := ""
+	var joinParams []interface{}
+
+	switch normalizedField {
+	case "group_1":
+		sortExpr = "k.group_1"
+	case "relation":
+		sortExpr = "k.relation"
+
+	case "mdl_work", "mdl_appr", "mdl_submitted",
+		"rig_work", "rig_appr", "rig_submitted",
+		"bld_work", "bld_appr", "bld_submitted",
+		"dsn_work", "dsn_appr", "dsn_submitted",
+		"ldv_work", "ldv_appr", "ldv_submitted":
+
+		isPhaseSort = true
+		parts := strings.Split(normalizedField, "_")
+		phase := parts[0]
+		field := strings.Join(parts[1:], "_") // "work" | "appr" | "submitted"
+
+		col := map[string]string{
+			"work":      "work_status",
+			"appr":      "approval_status",
+			"submitted": "submitted_at_utc",
+		}[field]
+		if col == "" {
+			// fallback safely
+			sortExpr = "k.group_1"
+			isPhaseSort = false
+			break
+		}
+
+		// Join the *single* phase row that should control ordering, per asset.
+		// We compute rn and keep rn=1, prioritizing the requested phase then newest modified.
+		joinClause = fmt.Sprintf(`
+LEFT JOIN (
+  SELECT
+    b.project, b.root, b.group_1, b.relation,
+    b.%s,
+    ROW_NUMBER() OVER (
+      PARTITION BY b.project, b.root, b.group_1, b.relation
+      ORDER BY CASE WHEN b.phase = '%s' THEN 0 ELSE 1 END,
+               b.modified_at_utc DESC
+    ) AS rn
+  FROM t_review_info b
+  WHERE b.project = ? AND b.root = ? AND b.deleted = 0
+) AS ps
+  ON  k.project  = ps.project
+  AND k.root     = ps.root
+  AND k.group_1  = ps.group_1
+  AND k.relation = ps.relation
+  AND ps.rn = 1
+`, col, phase)
+
+		// order by that joined column (nulls last by adding the IS NULL term)
+		sortExpr = fmt.Sprintf("(ps.%s IS NULL), ps.%s", col, col)
+		joinParams = []interface{}{project, root}
+
+	default:
+		// unknown field → safe fallback
+		sortExpr = "k.group_1"
+	}
+
+	// 4) Total count (unchanged)
+	var total int64
+	countSQL := `
+SELECT COUNT(*) FROM (
+  SELECT project, root, group_1, relation
+  FROM t_review_info
+  WHERE project = ? AND root = ? AND deleted = 0
+  GROUP BY project, root, group_1, relation
+) x;
+`
+	if err := db.WithContext(ctx).Raw(countSQL, project, root).Scan(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 5) Final query:
+	// - build the keys set once
+	// - optional phase-join
+	// - order by desired expression + stable tiebreakers
+	orderedSQL := fmt.Sprintf(`
+WITH keys AS (
+  SELECT
+    t.project, t.root, t.group_1, t.relation
+  FROM t_review_info t
+  WHERE t.project = ? AND t.root = ? AND t.deleted = 0
+  GROUP BY t.project, t.root, t.group_1, t.relation
+)
+SELECT
+  k.project, k.root, k.group_1, k.relation
+FROM keys k
+%s
+ORDER BY %s %s, k.group_1 ASC, k.relation ASC
+LIMIT ? OFFSET ?;
+`, joinClause, sortExpr, dir)
+
+	// 6) Params in the right order:
+	// keys(project,root) + phase-join(project,root?) + limit,offset
+	params := []interface{}{project, root}
+	if isPhaseSort {
+		params = append(params, joinParams...) // (project, root)
+	}
+	params = append(params, limit, offset)
+
+	var keys []AssetKey
+	if err := db.WithContext(ctx).Raw(orderedSQL, params...).Scan(&keys).Error; err != nil {
+		return nil, 0, err
+	}
+	return keys, total, nil
+}
