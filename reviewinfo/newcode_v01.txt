@@ -89,119 +89,127 @@ func (r *Repository) HydrateLatestPhasesForKeys(
     ctx context.Context,
     db *gorm.DB,
     keys []AssetKey,
-) ([]PhaseRow, error) {
-    if len(keys) == 0 {
-        return []PhaseRow{}, nil
+) ([]AssetPhaseSummary, error) {
+
+    // Build value tuples
+    var valTuples []string
+    var args []interface{}
+
+    for _, k := range keys {
+        valTuples = append(valTuples, "(?,?,?,?)")
+        args = append(args, k.Root, k.Project, k.Group1, k.Relation)
     }
 
-    // Build VALUES table for (root, project, group_1, relation)
-    //   keys_v(root, project, group_1, relation)
-    var (
-        valuesSQL strings.Builder
-        params    []interface{}
-    )
-    valuesSQL.WriteString("SELECT ? AS root, ? AS project, ? AS group_1, ? AS relation")
-    params = append(params, keys[0].Root, keys[0].Project, keys[0].Group1, keys[0].Relation)
-    for i := 1; i < len(keys); i++ {
-        valuesSQL.WriteString(" UNION ALL SELECT ?, ?, ?, ?")
-        params = append(params, keys[i].Root, keys[i].Project, keys[i].Group1, keys[i].Relation)
-    }
-
-    // Now plug into your second query shape
-    // We restrict t_review_info by an INNER JOIN to keys_v instead of (row constructor) IN list
-    secondSQL := fmt.Sprintf(`
-WITH keys_v AS (
-  %s
+    sql := fmt.Sprintf(`
+WITH keyset AS (
+    SELECT * FROM (VALUES %s) AS v(root, project, group_1, relation)
 ),
-a AS (
-  SELECT
-    t.root, t.project, t.group_1, t.phase, t.relation,
-    MAX(t.modified_at_utc) AS modified_at_utc
-  FROM t_review_info t
-  INNER JOIN keys_v kv
-    ON  kv.root = t.root
-    AND kv.project = t.project
-    AND kv.group_1 = t.group_1
-    AND kv.relation = t.relation
-  GROUP BY t.project, t.root, t.group_1, t.phase, t.relation
+latest AS (
+    SELECT b.*
+    FROM t_review_info b
+    JOIN (
+        SELECT project, root, group_1, relation, phase,
+            MAX(modified_at_utc) AS modified_at_utc
+        FROM t_review_info
+        WHERE deleted = 0
+        GROUP BY project, root, group_1, relation, phase
+    ) AS a ON a.project=b.project AND a.root=b.root
+          AND a.group_1=b.group_1 AND a.relation=b.relation
+          AND a.phase=b.phase AND a.modified_at_utc=b.modified_at_utc
+    WHERE (b.root, b.project, b.group_1, b.relation) IN (SELECT root, project, group_1, relation FROM keyset)
 )
-SELECT b.*
-FROM a
-LEFT JOIN t_review_info AS b
-  ON  a.root     = b.root
-  AND a.project  = b.project
-  AND a.group_1  = b.group_1
-  AND a.phase    = b.phase
-  AND a.relation = b.relation
-  AND a.modified_at_utc = b.modified_at_utc;
-`, valuesSQL.String())
+SELECT ... -- pivot logic building mdl_*/rig_*/...
+`, strings.Join(valTuples, ","))
 
-    var rows []PhaseRow
-    if err := db.WithContext(ctx).Raw(secondSQL, params...).Scan(&rows).Error; err != nil {
+    var rows []AssetPhaseSummary
+    if err := db.WithContext(ctx).Raw(sql, args...).Scan(&rows).Error; err != nil {
         return nil, err
     }
     return rows, nil
 }
 
 
+//
+
+
 func (r *Repository) GetPivotPage(
     ctx context.Context,
     db *gorm.DB,
-    project, root, sortField, sortDir string,
-    page, perPage int,
-) ([]PhaseRow, int64, error) {
+    project, root, sort, dir string,
+    page, per int,
+) ([]AssetPhaseSummary, int64, error) {
 
-    if perPage <= 0 { perPage = 15 }
-    if page   <= 0 { page = 1 }
-    offset := (page - 1) * perPage
-
-    // 1) fetch ordered keys (page)
-    keys, err := r.ListOrderedAssetKeys(ctx, db, project, root, sortField, sortDir, perPage, offset)
+    // 1) First query: return keys/page order
+    keys, total, err := r.ListOrderedAssets(ctx, db, project, root, sort, dir, per, (page-1)*per)
     if err != nil {
         return nil, 0, err
     }
 
-    // 2) count (stable, same as before, no need to re-run first CTE)
-    var total int64
-    if err := db.WithContext(ctx).Raw(`
-SELECT COUNT(*) FROM (
-  SELECT project, root, group_1, relation
-  FROM t_review_info
-  WHERE project = ? AND root = ? AND deleted = 0
-  GROUP BY project, root, group_1, relation
-) x;`, project, root).Scan(&total).Error; err != nil {
-        return nil, 0, err
+    if len(keys) == 0 {
+        return []AssetPhaseSummary{}, total, nil
     }
 
-    // 3) hydrate pivot rows for those keys
-    rows, err := r.HydrateLatestPhasesForKeys(ctx, db, keys)
+    // 2) Second query: hydrate pivot rows
+    pivot, err := r.HydrateLatestPhasesForKeys(ctx, db, keys)
     if err != nil {
         return nil, 0, err
     }
 
-    return rows, total, nil
+    return pivot, total, nil
 }
 
 
-// routes.go
+//
+
 router.GET("/api/projects/:project/reviews/assets/pivot", func(c *gin.Context) {
+    ctx := c.Request.Context()
     project := c.Param("project")
     root := c.DefaultQuery("root", "assets")
-    sort := c.DefaultQuery("sort", "group_1") // e.g. group_1 | mdl_submitted | -bld_appr ...
-    dir  := c.DefaultQuery("dir", "asc")      // asc|desc (minus in sort also supported)
+    sort := c.DefaultQuery("sort", "group_1")
+    dir  := c.DefaultQuery("dir", "asc")
     page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
     per,  _ := strconv.Atoi(c.DefaultQuery("per_page", "15"))
     if per <= 0 { per = 15 }
 
-    rows, total, err := repo.GetPivotPage(c.Request.Context(), gormDB, project, root, sort, dir, page, per)
+    // ✅ Call two-step pivot builder
+    rows, total, err := repo.GetPivotPage(ctx, gormDB, project, root, sort, dir, page, per)
     if err != nil {
         c.JSON(500, gin.H{"error": err.Error()})
         return
     }
+
     c.JSON(200, gin.H{
-        "total":   total,
+        "data":    rows,
         "page":    page,
         "perPage": per,
-        "data":    rows,
+        "total":   total,
     })
 })
+
+router.GET("/api/projects/:project/reviews/assets/pivot", func(c *gin.Context) {
+    ctx := c.Request.Context()
+    project := c.Param("project")
+    root := c.DefaultQuery("root", "assets")
+    sort := c.DefaultQuery("sort", "group_1")
+    dir  := c.DefaultQuery("dir", "asc")
+    page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+    per,  _ := strconv.Atoi(c.DefaultQuery("per_page", "15"))
+    if per <= 0 { per = 15 }
+
+    // ✅ Call two-step pivot builder
+    rows, total, err := repo.GetPivotPage(ctx, gormDB, project, root, sort, dir, page, per)
+    if err != nil {
+        c.JSON(500, gin.H{"error": err.Error()})
+        return
+    }
+
+    c.JSON(200, gin.H{
+        "data":    rows,
+        "page":    page,
+        "perPage": per,
+        "total":   total,
+    })
+})
+
+
+
