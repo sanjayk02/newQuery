@@ -1,0 +1,362 @@
+// review_pivot.go
+package reviewinfo
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+)
+
+//
+// ============================ Data Models ============================
+//
+
+// AssetKey: unique asset identifier returned by the first query (ordered/paged).
+type AssetKey struct {
+	Root     string `json:"root"     gorm:"column:root"`
+	Project  string `json:"project"  gorm:"column:project"`
+	Group1   string `json:"group_1"  gorm:"column:group_1"` // important: map to group_1
+	Relation string `json:"relation" gorm:"column:relation"`
+}
+
+// PhaseRow: raw row from the second query (latest row per phase for a key).
+type PhaseRow struct {
+	Root             string     `json:"root"              gorm:"column:root"`
+	Project          string     `json:"project"           gorm:"column:project"`
+	Group1           string     `json:"group_1"           gorm:"column:group_1"`
+	Relation         string     `json:"relation"          gorm:"column:relation"`
+	Phase            string     `json:"phase"             gorm:"column:phase"`
+	WorkStatus       *string    `json:"work_status"       gorm:"column:work_status"`
+	ApprovalStatus   *string    `json:"approval_status"   gorm:"column:approval_status"`
+	SubmittedAtUTC   *time.Time `json:"submitted_at_utc"  gorm:"column:submitted_at_utc"`
+	ModifiedAtUTC    *time.Time `json:"modified_at_utc"   gorm:"column:modified_at_utc"`
+	ExecutedComputer *string    `json:"executed_computer" gorm:"column:executed_computer"`
+}
+
+// AssetPhaseSummary: final pivoted row the frontend expects (one per asset).
+type AssetPhaseSummary struct {
+	Root     string `json:"root"`
+	Project  string `json:"project"`
+	Group1   string `json:"group_1"`
+	Relation string `json:"relation"`
+
+	MdlWorkStatus     *string    `json:"mdl_work_status"`
+	MdlApprovalStatus *string    `json:"mdl_approval_status"`
+	MdlSubmittedAtUTC *time.Time `json:"mdl_submitted_at_utc"`
+
+	RigWorkStatus     *string    `json:"rig_work_status"`
+	RigApprovalStatus *string    `json:"rig_approval_status"`
+	RigSubmittedAtUTC *time.Time `json:"rig_submitted_at_utc"`
+
+	BldWorkStatus     *string    `json:"bld_work_status"`
+	BldApprovalStatus *string    `json:"bld_approval_status"`
+	BldSubmittedAtUTC *time.Time `json:"bld_submitted_at_utc"`
+
+	DsnWorkStatus     *string    `json:"dsn_work_status"`
+	DsnApprovalStatus *string    `json:"dsn_approval_status"`
+	DsnSubmittedAtUTC *time.Time `json:"dsn_submitted_at_utc"`
+
+	LdvWorkStatus     *string    `json:"ldv_work_status"`
+	LdvApprovalStatus *string    `json:"ldv_approval_status"`
+	LdvSubmittedAtUTC *time.Time `json:"ldv_submitted_at_utc"`
+}
+
+type Repository struct{}
+
+// ====================================================================
+// First Query — globally sort assets, then paginate (returns AssetKey)
+// ====================================================================
+
+func (r *Repository) ListOrderedAssetKeys(
+	ctx context.Context,
+	db *gorm.DB,
+	project string,
+	root string,
+	sortField string, // e.g. "group_1" (default) or "relation"
+	sortDir string,   // "asc" | "desc" (minus in sortField also supported)
+	limit, offset int,
+) ([]AssetKey, error) {
+
+	// Normalize sort field/dir (support "-group_1")
+	field := strings.TrimSpace(sortField)
+	if field == "" {
+		field = "group_1"
+	}
+	if strings.HasPrefix(field, "-") {
+		sortDir = "desc"
+		field = strings.TrimPrefix(field, "-")
+	}
+	dir := "ASC"
+	if strings.EqualFold(sortDir, "desc") {
+		dir = "DESC"
+	}
+
+	// Whitelist allowed ORDER BY fields inside the first CTE
+	switch strings.ToLower(field) {
+	case "group_1", "relation":
+		// ok
+	default:
+		field = "group_1"
+	}
+
+	// Your original "first query", with dynamic ORDER BY field/dir
+	firstSQL := fmt.Sprintf(`
+WITH ordered AS (
+  SELECT *, ROW_NUMBER() OVER (
+    ORDER BY %s %s
+  ) AS _order
+  FROM (
+    SELECT b.* 
+    FROM (
+      SELECT project, root, group_1, relation, phase, MAX(modified_at_utc) AS modified_at_utc
+      FROM t_review_info
+      WHERE project = ? AND root = ? AND deleted = 0
+      GROUP BY project, root, group_1, relation, phase
+    ) AS a
+    LEFT JOIN t_review_info AS b
+      ON  a.project = b.project
+      AND a.root    = b.root
+      AND a.group_1 = b.group_1
+      AND a.relation= b.relation
+      AND a.phase   = b.phase
+      AND a.modified_at_utc = b.modified_at_utc
+    ORDER BY submitted_at_utc ASC
+  ) AS k
+),
+offset_ordered AS (
+  SELECT c.*, CASE WHEN c.phase = '' THEN c._order ELSE 100000 + c._order END AS __order
+  FROM ordered c
+),
+ranked AS (
+  SELECT b.*,
+         ROW_NUMBER() OVER (
+           PARTITION BY b.root, b.project, b.group_1, b.relation
+           ORDER BY CASE WHEN b.phase = '' THEN 0 ELSE 1 END
+         ) AS _rank
+  FROM offset_ordered b
+)
+SELECT root, project, group_1, relation
+FROM ranked
+WHERE _rank = 1
+ORDER BY __order ASC
+LIMIT ? OFFSET ?;
+`, field, dir)
+
+	params := []interface{}{project, root, limit, offset}
+
+	var keys []AssetKey
+	if err := db.WithContext(ctx).Raw(firstSQL, params...).Scan(&keys).Error; err != nil {
+		return nil, err
+	}
+	return keys, nil
+}
+
+// ====================================================================
+// Second Query — latest row per phase for the current page of keys
+// ====================================================================
+
+func (r *Repository) HydrateLatestPhasesForKeys(
+	ctx context.Context,
+	db *gorm.DB,
+	keys []AssetKey,
+) ([]PhaseRow, error) {
+
+	if len(keys) == 0 {
+		return []PhaseRow{}, nil
+	}
+
+	// Build a VALUES table (keys_v) for (root, project, group_1, relation).
+	var (
+		valuesSQL strings.Builder
+		params    []interface{}
+	)
+
+	valuesSQL.WriteString("SELECT ? AS root, ? AS project, ? AS group_1, ? AS relation")
+	params = append(params, keys[0].Root, keys[0].Project, keys[0].Group1, keys[0].Relation)
+	for i := 1; i < len(keys); i++ {
+		valuesSQL.WriteString(" UNION ALL SELECT ?, ?, ?, ?")
+		params = append(params, keys[i].Root, keys[i].Project, keys[i].Group1, keys[i].Relation)
+	}
+
+	secondSQL := fmt.Sprintf(`
+WITH keys_v AS (
+  %s
+),
+a AS (
+  SELECT
+    t.root,
+    t.project,
+    t.group_1,
+    t.phase,
+    t.relation,
+    MAX(t.modified_at_utc) AS modified_at_utc
+  FROM t_review_info t
+  INNER JOIN keys_v kv
+    ON  kv.root     = t.root
+    AND kv.project  = t.project
+    AND kv.group_1  = t.group_1
+    AND kv.relation = t.relation
+  WHERE t.deleted = 0
+  GROUP BY t.project, t.root, t.group_1, t.phase, t.relation
+)
+SELECT b.*
+FROM a
+LEFT JOIN t_review_info AS b
+  ON  a.root            = b.root
+  AND a.project         = b.project
+  AND a.group_1         = b.group_1
+  AND a.phase           = b.phase
+  AND a.relation        = b.relation
+  AND a.modified_at_utc = b.modified_at_utc;
+`, valuesSQL.String())
+
+	var rows []PhaseRow
+	if err := db.WithContext(ctx).Raw(secondSQL, params...).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// ====================================================================
+// Pivot: collapse phase rows into single MDL/RIG/BLD/DSN/LDV record
+// ====================================================================
+
+func PivotPhaseRows(keys []AssetKey, rows []PhaseRow) []AssetPhaseSummary {
+	// Group phase rows by asset key
+	type keyT struct{ Root, Project, Group1, Relation string }
+	byKey := make(map[keyT][]PhaseRow, len(keys))
+	for _, r := range rows {
+		k := keyT{r.Root, r.Project, r.Group1, r.Relation}
+		byKey[k] = append(byKey[k], r)
+	}
+
+	// Preserve the order of keys (as returned by first query)
+	out := make([]AssetPhaseSummary, 0, len(keys))
+	for _, k := range keys {
+		sum := AssetPhaseSummary{
+			Root:     k.Root,
+			Project:  k.Project,
+			Group1:   k.Group1,
+			Relation: k.Relation,
+		}
+		kx := keyT{k.Root, k.Project, k.Group1, k.Relation}
+		for _, r := range byKey[kx] {
+			switch strings.ToLower(r.Phase) {
+			case "mdl":
+				sum.MdlWorkStatus = r.WorkStatus
+				sum.MdlApprovalStatus = r.ApprovalStatus
+				sum.MdlSubmittedAtUTC = r.SubmittedAtUTC
+			case "rig":
+				sum.RigWorkStatus = r.WorkStatus
+				sum.RigApprovalStatus = r.ApprovalStatus
+				sum.RigSubmittedAtUTC = r.SubmittedAtUTC
+			case "bld":
+				sum.BldWorkStatus = r.WorkStatus
+				sum.BldApprovalStatus = r.ApprovalStatus
+				sum.BldSubmittedAtUTC = r.SubmittedAtUTC
+			case "dsn":
+				sum.DsnWorkStatus = r.WorkStatus
+				sum.DsnApprovalStatus = r.ApprovalStatus
+				sum.DsnSubmittedAtUTC = r.SubmittedAtUTC
+			case "ldv":
+				sum.LdvWorkStatus = r.WorkStatus
+				sum.LdvApprovalStatus = r.ApprovalStatus
+				sum.LdvSubmittedAtUTC = r.SubmittedAtUTC
+			}
+		}
+		out = append(out, sum)
+	}
+	return out
+}
+
+// ====================================================================
+// Orchestrator: global sort → paginate → hydrate → pivot
+// ====================================================================
+
+func (r *Repository) GetPivotPage(
+	ctx context.Context,
+	db *gorm.DB,
+	project string,
+	root string,
+	sort string, // "group_1" | "relation" | "-group_1"
+	dir string,  // "asc" | "desc" (optional if minus in sort)
+	page int,
+	perPage int,
+) ([]AssetPhaseSummary, int64, error) {
+
+	// Paging
+	if perPage <= 0 {
+		perPage = 15
+	}
+	if page <= 0 {
+		page = 1
+	}
+	offset := (page - 1) * perPage
+
+	// Total assets for paginator
+	const countSQL = `
+SELECT COUNT(*) FROM (
+  SELECT project, root, group_1, relation
+  FROM t_review_info
+  WHERE project = ? AND root = ? AND deleted = 0
+  GROUP BY project, root, group_1, relation
+) x;`
+	var total int64
+	if err := db.WithContext(ctx).Raw(countSQL, project, root).Scan(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 1) globally sort + slice page (first query)
+	keys, err := r.ListOrderedAssetKeys(ctx, db, project, root, sort, dir, perPage, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(keys) == 0 {
+		return []AssetPhaseSummary{}, total, nil
+	}
+
+	// 2) hydrate latest per phase for those keys (second query)
+	phaseRows, err := r.HydrateLatestPhasesForKeys(ctx, db, keys)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// 3) pivot for the grid
+	assets := PivotPhaseRows(keys, phaseRows)
+	return assets, total, nil
+}
+
+//
+// ============================ HTTP Handler ============================
+//
+
+// RegisterPivotRoute registers a minimal endpoint:
+// GET /api/projects/:project/reviews/assets/pivot?root=assets&sort=group_1&dir=asc&page=1&per_page=15
+func RegisterPivotRoute(router *gin.Engine, db *gorm.DB, repo *Repository) {
+	router.GET("/api/projects/:project/reviews/assets/pivot", func(c *gin.Context) {
+		ctx := c.Request.Context()
+		project := c.Param("project")
+		root := c.DefaultQuery("root", "assets")
+		sort := c.DefaultQuery("sort", "group_1")
+		dir := c.DefaultQuery("dir", "asc")
+		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+		per, _ := strconv.Atoi(c.DefaultQuery("per_page", "15"))
+
+		data, total, err := repo.GetPivotPage(ctx, db, project, root, sort, dir, page, per)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(200, gin.H{
+			"data":    data,   // array of AssetPhaseSummary
+			"page":    page,
+			"perPage": per,
+			"total":   total,
+		})
+	})
+}
