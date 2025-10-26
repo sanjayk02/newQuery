@@ -1,0 +1,85 @@
+// HydrateLatestPhasesForKeys executes the "Second query":
+// Given a page of asset keys (root, project, group_1, relation),
+// return the latest row per phase (mdl, rig, bld, dsn, ldv) for each key.
+func (r *Repository) HydrateLatestPhasesForKeys(
+	ctx context.Context,
+	db *gorm.DB,
+	keys []AssetKey,
+) ([]PhaseRow, error) {
+
+	// empty page → empty result
+	if len(keys) == 0 {
+		return []PhaseRow{}, nil
+	}
+
+	// Build VALUES table dynamically
+	// This becomes our `(root, project, group_1, relation)` filter
+	var (
+		valuesSQL strings.Builder
+		params    []interface{}
+	)
+
+	// first tuple
+	valuesSQL.WriteString("SELECT ? AS root, ? AS project, ? AS group_1, ? AS relation")
+	params = append(params,
+		keys[0].Root,
+		keys[0].Project,
+		keys[0].Group1,
+		keys[0].Relation,
+	)
+
+	// remaining tuples
+	for i := 1; i < len(keys); i++ {
+		valuesSQL.WriteString(" UNION ALL SELECT ?, ?, ?, ?")
+		params = append(params,
+			keys[i].Root,
+			keys[i].Project,
+			keys[i].Group1,
+			keys[i].Relation,
+		)
+	}
+
+	// Plug VALUES table into your original second query shape
+	secondSQL := fmt.Sprintf(`
+WITH keys_v AS (
+  %s
+),
+a AS (
+  SELECT
+    t.root,
+    t.project,
+    t.group_1,
+    t.phase,
+    t.relation,
+    MAX(t.modified_at_utc) AS modified_at_utc
+  FROM t_review_info t
+  INNER JOIN keys_v kv
+    ON kv.root     = t.root
+   AND kv.project  = t.project
+   AND kv.group_1  = t.group_1
+   AND kv.relation = t.relation
+  WHERE t.deleted = 0
+  GROUP BY t.project, t.root, t.group_1, t.phase, t.relation
+)
+SELECT b.*
+FROM a
+LEFT JOIN t_review_info AS b
+  ON  a.root           = b.root
+  AND a.project        = b.project
+  AND a.group_1        = b.group_1
+  AND a.phase          = b.phase
+  AND a.relation       = b.relation
+  AND a.modified_at_utc= b.modified_at_utc;
+`, valuesSQL.String())
+
+	var rows []PhaseRow
+	if err := db.WithContext(ctx).Raw(secondSQL, params...).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	return rows, nil
+}
+
+
+curl "http://localhost:4000/api/projects/potoodev/reviews/assets/pivot?root=assets&page=1&per_page=5"
+
