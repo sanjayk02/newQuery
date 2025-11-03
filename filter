@@ -1,0 +1,159 @@
+--- a/AssetsDataTablePanel.tsx
++++ b/AssetsDataTablePanel.tsx
+@@
+-import { Container, Paper, styled } from '@material-ui/core';
++import { Container, Paper, styled, Button, Menu, MenuItem, Checkbox, ListItemText, Divider } from '@material-ui/core';
+@@
+-import { queryConfig } from '../../new-pipeline-setting/api';
++import { queryConfig, updateConfig } from '../../new-pipeline-setting/api';
++import { columns } from './AssetsDataTable';
+@@
+ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
+@@
+   const [phasePriority, setPhasePriority] = useState<string>('none'); // mdl|rig|bld|dsn|ldv|none
+@@
++  // Column visibility
++  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
++  const [colAnchorEl, setColAnchorEl] = useState<null | HTMLElement>(null);
++
+@@
+   // Studio timezone
+@@
+   }, [currentStudio]);
++
++  // Load hidden columns from PipelineSetting when project changes
++  useEffect(() => {
++    let aborted = false;
++    (async () => {
++      if (!currentProject) return;
++      try {
++        const key = '/ppiTracker/assets/hideColumns';
++        const val = await queryConfig('project', currentProject.key_name, key);
++        if (aborted) return;
++        // Expecting an array of ids or comma string
++        let arr: string[] = [];
++        if (Array.isArray(val)) arr = val as string[];
++        else if (typeof val === 'string' && val.trim() !== '') {
++          try { arr = JSON.parse(val); } catch { arr = val.split(',').map(s => s.trim()); }
++        }
++        // Never allow these to be hidden
++        const sanitized = arr.filter(id => id !== 'thumbnail' && id !== 'group_1_name');
++        setHiddenColumns(new Set(sanitized));
++      } catch (e) {
++        // eslint-disable-next-line no-console
++        console.error('Load hideColumns failed', e);
++        setHiddenColumns(new Set());
++      }
++    })();
++    return () => { aborted = true; };
++  }, [currentProject]);
++
++  const persistHiddenColumns = async (next: Set<string>) => {
++    if (!currentProject) return;
++    try {
++      const key = '/ppiTracker/assets/hideColumns';
++      // Save as simple array
++      await updateConfig('project', currentProject.key_name, key, Array.from(next));
++    } catch (e) {
++      // eslint-disable-next-line no-console
++      console.error('Save hideColumns failed', e);
++    }
++  };
+@@
+   const handleFilterResetClick: ButtonProps['onClick'] = () => setFilterProps(initFilterProps);
++
++  // Column menu UI
++  const openColumnMenu = (e: React.MouseEvent<HTMLButtonElement>) => setColAnchorEl(e.currentTarget);
++  const closeColumnMenu = () => setColAnchorEl(null);
++  const toggleColumn = (id: string) => {
++    if (id === 'thumbnail' || id === 'group_1_name') return; // fixed
++    setHiddenColumns(prev => {
++      const next = new Set(prev);
++      if (next.has(id)) next.delete(id); else next.add(id);
++      // persist in background
++      persistHiddenColumns(next);
++      return next;
++    });
++  };
++  const showAll = () => {
++    const next = new Set<string>(); // nothing hidden
++    setHiddenColumns(next);
++    persistHiddenColumns(next);
++  };
++  const hideAllNonFixed = () => {
++    const next = new Set<string>(
++      columns
++        .map(c => c.id)
++        .filter(id => id !== 'thumbnail' && id !== 'group_1_name')
++    );
++    setHiddenColumns(next);
++    persistHiddenColumns(next);
++  };
+ 
+   const dateTimeFormat = new Intl.DateTimeFormat(undefined, {
+     timeZone,
+     dateStyle: 'medium',
+     timeStyle: 'medium',
+   });
+@@
+   return (
+     <StyledContainer maxWidth="xl">
+-      <AssetTableFilter
++      <AssetTableFilter
+         filterAssetName={filterProps.assetNameKey}
+         selectApprovalStatuses={filterProps.applovalStatues}
+         selectWorkStatuses={filterProps.workStatues}
+         onAssetNameChange={handleFilterAssetNameChange}
+         onApprovalStatusesChange={handleApprovalStatusesChange}
+         onWorkStatusesChange={handleWorkStatusesChange}
+         onApprovalStatusChipDelete={handleApprovalStatusesChipDelete}
+         onWorkStatusChipDelete={handleWorkStatusesChipDelete}
+         onResetClick={handleFilterResetClick}
+       />
++      {/* Column visibility button lives beside the filter bar */}
++      <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '4px 8px' }}>
++        <Button variant="outlined" onClick={openColumnMenu}>Columns</Button>
++        <Menu anchorEl={colAnchorEl} open={Boolean(colAnchorEl)} onClose={closeColumnMenu} keepMounted>
++          <MenuItem disabled style={{ opacity: 0.7 }}>
++            <ListItemText primary="Show / Hide Columns" />
++          </MenuItem>
++          <Divider />
++          {columns.map(col => (
++            <MenuItem
++              key={col.id}
++              disabled={col.id === 'thumbnail' || col.id === 'group_1_name'}
++              onClick={() => toggleColumn(col.id)}
++            >
++              <Checkbox
++                edge="start"
++                checked={!hiddenColumns.has(col.id) || col.id === 'thumbnail' || col.id === 'group_1_name'}
++                tabIndex={-1}
++                disableRipple
++              />
++              <ListItemText primary={col.label} />
++            </MenuItem>
++          ))}
++          <Divider />
++          <MenuItem onClick={showAll}><ListItemText primary="Show All" /></MenuItem>
++          <MenuItem onClick={hideAllNonFixed}><ListItemText primary="Hide All (except Thumbnail/Name)" /></MenuItem>
++        </Menu>
++      </div>
+       <StyledTableDiv>
+         <StyledPaper>
+           <StyledContentDiv>
+             <AssetsDataTable
+               project={currentProject}
+               assets={assets}
+               tableFooter={tableFooter}
+               dateTimeFormat={dateTimeFormat}
+               onSortChange={handleSortChange}
+               currentSortKey={uiSortKey}   // UI key (instant arrow)
+               currentSortDir={uiSortDir}   // UI dir (instant arrow)
++              hiddenColumns={hiddenColumns}
+             />
+           </StyledContentDiv>
+         </StyledPaper>
+       </StyledTableDiv>
+     </StyledContainer>
+   );
+ };
