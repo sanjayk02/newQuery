@@ -71,33 +71,38 @@ const WORK_STATUS: { [key: string]: Status } = {
 
 /* ──────────────────────────────────────────────────────────────────────────
  * Column metadata (IDs must map to your data keys)
+ * Add minWidth hints so we can lock widths (also used as width & maxWidth)
  * ────────────────────────────────────────────────────────────────────────── */
 export const columns: Column[] = [
   { id: "thumbnail", label: "Thumbnail", minWidth: 120 },
-  { id: "group_1_name", label: "Name", sortable: true, sortKey: "group_1", minWidth: 140 },
+  { id: "group_1_name", label: "Name", sortable: true, sortKey: "group_1", minWidth: 160 },
 
-  { id: "mdl_work_status", label: "MDL WORK", colors: ASSET_PHASES["mdl"], sortable: true, sortKey: "mdl_work" },
-  { id: "mdl_approval_status", label: "MDL APPR", colors: ASSET_PHASES["mdl"], sortable: true, sortKey: "mdl_appr" },
-  { id: "mdl_submitted_at", label: "MDL Submitted At", colors: ASSET_PHASES["mdl"], sortable: true, sortKey: "mdl_submitted" },
+  { id: "mdl_work_status", label: "MDL WORK", colors: ASSET_PHASES["mdl"], sortable: true, sortKey: "mdl_work", minWidth: 150 },
+  { id: "mdl_approval_status", label: "MDL APPR", colors: ASSET_PHASES["mdl"], sortable: true, sortKey: "mdl_appr", minWidth: 150 },
+  { id: "mdl_submitted_at", label: "MDL Submitted At", colors: ASSET_PHASES["mdl"], sortable: true, sortKey: "mdl_submitted", minWidth: 170 },
 
-  { id: "rig_work_status", label: "RIG WORK", colors: ASSET_PHASES["rig"], sortable: true, sortKey: "rig_work" },
-  { id: "rig_approval_status", label: "RIG APPR", colors: ASSET_PHASES["rig"], sortable: true, sortKey: "rig_appr" },
-  { id: "rig_submitted_at", label: "RIG Submitted At", colors: ASSET_PHASES["rig"], sortable: true, sortKey: "rig_submitted" },
+  { id: "rig_work_status", label: "RIG WORK", colors: ASSET_PHASES["rig"], sortable: true, sortKey: "rig_work", minWidth: 150 },
+  { id: "rig_approval_status", label: "RIG APPR", colors: ASSET_PHASES["rig"], sortable: true, sortKey: "rig_appr", minWidth: 150 },
+  { id: "rig_submitted_at", label: "RIG Submitted At", colors: ASSET_PHASES["rig"], sortable: true, sortKey: "rig_submitted", minWidth: 170 },
 
-  { id: "bld_work_status", label: "BLD WORK", colors: ASSET_PHASES["bld"], sortable: true, sortKey: "bld_work" },
-  { id: "bld_approval_status", label: "BLD APPR", colors: ASSET_PHASES["bld"], sortable: true, sortKey: "bld_appr" },
-  { id: "bld_submitted_at", label: "BLD Submitted At", colors: ASSET_PHASES["bld"], sortable: true, sortKey: "bld_submitted" },
+  { id: "bld_work_status", label: "BLD WORK", colors: ASSET_PHASES["bld"], sortable: true, sortKey: "bld_work", minWidth: 150 },
+  { id: "bld_approval_status", label: "BLD APPR", colors: ASSET_PHASES["bld"], sortable: true, sortKey: "bld_appr", minWidth: 150 },
+  { id: "bld_submitted_at", label: "BLD Submitted At", colors: ASSET_PHASES["bld"], sortable: true, sortKey: "bld_submitted", minWidth: 170 },
 
-  { id: "dsn_work_status", label: "DSN WORK", colors: ASSET_PHASES["dsn"], sortable: true, sortKey: "dsn_work" },
-  { id: "dsn_approval_status", label: "DSN APPR", colors: ASSET_PHASES["dsn"], sortable: true, sortKey: "dsn_appr" },
-  { id: "dsn_submitted_at", label: "DSN Submitted At", colors: ASSET_PHASES["dsn"], sortable: true, sortKey: "dsn_submitted" },
+  { id: "dsn_work_status", label: "DSN WORK", colors: ASSET_PHASES["dsn"], sortable: true, sortKey: "dsn_work", minWidth: 150 },
+  { id: "dsn_approval_status", label: "DSN APPR", colors: ASSET_PHASES["dsn"], sortable: true, sortKey: "dsn_appr", minWidth: 150 },
+  { id: "dsn_submitted_at", label: "DSN Submitted At", colors: ASSET_PHASES["dsn"], sortable: true, sortKey: "dsn_submitted", minWidth: 170 },
 
-  { id: "ldv_work_status", label: "LDV WORK", colors: ASSET_PHASES["ldv"], sortable: true, sortKey: "ldv_work" },
-  { id: "ldv_approval_status", label: "LDV APPR", colors: ASSET_PHASES["ldv"], sortable: true, sortKey: "ldv_appr" },
-  { id: "ldv_submitted_at", label: "LDV Submitted At", colors: ASSET_PHASES["ldv"], sortable: true, sortKey: "ldv_submitted" },
+  { id: "ldv_work_status", label: "LDV WORK", colors: ASSET_PHASES["ldv"], sortable: true, sortKey: "ldv_work", minWidth: 150 },
+  { id: "ldv_approval_status", label: "LDV APPR", colors: ASSET_PHASES["ldv"], sortable: true, sortKey: "ldv_appr", minWidth: 150 },
+  { id: "ldv_submitted_at", label: "LDV Submitted At", colors: ASSET_PHASES["ldv"], sortable: true, sortKey: "ldv_submitted", minWidth: 170 },
 
-  { id: "relation", label: "Relation", sortable: true, sortKey: "relation" },
+  { id: "relation", label: "Relation", sortable: true, sortKey: "relation", minWidth: 140 },
 ];
+
+/* Convenience: look up the configured width for a column id */
+const getColWidth = (id: string): number =>
+  columns.find((c) => c.id === id)?.minWidth ?? 110;
 
 /* ──────────────────────────────────────────────────────────────────────────
  * Header
@@ -107,7 +112,6 @@ const RecordTableHead: React.FC<
     onSortChange: (sortKey: string) => void;
     currentSortKey: string;
     currentSortDir: SortDir;
-    hiddenColumns: Set<string>; // kept for API parity; columns are already filtered by parent
   }
 > = ({ columns, onSortChange, currentSortKey, currentSortDir }) => {
   const getSortDir = (id: string, activeSortKey: string, activeSortDir: SortDir): SortDir =>
@@ -127,6 +131,8 @@ const RecordTableHead: React.FC<
           const columnSortKey = column.sortKey || column.id;
           const sortDir = getSortDir(columnSortKey, currentSortKey, currentSortDir);
 
+          const w = column.minWidth ?? 110;
+
           return (
             <TableCell
               key={column.id}
@@ -135,7 +141,9 @@ const RecordTableHead: React.FC<
                 borderTop: borderTopStyle,
                 borderLeft: borderLeftStyle,
                 borderRight: borderRightStyle,
-                minWidth: column.minWidth ?? 110,
+                minWidth: w,
+                maxWidth: w,
+                width: w,
                 whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -183,7 +191,15 @@ const MultiLineTooltipTableCell: React.FC<{
   leftBorderStyle: string;
   rightBorderStyle: string;
   bottomBorderStyle?: string;
-}> = ({ tooltipText, status, leftBorderStyle, rightBorderStyle, bottomBorderStyle = "none" }) => {
+  widthPx: number;
+}> = ({
+  tooltipText,
+  status,
+  leftBorderStyle,
+  rightBorderStyle,
+  bottomBorderStyle = "none",
+  widthPx,
+}) => {
   const [open, setOpen] = React.useState(false);
   const isTooltipTextEmpty = tooltipText && tooltipText.trim().length > 0;
   const statusText = status != null ? status["displayName"] : "-";
@@ -196,6 +212,9 @@ const MultiLineTooltipTableCell: React.FC<{
         borderLeft: leftBorderStyle,
         borderRight: rightBorderStyle,
         borderBottom: bottomBorderStyle,
+        minWidth: widthPx,
+        maxWidth: widthPx,
+        width: widthPx,
         whiteSpace: "nowrap",
         overflow: "hidden",
         textOverflow: "ellipsis",
@@ -254,7 +273,9 @@ const AssetRow: React.FC<AssetRowProps & { hiddenColumns: Set<string> }> = ({
       {!hiddenColumns.has("thumbnail") && (
         <TableCell
           style={{
-            minWidth: 120,
+            minWidth: getColWidth("thumbnail"),
+            maxWidth: getColWidth("thumbnail"),
+            width: getColWidth("thumbnail"),
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -273,7 +294,16 @@ const AssetRow: React.FC<AssetRowProps & { hiddenColumns: Set<string> }> = ({
       )}
 
       {!hiddenColumns.has("group_1_name") && (
-        <TableCell style={{ minWidth: 140, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        <TableCell
+          style={{
+            minWidth: getColWidth("group_1_name"),
+            maxWidth: getColWidth("group_1_name"),
+            width: getColWidth("group_1_name"),
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
           {asset.group_1}
         </TableCell>
       )}
@@ -295,6 +325,7 @@ const AssetRow: React.FC<AssetRowProps & { hiddenColumns: Set<string> }> = ({
                 leftBorderStyle={borderLineStyle}
                 rightBorderStyle={"none"}
                 bottomBorderStyle={isLastRow ? borderLineStyle : "none"}
+                widthPx={getColWidth(workId)}
               />
             )}
             {!hiddenColumns.has(apprId) && (
@@ -304,6 +335,7 @@ const AssetRow: React.FC<AssetRowProps & { hiddenColumns: Set<string> }> = ({
                 leftBorderStyle={"none"}
                 rightBorderStyle={"none"}
                 bottomBorderStyle={isLastRow ? borderLineStyle : "none"}
+                widthPx={getColWidth(apprId)}
               />
             )}
             {!hiddenColumns.has(subId) && (
@@ -312,6 +344,9 @@ const AssetRow: React.FC<AssetRowProps & { hiddenColumns: Set<string> }> = ({
                   borderLeft: "none",
                   borderRight: borderLineStyle,
                   borderBottom: isLastRow ? borderLineStyle : "none",
+                  minWidth: getColWidth(subId),
+                  maxWidth: getColWidth(subId),
+                  width: getColWidth(subId),
                   whiteSpace: "nowrap",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
@@ -325,7 +360,16 @@ const AssetRow: React.FC<AssetRowProps & { hiddenColumns: Set<string> }> = ({
       })}
 
       {!hiddenColumns.has("relation") && (
-        <TableCell style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        <TableCell
+          style={{
+            minWidth: getColWidth("relation"),
+            maxWidth: getColWidth("relation"),
+            width: getColWidth("relation"),
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
           {asset.relation}
         </TableCell>
       )}
@@ -343,7 +387,16 @@ const AssetsDataTable: React.FC<
     onSortChange: (sortKey: string) => void;
     hiddenColumns: Set<string>;
   }
-> = ({ project, assets, tableFooter, dateTimeFormat, onSortChange, currentSortKey, currentSortDir, hiddenColumns }) => {
+> = ({
+  project,
+  assets,
+  tableFooter,
+  dateTimeFormat,
+  onSortChange,
+  currentSortKey,
+  currentSortDir,
+  hiddenColumns,
+}) => {
   if (project == null) return null;
 
   // Fetch thumbnails for visible rows
@@ -372,7 +425,6 @@ const AssetsDataTable: React.FC<
         onSortChange={onSortChange}
         currentSortKey={currentSortKey}
         currentSortDir={currentSortDir}
-        hiddenColumns={hiddenColumns}
       />
       <TableBody>
         {assets.map((asset, index) => (
