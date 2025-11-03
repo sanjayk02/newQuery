@@ -15,7 +15,7 @@ import { styled, useTheme } from '@material-ui/core/styles';
 import { ButtonProps } from '@material-ui/core/Button';
 import { SelectProps } from '@material-ui/core/Select';
 import { TextFieldProps } from '@material-ui/core/TextField';
-import { ChipDeleteFunction } from './types'
+import { ChipDeleteFunction } from './types';
 
 const StyledChipsDiv = styled('div')({
   display: 'flex',
@@ -65,13 +65,12 @@ const StyledTextField = styled(TextField)({
   minWidth: 180,
 });
 
-/* right-aligned container for the action buttons */
 const StyledFilterActions = styled('div')(({ theme }) => ({
   flexGrow: 1,
   display: 'flex',
   justifyContent: 'flex-end',
-  alignItems: 'flex-start',
-  gap: theme.spacing(1),
+  alignItems: 'center',
+  gap: theme.spacing(1.5), // ⬅️ adds nice spacing between buttons
   marginTop: theme.spacing(1),
   marginRight: theme.spacing(1),
   marginBottom: theme.spacing(0.5),
@@ -151,8 +150,7 @@ type FilterProps = {
   onApprovalStatusChipDelete: ChipDeleteFunction,
   onWorkStatusChipDelete: ChipDeleteFunction,
   onResetClick: ButtonProps['onClick'],
-  /** NEW: open the Columns visibility menu */
-  onOpenColumnsClick: ButtonProps['onClick'],
+  onOpenColumnsClick: ButtonProps['onClick'], // new prop
 };
 
 const AssetTableFilter: React.FC<FilterProps> = ({
@@ -165,7 +163,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
   onApprovalStatusChipDelete,
   onWorkStatusChipDelete,
   onResetClick,
-  onOpenColumnsClick,  // NEW
+  onOpenColumnsClick,
 }) => {
   const handleFilterKeyPress: TextFieldProps['onKeyPress'] = event => {
     if (event.key === 'Enter') {
@@ -188,6 +186,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
               onKeyPress={handleFilterKeyPress}
             />
           </StyledFilterForm>
+
           <FilterStatusSelect
             statusType="Approval Status"
             statuses={approvalStatuses}
@@ -195,6 +194,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
             onStatusesChange={onApprovalStatusesChange}
             onChipDelete={onApprovalStatusChipDelete}
           />
+
           <FilterStatusSelect
             statusType="Work Status"
             statuses={workStatuses}
@@ -202,10 +202,11 @@ const AssetTableFilter: React.FC<FilterProps> = ({
             onStatusesChange={onWorkStatusesChange}
             onChipDelete={onWorkStatusChipDelete}
           />
-          {/* Actions on the right: Reset + Columns side-by-side */}
+
+          {/* Actions: Columns left of Reset */}
           <StyledFilterActions>
-            <Button variant="outlined" onClick={onResetClick}>Reset</Button>
             <Button variant="outlined" onClick={onOpenColumnsClick}>Columns</Button>
+            <Button variant="outlined" onClick={onResetClick}>Reset</Button>
           </StyledFilterActions>
         </StyledDiv>
       </StyledPaper>
