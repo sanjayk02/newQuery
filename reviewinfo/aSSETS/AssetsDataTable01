@@ -30,10 +30,7 @@ const ASSET_PHASES: { [key: string]: Colors } = {
   ldv: { lineColor: "#fe5cff", backgroundColor: "#683566" },
 };
 
-type Status = Readonly<{
-  displayName: string;
-  color: string;
-}>;
+type Status = Readonly<{ displayName: string; color: string }>;
 
 const APPROVAL_STATUS: { [key: string]: Status } = {
   check: { displayName: "Check", color: "#ca25ed" },
@@ -71,8 +68,7 @@ const WORK_STATUS: { [key: string]: Status } = {
 
 /* ──────────────────────────────────────────────────────────────────────────
  * Column metadata
- *  - add a "flex" weight; widths are computed as (flex / sumVisibleFlex) * 100%
- *  - you can tune flex numbers to redistribute space
+ *  - uses "flex" weights; widths are computed as % of visible flex sum
  * ────────────────────────────────────────────────────────────────────────── */
 export const columns: (Column & { flex?: number })[] = [
   { id: "thumbnail", label: "Thumbnail", flex: 1.0 },
@@ -94,10 +90,15 @@ export const columns: (Column & { flex?: number })[] = [
   { id: "dsn_approval_status", label: "DSN APPR", colors: ASSET_PHASES["dsn"], sortable: true, sortKey: "dsn_appr", flex: 1.1 },
   { id: "dsn_submitted_at", label: "DSN Submitted At", colors: ASSET_PHASES["dsn"], sortable: true, sortKey: "dsn_submitted", flex: 1.3 },
 
+  /* ✅ LDV triplet that was missing */
+  { id: "ldv_work_status", label: "LDV WORK", colors: ASSET_PHASES["ldv"], sortable: true, sortKey: "ldv_work", flex: 1.1 },
+  { id: "ldv_approval_status", label: "LDV APPR", colors: ASSET_PHASES["ldv"], sortable: true, sortKey: "ldv_appr", flex: 1.1 },
+  { id: "ldv_submitted_at", label: "LDV Submitted At", colors: ASSET_PHASES["ldv"], sortable: true, sortKey: "ldv_submitted", flex: 1.3 },
+
   { id: "relation", label: "Relation", sortable: true, sortKey: "relation", flex: 1.0 },
 ];
 
-/* util: compute percent width map from visible columns */
+/* compute percent width per visible column */
 const percentWidths = (visible: typeof columns) => {
   const sum = visible.reduce((acc, c) => acc + (c.flex ?? 1), 0);
   const map = new Map<string, string>();
@@ -195,7 +196,7 @@ const MultiLineTooltipTableCell: React.FC<{
   width: string;
 }> = ({ tooltipText, status, leftBorderStyle, rightBorderStyle, bottomBorderStyle = "none", width }) => {
   const [open, setOpen] = React.useState(false);
-  const isTooltipText = !!(tooltipText && tooltipText.trim().length > 0);
+  const hasTooltip = !!(tooltipText && tooltipText.trim().length > 0);
   const statusText = status != null ? status["displayName"] : "-";
 
   return (
@@ -211,9 +212,9 @@ const MultiLineTooltipTableCell: React.FC<{
         overflow: "hidden",
         textOverflow: "ellipsis",
       }}
-      onClick={isTooltipText ? () => setOpen(true) : undefined}
+      onClick={hasTooltip ? () => setOpen(true) : undefined}
     >
-      {isTooltipText ? (
+      {hasTooltip ? (
         <Tooltip
           title={<div style={{ fontSize: "0.8rem", whiteSpace: "pre-wrap" }}>{tooltipText}</div>}
           onClose={() => setOpen(false)}
@@ -229,21 +230,15 @@ const MultiLineTooltipTableCell: React.FC<{
   );
 };
 
-const AssetRow: React.FC<AssetRowProps & { hiddenColumns: Set<string>; widthPct: Map<string, string> }> = ({
-  asset,
-  thumbnails,
-  dateTimeFormat,
-  isLastRow,
-  hiddenColumns,
-  widthPct,
-}) => {
+const AssetRow: React.FC<
+  AssetRowProps & { hiddenColumns: Set<string>; widthPct: Map<string, string> }
+> = ({ asset, thumbnails, dateTimeFormat, isLastRow, hiddenColumns, widthPct }) => {
   const getPhaseData = (phase: string) => {
     const workStatusKey = `${phase}_work_status` as keyof AssetPhaseSummary;
     const approvalStatusKey = `${phase}_approval_status` as keyof AssetPhaseSummary;
     const submittedAtKey = `${phase}_submitted_at_utc` as keyof AssetPhaseSummary;
 
-    const tooltipText: string = "";
-
+    const tooltipText = "";
     const workStatusValue = asset[workStatusKey];
     const approvalStatusValue = asset[approvalStatusKey];
     const submittedAtValue = asset[submittedAtKey];
@@ -363,7 +358,7 @@ const AssetRow: React.FC<AssetRowProps & { hiddenColumns: Set<string>; widthPct:
 };
 
 /* ──────────────────────────────────────────────────────────────────────────
- * Table (fits 100% width — no horizontal scrollbar)
+ * Table (fits container — no horizontal page scrollbar)
  * ────────────────────────────────────────────────────────────────────────── */
 const AssetsDataTable: React.FC<
   AssetsDataTableProps & {
@@ -389,7 +384,7 @@ const AssetsDataTable: React.FC<
     assets.map((a) => ({ name: a.group_1, relation: a.relation }))
   );
 
-  // Build one canonical list of visible columns
+  // Same visible columns for head & rows; compute % widths from them
   const visibleColumns = columns.filter(
     (c) => !hiddenColumns.has(c.id) || c.id === "thumbnail" || c.id === "group_1_name"
   );
@@ -399,10 +394,7 @@ const AssetsDataTable: React.FC<
     <Table
       stickyHeader
       size="small"
-      style={{
-        tableLayout: "fixed",
-        width: "100%",      // ⬅️ fit container width
-      }}
+      style={{ tableLayout: "fixed", width: "100%" }}
     >
       <RecordTableHead
         key="asset-data-table-head"
