@@ -2,7 +2,6 @@ import React from 'react';
 import {
   Button,
   Paper,
-  TextField,
   Menu,
   Checkbox,
   List,
@@ -10,11 +9,9 @@ import {
   ListItemText,
   Collapse,
   Divider,
-  Badge,
 } from '@material-ui/core';
 import { styled } from '@material-ui/core/styles';
 import { ButtonProps } from '@material-ui/core/Button';
-import { TextFieldProps } from '@material-ui/core/TextField';
 import {
   FilterList as FilterListIcon,
   ExpandMore as ExpandMoreIcon,
@@ -41,24 +38,13 @@ const TopRow = styled('div')(({ theme }) => ({
   alignItems: 'center',
 }));
 
-const LeftForm = styled('form')(({ theme }) => ({
-  '& .MuiTextField-root': {
-    margin: theme.spacing(1),
-  },
-}));
-
-const SearchField = styled(TextField)({
-  maxWidth: 200,
-  minWidth: 180,
-});
-
 const RightButtons = styled('div')({
-  flexGrow: 1,
+  width: '100%',
   display: 'flex',
   justifyContent: 'flex-end',
   alignItems: 'center',
   gap: 8,
-  margin: '8px 8px 4px 8px',
+  padding: '8px',
 });
 
 const FilterButton = styled(Button)({
@@ -74,8 +60,6 @@ const FilterButton = styled(Button)({
 /* ───────── props ───────── */
 
 type FilterProps = {
-  filterAssetName: string;
-  onAssetNameChange: TextFieldProps['onChange'];
   onResetClick: ButtonProps['onClick'];
 
   // column visibility (from parent)
@@ -86,27 +70,15 @@ type FilterProps = {
 /* ───────── main ───────── */
 
 const AssetTableFilter: React.FC<FilterProps> = ({
-  filterAssetName,
-  onAssetNameChange,
   onResetClick,
   visibleColumns,
   onToggleColumn,
 }) => {
-  const handleFilterKeyPress: TextFieldProps['onKeyPress'] = (event) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      return false;
-    }
-  };
-
   // Menu state
   const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
   const openMenu = (e: React.MouseEvent<HTMLButtonElement>) =>
     setAnchorEl(e.currentTarget);
   const closeMenu = () => setAnchorEl(null);
-
-  // Badge count (only Asset Name now)
-  const activeFiltersCount = filterAssetName?.trim() ? 1 : 0;
 
   // Collapse state for groups
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>({
@@ -170,17 +142,6 @@ const AssetTableFilter: React.FC<FilterProps> = ({
     <StyledFilterDiv>
       <StyledPaper>
         <TopRow>
-          <LeftForm>
-            <SearchField
-              id="filter-assetname"
-              type="search"
-              label="Asset Name"
-              value={filterAssetName}
-              onChange={onAssetNameChange}
-              onKeyPress={handleFilterKeyPress}
-            />
-          </LeftForm>
-
           <RightButtons>
             <FilterButton
               variant="contained"
@@ -188,15 +149,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
               startIcon={<FilterListIcon />}
               endIcon={<ExpandMoreIcon />}
             >
-              Filter&nbsp;
-              <Badge
-                badgeContent={activeFiltersCount}
-                color="secondary"
-                max={99}
-                overlap="rectangular"
-              >
-                <span style={{ display: 'inline-block', width: 0, height: 0 }} />
-              </Badge>
+              Filter
             </FilterButton>
 
             <Button variant="outlined" onClick={onResetClick}>
@@ -206,20 +159,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
 
           {/* Menu */}
           <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={closeMenu} keepMounted>
-            {/* Asset Name */}
-            <div style={{ padding: '10px 16px', maxWidth: 280 }}>
-              <TextField
-                fullWidth
-                label="Asset Name"
-                value={filterAssetName}
-                onChange={onAssetNameChange}
-                onKeyPress={handleFilterKeyPress}
-              />
-            </div>
-
-            <Divider />
-
-            {/* Columns – grouped, collapse/expand */}
+            {/* Title */}
             <div style={{ padding: '6px 16px', fontWeight: 600, opacity: 0.85 }}>
               Columns
             </div>
@@ -227,6 +167,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
             <List dense disablePadding>
               {COLUMN_GROUPS.map((grp, idx, arr) => (
                 <React.Fragment key={`grp-${grp.key}`}>
+                  {/* Group header (collapse/expand) */}
                   <ListItem
                     button
                     onClick={() => toggleGroup(grp.key)}
@@ -241,6 +182,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
                     {openGroups[grp.key] ? <ExpandLessIcon /> : <ExpandMoreIcon />}
                   </ListItem>
 
+                  {/* Group body */}
                   <Collapse in={openGroups[grp.key]} timeout="auto" unmountOnExit>
                     <List dense disablePadding style={{ paddingLeft: 24 }}>
                       {grp.items.map(({ id, label }) => (
@@ -259,7 +201,8 @@ const AssetTableFilter: React.FC<FilterProps> = ({
                               onToggleColumn(id);
                             }}
                           />
-                          <ListItemText primary={label} secondary={id} />
+                          {/* label only (no secondary id) */}
+                          <ListItemText primary={label} />
                         </ListItem>
                       ))}
                     </List>
@@ -280,6 +223,8 @@ const AssetTableFilter: React.FC<FilterProps> = ({
                 </React.Fragment>
               ))}
             </List>
+
+            <Divider />
           </Menu>
         </TopRow>
       </StyledPaper>
