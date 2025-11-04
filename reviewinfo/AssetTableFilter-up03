@@ -9,9 +9,16 @@ import {
   ListItemText,
   Collapse,
   Divider,
+  TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  SelectProps,
 } from '@material-ui/core';
 import { styled } from '@material-ui/core/styles';
 import { ButtonProps } from '@material-ui/core/Button';
+import { TextFieldProps } from '@material-ui/core/TextField';
 import {
   FilterList as FilterListIcon,
   ExpandMore as ExpandMoreIcon,
@@ -36,15 +43,23 @@ const TopRow = styled('div')(({ theme }) => ({
   display: 'flex',
   flexDirection: 'row',
   alignItems: 'center',
+  padding: '6px 8px',
+  gap: 8,
 }));
 
-const RightButtons = styled('div')({
-  width: '100%',
+const LeftControls = styled('div')({
   display: 'flex',
-  justifyContent: 'flex-end',
+  alignItems: 'center',
+  gap: 12,
+  flexWrap: 'wrap',
+  minHeight: 40,
+});
+
+const RightButtons = styled('div')({
+  marginLeft: 'auto',
+  display: 'flex',
   alignItems: 'center',
   gap: 8,
-  padding: '8px',
 });
 
 const FilterButton = styled(Button)({
@@ -57,9 +72,60 @@ const FilterButton = styled(Button)({
   '&:hover': { backgroundColor: '#1789be' },
 });
 
+const SmallField = styled(TextField)({
+  minWidth: 200,
+  maxWidth: 240,
+});
+
+const SmallFormControl = styled(FormControl)({
+  minWidth: 180,
+});
+
+/* ───────── options (static) ───────── */
+
+const APPROVAL_OPTIONS = [
+  'check',
+  'clientReview',
+  'dirReview',
+  'epdReview',
+  'clientOnHold',
+  'dirOnHold',
+  'epdOnHold',
+  'execRetake',
+  'clientRetake',
+  'dirRetake',
+  'epdRetake',
+  'clientApproved',
+  'dirApproved',
+  'epdApproved',
+  'other',
+  'omit',
+];
+
+const WORK_OPTIONS = [
+  'check',
+  'cgsvOnHold',
+  'svOnHold',
+  'leadOnHold',
+  'cgsvRetake',
+  'svRetake',
+  'leadRetake',
+  'cgsvApproved',
+  'svApproved',
+  'leadApproved',
+  'svOther',
+  'leadOther',
+];
+
 /* ───────── props ───────── */
 
 type FilterProps = {
+  filterAssetName: string;
+  approvalStatuses: string[];            // selected values
+  workStatuses: string[];                // selected values
+  onAssetNameChange: TextFieldProps['onChange'];
+  onApprovalStatusesChange: SelectProps['onChange'];
+  onWorkStatusesChange: SelectProps['onChange'];
   onResetClick: ButtonProps['onClick'];
 
   // column visibility (from parent)
@@ -70,6 +136,12 @@ type FilterProps = {
 /* ───────── main ───────── */
 
 const AssetTableFilter: React.FC<FilterProps> = ({
+  filterAssetName,
+  approvalStatuses,
+  workStatuses,
+  onAssetNameChange,
+  onApprovalStatusesChange,
+  onWorkStatusesChange,
   onResetClick,
   visibleColumns,
   onToggleColumn,
@@ -80,7 +152,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
     setAnchorEl(e.currentTarget);
   const closeMenu = () => setAnchorEl(null);
 
-  // Collapse state for groups
+  // Collapse state for groups in the menu
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>({
     MDL: true,
     RIG: true,
@@ -91,7 +163,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
   const toggleGroup = (key: keyof typeof openGroups) =>
     setOpenGroups((s) => ({ ...s, [key]: !s[key] }));
 
-  // Fixed phase groups (exactly 3 items each)
+  // Fixed phase groups (3 items each)
   const COLUMN_GROUPS: {
     key: 'MDL' | 'RIG' | 'BLD' | 'DSN' | 'LDV';
     items: { id: string; label: string }[];
@@ -142,6 +214,47 @@ const AssetTableFilter: React.FC<FilterProps> = ({
     <StyledFilterDiv>
       <StyledPaper>
         <TopRow>
+          {/* LEFT: inline controls (as in your screenshot) */}
+          <LeftControls>
+            <SmallField
+              label="Asset Name"
+              type="search"
+              value={filterAssetName}
+              onChange={onAssetNameChange}
+            />
+            <SmallFormControl>
+              <InputLabel id="appr-label">Approval Status</InputLabel>
+              <Select
+                labelId="appr-label"
+                value={approvalStatuses}
+                multiple
+                onChange={onApprovalStatusesChange}
+              >
+                {APPROVAL_OPTIONS.map((opt) => (
+                  <MenuItem key={opt} value={opt}>
+                    {opt}
+                  </MenuItem>
+                ))}
+              </Select>
+            </SmallFormControl>
+            <SmallFormControl>
+              <InputLabel id="work-label">Work Status</InputLabel>
+              <Select
+                labelId="work-label"
+                value={workStatuses}
+                multiple
+                onChange={onWorkStatusesChange}
+              >
+                {WORK_OPTIONS.map((opt) => (
+                  <MenuItem key={opt} value={opt}>
+                    {opt}
+                  </MenuItem>
+                ))}
+              </Select>
+            </SmallFormControl>
+          </LeftControls>
+
+          {/* RIGHT: Filter (columns menu) + Reset */}
           <RightButtons>
             <FilterButton
               variant="contained"
@@ -151,15 +264,13 @@ const AssetTableFilter: React.FC<FilterProps> = ({
             >
               Filter
             </FilterButton>
-
             <Button variant="outlined" onClick={onResetClick}>
               Reset
             </Button>
           </RightButtons>
 
-          {/* Menu */}
+          {/* MENU: Columns only (collapsible groups) */}
           <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={closeMenu} keepMounted>
-            {/* Title */}
             <div style={{ padding: '6px 16px', fontWeight: 600, opacity: 0.85 }}>
               Columns
             </div>
@@ -201,7 +312,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
                               onToggleColumn(id);
                             }}
                           />
-                          {/* label only (no secondary id) */}
+                          {/* label only */}
                           <ListItemText primary={label} />
                         </ListItem>
                       ))}
