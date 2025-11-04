@@ -1,0 +1,506 @@
+import React from 'react';
+import {
+  Button,
+  Chip,
+  FormControl,
+  Input,
+  InputLabel,
+  MenuItem,
+  Paper,
+  Select,
+  TextField,
+  Theme,
+  Menu,
+  Checkbox,
+  ListItemText,
+  Divider,
+  Badge,
+  List,
+  ListItem,
+  Collapse,
+} from '@material-ui/core';
+import { styled, useTheme } from '@material-ui/core/styles';
+import { ButtonProps } from '@material-ui/core/Button';
+import { SelectProps } from '@material-ui/core/Select';
+import { TextFieldProps } from '@material-ui/core/TextField';
+import { ChipDeleteFunction } from './types';
+import {
+  FilterList as FilterListIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
+} from '@material-ui/icons';
+
+/* ───────── styled components ───────── */
+
+const StyledChipsDiv = styled('div')({
+  display: 'flex',
+  flexWrap: 'wrap',
+});
+
+const StyledChip = styled(Chip)({
+  margin: 2,
+});
+
+const StyledFormControl = styled(FormControl)(({ theme }) => ({
+  margin: theme.spacing(1),
+  minWidth: 120,
+  maxWidth: 300,
+}));
+
+const StyledFilterDiv = styled('div')({
+  minHeight: 70,
+});
+
+const StyledPaper = styled(Paper)({
+  width: '100%',
+  display: 'flex',
+  flexDirection: 'column',
+  overflow: 'auto',
+});
+
+const StyledDiv = styled('div')(({ theme }) => ({
+  backgroundColor: theme.palette.background.paper,
+  display: 'flex',
+  flexDirection: 'row',
+  alignItems: 'center',
+}));
+
+const StyledFilterForm = styled('form')(({ theme }) => ({
+  '& .MuiTextField-root': {
+    margin: theme.spacing(1),
+    marginRight: 0,
+  },
+  '& .MuiTextField-root:last-child': {
+    marginRight: theme.spacing(1),
+  },
+}));
+
+const StyledTextField = styled(TextField)({
+  maxWidth: 200,
+  minWidth: 180,
+});
+
+const StyledFilterResetForm = styled('form')(({ theme }) => ({
+  flexGrow: 1,
+  display: 'flex',
+  justifyContent: 'flex-end',
+  alignItems: 'center',
+  gap: 8,
+  marginTop: 8,
+  marginRight: 8,
+  marginBottom: 4,
+}));
+
+const FilterButton = styled(Button)({
+  backgroundColor: '#1e9bd7',
+  color: '#fff',
+  textTransform: 'none',
+  borderRadius: 6,
+  padding: '4px 10px',
+  minHeight: 32,
+  '&:hover': { backgroundColor: '#1789be' },
+});
+
+/* ───────── data for status selects ───────── */
+
+const approvalStatuses = [
+  'check',
+  'clientReview',
+  'dirReview',
+  'epdReview',
+  'clientOnHold',
+  'dirOnHold',
+  'epdOnHold',
+  'execRetake',
+  'clientRetake',
+  'dirRetake',
+  'epdRetake',
+  'clientApproved',
+  'dirApproved',
+  'epdApproved',
+  'other',
+  'omit',
+];
+
+const workStatuses = [
+  'check',
+  'cgsvOnHold',
+  'svOnHold',
+  'leadOnHold',
+  'cgsvRetake',
+  'svRetake',
+  'leadRetake',
+  'cgsvApproved',
+  'svApproved',
+  'leadApproved',
+  'svOther',
+  'leadOther',
+];
+
+function getStyles(name: string, statuses: string[], theme: Theme) {
+  return {
+    fontWeight:
+      statuses.indexOf(name) === -1
+        ? theme.typography.fontWeightRegular
+        : theme.typography.fontWeightMedium,
+  };
+}
+
+/* ───────── small helper component (kept from your original) ───────── */
+
+type StatusSelectProps = {
+  statusType: string;
+  statuses: string[];
+  selectStatuses: string[];
+  onStatusesChange: SelectProps['onChange'];
+  onChipDelete: ChipDeleteFunction;
+};
+
+const FilterStatusSelect: React.FC<StatusSelectProps> = ({
+  statusType,
+  statuses,
+  selectStatuses,
+  onStatusesChange,
+  onChipDelete,
+}) => {
+  const itemHeight = 48;
+  const itemPaddingTop = 8;
+  const theme = useTheme();
+  const MenuProps = {
+    PaperProps: {
+      style: {
+        maxHeight: itemHeight * 4.5 + itemPaddingTop,
+        width: 250,
+      },
+    },
+  };
+
+  return (
+    <StyledFormControl>
+      <InputLabel id={`${statusType}-chip-label`}>{statusType}</InputLabel>
+      <Select
+        labelId={`${statusType}-chip-label`}
+        multiple
+        value={selectStatuses}
+        onChange={onStatusesChange}
+        input={<Input id={`${statusType}-input-chip`} />}
+        renderValue={(selected) => (
+          <StyledChipsDiv>
+            {(selected as string[]).map((value) => (
+              <StyledChip
+                key={value}
+                label={value}
+                onDelete={() => onChipDelete(value)}
+                onMouseDown={(event) => {
+                  event.stopPropagation();
+                }}
+              />
+            ))}
+          </StyledChipsDiv>
+        )}
+        MenuProps={MenuProps}
+      >
+        {statuses.map((status) => (
+          <MenuItem
+            key={status}
+            value={status}
+            style={getStyles(status, selectStatuses, theme)}
+          >
+            {status}
+          </MenuItem>
+        ))}
+      </Select>
+    </StyledFormControl>
+  );
+};
+
+/* ───────── props ───────── */
+
+type FilterProps = {
+  filterAssetName: string;
+  selectApprovalStatuses: string[];
+  selectWorkStatuses: string[];
+  onAssetNameChange: TextFieldProps['onChange'];
+  onApprovalStatusesChange: SelectProps['onChange'];
+  onWorkStatusesChange: SelectProps['onChange'];
+  onApprovalStatusChipDelete: ChipDeleteFunction;
+  onWorkStatusChipDelete: ChipDeleteFunction;
+  onResetClick: ButtonProps['onClick'];
+
+  // NEW: per-column visibility controls provided by parent
+  visibleColumns: Record<string, boolean>;
+  onToggleColumn: (id: string) => void;
+};
+
+/* ───────── main ───────── */
+
+const AssetTableFilter: React.FC<FilterProps> = ({
+  filterAssetName,
+  selectApprovalStatuses,
+  selectWorkStatuses,
+  onAssetNameChange,
+  onApprovalStatusesChange,
+  onWorkStatusesChange,
+  onApprovalStatusChipDelete,
+  onWorkStatusChipDelete,
+  onResetClick,
+
+  visibleColumns,
+  onToggleColumn,
+}) => {
+  const handleFilterKeyPress: TextFieldProps['onKeyPress'] = (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      return false;
+    }
+  };
+
+  /* menu state */
+  const [filterAnchorEl, setFilterAnchorEl] =
+    React.useState<null | HTMLElement>(null);
+  const openFilterMenu = (e: React.MouseEvent<HTMLButtonElement>) =>
+    setFilterAnchorEl(e.currentTarget);
+  const closeFilterMenu = () => setFilterAnchorEl(null);
+
+  /* toggle helpers for statuses */
+  const toggleApproval = (status: string) => {
+    const next = selectApprovalStatuses.includes(status)
+      ? selectApprovalStatuses.filter((s) => s !== status)
+      : [...selectApprovalStatuses, status];
+    onApprovalStatusesChange({ target: { value: next } } as any);
+  };
+  const toggleWork = (status: string) => {
+    const next = selectWorkStatuses.includes(status)
+      ? selectWorkStatuses.filter((s) => s !== status)
+      : [...selectWorkStatuses, status];
+    onWorkStatusesChange({ target: { value: next } } as any);
+  };
+
+  /* badge count */
+  const activeFiltersCount =
+    (filterAssetName?.trim() ? 1 : 0) +
+    (selectApprovalStatuses?.length || 0) +
+    (selectWorkStatuses?.length || 0);
+
+  /* collapsible state for column groups */
+  const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>({
+    MDL: true,
+    RIG: true,
+    BLD: true,
+    DSN: true,
+    LDV: true,
+  });
+  const toggleGroup = (key: keyof typeof openGroups) =>
+    setOpenGroups((s) => ({ ...s, [key]: !s[key] }));
+
+  /* column groups (exactly as requested) */
+  const COLUMN_GROUPS: {
+    key: 'MDL' | 'RIG' | 'BLD' | 'DSN' | 'LDV';
+    items: { id: string; label: string }[];
+  }[] = [
+    {
+      key: 'MDL',
+      items: [
+        { id: 'mdl_work_status', label: 'MDL WORK' },
+        { id: 'mdl_approval_status', label: 'MDL APPR' },
+        { id: 'mdl_submitted_at', label: 'MDL SUBMITTED AT' },
+      ],
+    },
+    {
+      key: 'RIG',
+      items: [
+        { id: 'rig_work_status', label: 'RIG WORK' },
+        { id: 'rig_approval_status', label: 'RIG APPR' },
+        { id: 'rig_submitted_at', label: 'RIG SUBMITTED AT' },
+      ],
+    },
+    {
+      key: 'BLD',
+      items: [
+        { id: 'bld_work_status', label: 'BLD WORK' },
+        { id: 'bld_approval_status', label: 'BLD APPR' },
+        { id: 'bld_submitted_at', label: 'BLD SUBMITTED AT' },
+      ],
+    },
+    {
+      key: 'DSN',
+      items: [
+        { id: 'dsn_work_status', label: 'DSN WORK' },
+        { id: 'dsn_approval_status', label: 'DSN APPR' },
+        { id: 'dsn_submitted_at', label: 'DSN SUBMITTED AT' },
+      ],
+    },
+    {
+      key: 'LDV',
+      items: [
+        { id: 'ldv_work_status', label: 'LDV WORK' },
+        { id: 'ldv_approval_status', label: 'LDV APPR' },
+        { id: 'ldv_submitted_at', label: 'LDV SUBMITTED AT' },
+      ],
+    },
+  ];
+
+  return (
+    <StyledFilterDiv>
+      <StyledPaper>
+        <StyledDiv>
+          <StyledFilterForm>
+            <StyledTextField
+              id="filter-assetname"
+              type="search"
+              label="Asset Name"
+              value={filterAssetName}
+              onChange={onAssetNameChange}
+              onKeyPress={handleFilterKeyPress}
+            />
+          </StyledFilterForm>
+
+          {/* keep (optional) chip selects in the bar */}
+          <FilterStatusSelect
+            statusType="Approval Status"
+            statuses={approvalStatuses}
+            selectStatuses={selectApprovalStatuses}
+            onStatusesChange={onApprovalStatusesChange}
+            onChipDelete={onApprovalStatusChipDelete}
+          />
+          <FilterStatusSelect
+            statusType="Work Status"
+            statuses={workStatuses}
+            selectStatuses={selectWorkStatuses}
+            onStatusesChange={onWorkStatusesChange}
+            onChipDelete={onWorkStatusChipDelete}
+          />
+
+          <StyledFilterResetForm>
+            <FilterButton
+              variant="contained"
+              onClick={openFilterMenu}
+              startIcon={<FilterListIcon />}
+              endIcon={<ExpandMoreIcon />}
+            >
+              Filter&nbsp;
+              <Badge
+                badgeContent={activeFiltersCount}
+                color="secondary"
+                max={99}
+                overlap="rectangular"
+              >
+                <span style={{ display: 'inline-block', width: 0, height: 0 }} />
+              </Badge>
+            </FilterButton>
+
+            <Button variant="outlined" onClick={onResetClick}>
+              Reset
+            </Button>
+          </StyledFilterResetForm>
+
+          {/* the popup menu */}
+          <Menu
+            anchorEl={filterAnchorEl}
+            open={Boolean(filterAnchorEl)}
+            onClose={closeFilterMenu}
+            keepMounted
+          >
+            {/* Asset Name */}
+            <div style={{ padding: '10px 16px', maxWidth: 280 }}>
+              <TextField
+                fullWidth
+                label="Asset Name"
+                value={filterAssetName}
+                onChange={onAssetNameChange}
+                onKeyPress={handleFilterKeyPress}
+              />
+            </div>
+
+            <Divider />
+
+            {/* Approval statuses: each item separate */}
+            {approvalStatuses.map((s) => (
+              <MenuItem key={`appr-${s}`} onClick={() => toggleApproval(s)} dense>
+                <Checkbox checked={selectApprovalStatuses.includes(s)} />
+                <ListItemText primary={s} />
+              </MenuItem>
+            ))}
+
+            <Divider />
+
+            {/* Work statuses: each item separate */}
+            {workStatuses.map((s) => (
+              <MenuItem key={`work-${s}`} onClick={() => toggleWork(s)} dense>
+                <Checkbox checked={selectWorkStatuses.includes(s)} />
+                <ListItemText primary={s} />
+              </MenuItem>
+            ))}
+
+            <Divider />
+
+            {/* Columns – grouped, collapse/expand, no All/None */}
+            <div style={{ padding: '6px 16px', fontWeight: 600, opacity: 0.85 }}>
+              Columns
+            </div>
+            <List dense disablePadding>
+              {COLUMN_GROUPS.map((grp, idx, arr) => (
+                <React.Fragment key={`grp-${grp.key}`}>
+                  {/* group header */}
+                  <ListItem
+                    button
+                    onClick={() => toggleGroup(grp.key)}
+                    style={{ padding: '6px 16px' }}
+                  >
+                    <ListItemText
+                      primary={grp.key}
+                      primaryTypographyProps={{
+                        style: { fontWeight: 700, letterSpacing: 0.4 },
+                      }}
+                    />
+                    {openGroups[grp.key] ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                  </ListItem>
+
+                  {/* group body */}
+                  <Collapse in={openGroups[grp.key]} timeout="auto" unmountOnExit>
+                    <List dense disablePadding style={{ paddingLeft: 24 }}>
+                      {grp.items.map(({ id, label }) => (
+                        <ListItem
+                          key={`col-${id}`}
+                          style={{ padding: '4px 16px' }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleColumn(id);
+                          }}
+                        >
+                          <Checkbox
+                            checked={!!visibleColumns[id]}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              onToggleColumn(id);
+                            }}
+                          />
+                          <ListItemText primary={label} secondary={id} />
+                        </ListItem>
+                      ))}
+                    </List>
+                  </Collapse>
+
+                  {/* dashed separator */}
+                  {idx < arr.length - 1 && (
+                    <div
+                      style={{
+                        margin: '4px 16px',
+                        opacity: 0.35,
+                        userSelect: 'none',
+                      }}
+                    >
+                      --------------------------------
+                    </div>
+                  )}
+                </React.Fragment>
+              ))}
+            </List>
+          </Menu>
+        </StyledDiv>
+      </StyledPaper>
+    </StyledFilterDiv>
+  );
+};
+
+export default AssetTableFilter;
