@@ -1,29 +1,20 @@
 import React from 'react';
 import {
   Button,
-  Chip,
-  FormControl,
-  Input,
-  InputLabel,
-  MenuItem,
   Paper,
-  Select,
   TextField,
-  Theme,
   Menu,
   Checkbox,
-  ListItemText,
-  Divider,
-  Badge,
   List,
   ListItem,
+  ListItemText,
   Collapse,
+  Divider,
+  Badge,
 } from '@material-ui/core';
-import { styled, useTheme } from '@material-ui/core/styles';
+import { styled } from '@material-ui/core/styles';
 import { ButtonProps } from '@material-ui/core/Button';
-import { SelectProps } from '@material-ui/core/Select';
 import { TextFieldProps } from '@material-ui/core/TextField';
-import { ChipDeleteFunction } from './types';
 import {
   FilterList as FilterListIcon,
   ExpandMore as ExpandMoreIcon,
@@ -31,21 +22,6 @@ import {
 } from '@material-ui/icons';
 
 /* ───────── styled components ───────── */
-
-const StyledChipsDiv = styled('div')({
-  display: 'flex',
-  flexWrap: 'wrap',
-});
-
-const StyledChip = styled(Chip)({
-  margin: 2,
-});
-
-const StyledFormControl = styled(FormControl)(({ theme }) => ({
-  margin: theme.spacing(1),
-  minWidth: 120,
-  maxWidth: 300,
-}));
 
 const StyledFilterDiv = styled('div')({
   minHeight: 70,
@@ -58,38 +34,32 @@ const StyledPaper = styled(Paper)({
   overflow: 'auto',
 });
 
-const StyledDiv = styled('div')(({ theme }) => ({
+const TopRow = styled('div')(({ theme }) => ({
   backgroundColor: theme.palette.background.paper,
   display: 'flex',
   flexDirection: 'row',
   alignItems: 'center',
 }));
 
-const StyledFilterForm = styled('form')(({ theme }) => ({
+const LeftForm = styled('form')(({ theme }) => ({
   '& .MuiTextField-root': {
     margin: theme.spacing(1),
-    marginRight: 0,
-  },
-  '& .MuiTextField-root:last-child': {
-    marginRight: theme.spacing(1),
   },
 }));
 
-const StyledTextField = styled(TextField)({
+const SearchField = styled(TextField)({
   maxWidth: 200,
   minWidth: 180,
 });
 
-const StyledFilterResetForm = styled('form')(({ theme }) => ({
+const RightButtons = styled('div')({
   flexGrow: 1,
   display: 'flex',
   justifyContent: 'flex-end',
   alignItems: 'center',
   gap: 8,
-  marginTop: 8,
-  marginRight: 8,
-  marginBottom: 4,
-}));
+  margin: '8px 8px 4px 8px',
+});
 
 const FilterButton = styled(Button)({
   backgroundColor: '#1e9bd7',
@@ -101,133 +71,14 @@ const FilterButton = styled(Button)({
   '&:hover': { backgroundColor: '#1789be' },
 });
 
-/* ───────── data for status selects ───────── */
-
-const approvalStatuses = [
-  'check',
-  'clientReview',
-  'dirReview',
-  'epdReview',
-  'clientOnHold',
-  'dirOnHold',
-  'epdOnHold',
-  'execRetake',
-  'clientRetake',
-  'dirRetake',
-  'epdRetake',
-  'clientApproved',
-  'dirApproved',
-  'epdApproved',
-  'other',
-  'omit',
-];
-
-const workStatuses = [
-  'check',
-  'cgsvOnHold',
-  'svOnHold',
-  'leadOnHold',
-  'cgsvRetake',
-  'svRetake',
-  'leadRetake',
-  'cgsvApproved',
-  'svApproved',
-  'leadApproved',
-  'svOther',
-  'leadOther',
-];
-
-function getStyles(name: string, statuses: string[], theme: Theme) {
-  return {
-    fontWeight:
-      statuses.indexOf(name) === -1
-        ? theme.typography.fontWeightRegular
-        : theme.typography.fontWeightMedium,
-  };
-}
-
-/* ───────── small helper component (kept from your original) ───────── */
-
-type StatusSelectProps = {
-  statusType: string;
-  statuses: string[];
-  selectStatuses: string[];
-  onStatusesChange: SelectProps['onChange'];
-  onChipDelete: ChipDeleteFunction;
-};
-
-const FilterStatusSelect: React.FC<StatusSelectProps> = ({
-  statusType,
-  statuses,
-  selectStatuses,
-  onStatusesChange,
-  onChipDelete,
-}) => {
-  const itemHeight = 48;
-  const itemPaddingTop = 8;
-  const theme = useTheme();
-  const MenuProps = {
-    PaperProps: {
-      style: {
-        maxHeight: itemHeight * 4.5 + itemPaddingTop,
-        width: 250,
-      },
-    },
-  };
-
-  return (
-    <StyledFormControl>
-      <InputLabel id={`${statusType}-chip-label`}>{statusType}</InputLabel>
-      <Select
-        labelId={`${statusType}-chip-label`}
-        multiple
-        value={selectStatuses}
-        onChange={onStatusesChange}
-        input={<Input id={`${statusType}-input-chip`} />}
-        renderValue={(selected) => (
-          <StyledChipsDiv>
-            {(selected as string[]).map((value) => (
-              <StyledChip
-                key={value}
-                label={value}
-                onDelete={() => onChipDelete(value)}
-                onMouseDown={(event) => {
-                  event.stopPropagation();
-                }}
-              />
-            ))}
-          </StyledChipsDiv>
-        )}
-        MenuProps={MenuProps}
-      >
-        {statuses.map((status) => (
-          <MenuItem
-            key={status}
-            value={status}
-            style={getStyles(status, selectStatuses, theme)}
-          >
-            {status}
-          </MenuItem>
-        ))}
-      </Select>
-    </StyledFormControl>
-  );
-};
-
 /* ───────── props ───────── */
 
 type FilterProps = {
   filterAssetName: string;
-  selectApprovalStatuses: string[];
-  selectWorkStatuses: string[];
   onAssetNameChange: TextFieldProps['onChange'];
-  onApprovalStatusesChange: SelectProps['onChange'];
-  onWorkStatusesChange: SelectProps['onChange'];
-  onApprovalStatusChipDelete: ChipDeleteFunction;
-  onWorkStatusChipDelete: ChipDeleteFunction;
   onResetClick: ButtonProps['onClick'];
 
-  // NEW: per-column visibility controls provided by parent
+  // column visibility (from parent)
   visibleColumns: Record<string, boolean>;
   onToggleColumn: (id: string) => void;
 };
@@ -236,15 +87,8 @@ type FilterProps = {
 
 const AssetTableFilter: React.FC<FilterProps> = ({
   filterAssetName,
-  selectApprovalStatuses,
-  selectWorkStatuses,
   onAssetNameChange,
-  onApprovalStatusesChange,
-  onWorkStatusesChange,
-  onApprovalStatusChipDelete,
-  onWorkStatusChipDelete,
   onResetClick,
-
   visibleColumns,
   onToggleColumn,
 }) => {
@@ -255,34 +99,16 @@ const AssetTableFilter: React.FC<FilterProps> = ({
     }
   };
 
-  /* menu state */
-  const [filterAnchorEl, setFilterAnchorEl] =
-    React.useState<null | HTMLElement>(null);
-  const openFilterMenu = (e: React.MouseEvent<HTMLButtonElement>) =>
-    setFilterAnchorEl(e.currentTarget);
-  const closeFilterMenu = () => setFilterAnchorEl(null);
+  // Menu state
+  const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
+  const openMenu = (e: React.MouseEvent<HTMLButtonElement>) =>
+    setAnchorEl(e.currentTarget);
+  const closeMenu = () => setAnchorEl(null);
 
-  /* toggle helpers for statuses */
-  const toggleApproval = (status: string) => {
-    const next = selectApprovalStatuses.includes(status)
-      ? selectApprovalStatuses.filter((s) => s !== status)
-      : [...selectApprovalStatuses, status];
-    onApprovalStatusesChange({ target: { value: next } } as any);
-  };
-  const toggleWork = (status: string) => {
-    const next = selectWorkStatuses.includes(status)
-      ? selectWorkStatuses.filter((s) => s !== status)
-      : [...selectWorkStatuses, status];
-    onWorkStatusesChange({ target: { value: next } } as any);
-  };
+  // Badge count (only Asset Name now)
+  const activeFiltersCount = filterAssetName?.trim() ? 1 : 0;
 
-  /* badge count */
-  const activeFiltersCount =
-    (filterAssetName?.trim() ? 1 : 0) +
-    (selectApprovalStatuses?.length || 0) +
-    (selectWorkStatuses?.length || 0);
-
-  /* collapsible state for column groups */
+  // Collapse state for groups
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>({
     MDL: true,
     RIG: true,
@@ -293,7 +119,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
   const toggleGroup = (key: keyof typeof openGroups) =>
     setOpenGroups((s) => ({ ...s, [key]: !s[key] }));
 
-  /* column groups (exactly as requested) */
+  // Fixed phase groups (exactly 3 items each)
   const COLUMN_GROUPS: {
     key: 'MDL' | 'RIG' | 'BLD' | 'DSN' | 'LDV';
     items: { id: string; label: string }[];
@@ -343,9 +169,9 @@ const AssetTableFilter: React.FC<FilterProps> = ({
   return (
     <StyledFilterDiv>
       <StyledPaper>
-        <StyledDiv>
-          <StyledFilterForm>
-            <StyledTextField
+        <TopRow>
+          <LeftForm>
+            <SearchField
               id="filter-assetname"
               type="search"
               label="Asset Name"
@@ -353,28 +179,12 @@ const AssetTableFilter: React.FC<FilterProps> = ({
               onChange={onAssetNameChange}
               onKeyPress={handleFilterKeyPress}
             />
-          </StyledFilterForm>
+          </LeftForm>
 
-          {/* keep (optional) chip selects in the bar */}
-          <FilterStatusSelect
-            statusType="Approval Status"
-            statuses={approvalStatuses}
-            selectStatuses={selectApprovalStatuses}
-            onStatusesChange={onApprovalStatusesChange}
-            onChipDelete={onApprovalStatusChipDelete}
-          />
-          <FilterStatusSelect
-            statusType="Work Status"
-            statuses={workStatuses}
-            selectStatuses={selectWorkStatuses}
-            onStatusesChange={onWorkStatusesChange}
-            onChipDelete={onWorkStatusChipDelete}
-          />
-
-          <StyledFilterResetForm>
+          <RightButtons>
             <FilterButton
               variant="contained"
-              onClick={openFilterMenu}
+              onClick={openMenu}
               startIcon={<FilterListIcon />}
               endIcon={<ExpandMoreIcon />}
             >
@@ -392,15 +202,10 @@ const AssetTableFilter: React.FC<FilterProps> = ({
             <Button variant="outlined" onClick={onResetClick}>
               Reset
             </Button>
-          </StyledFilterResetForm>
+          </RightButtons>
 
-          {/* the popup menu */}
-          <Menu
-            anchorEl={filterAnchorEl}
-            open={Boolean(filterAnchorEl)}
-            onClose={closeFilterMenu}
-            keepMounted
-          >
+          {/* Menu */}
+          <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={closeMenu} keepMounted>
             {/* Asset Name */}
             <div style={{ padding: '10px 16px', maxWidth: 280 }}>
               <TextField
@@ -414,34 +219,14 @@ const AssetTableFilter: React.FC<FilterProps> = ({
 
             <Divider />
 
-            {/* Approval statuses: each item separate */}
-            {approvalStatuses.map((s) => (
-              <MenuItem key={`appr-${s}`} onClick={() => toggleApproval(s)} dense>
-                <Checkbox checked={selectApprovalStatuses.includes(s)} />
-                <ListItemText primary={s} />
-              </MenuItem>
-            ))}
-
-            <Divider />
-
-            {/* Work statuses: each item separate */}
-            {workStatuses.map((s) => (
-              <MenuItem key={`work-${s}`} onClick={() => toggleWork(s)} dense>
-                <Checkbox checked={selectWorkStatuses.includes(s)} />
-                <ListItemText primary={s} />
-              </MenuItem>
-            ))}
-
-            <Divider />
-
-            {/* Columns – grouped, collapse/expand, no All/None */}
+            {/* Columns – grouped, collapse/expand */}
             <div style={{ padding: '6px 16px', fontWeight: 600, opacity: 0.85 }}>
               Columns
             </div>
+
             <List dense disablePadding>
               {COLUMN_GROUPS.map((grp, idx, arr) => (
                 <React.Fragment key={`grp-${grp.key}`}>
-                  {/* group header */}
                   <ListItem
                     button
                     onClick={() => toggleGroup(grp.key)}
@@ -456,7 +241,6 @@ const AssetTableFilter: React.FC<FilterProps> = ({
                     {openGroups[grp.key] ? <ExpandLessIcon /> : <ExpandMoreIcon />}
                   </ListItem>
 
-                  {/* group body */}
                   <Collapse in={openGroups[grp.key]} timeout="auto" unmountOnExit>
                     <List dense disablePadding style={{ paddingLeft: 24 }}>
                       {grp.items.map(({ id, label }) => (
@@ -497,7 +281,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
               ))}
             </List>
           </Menu>
-        </StyledDiv>
+        </TopRow>
       </StyledPaper>
     </StyledFilterDiv>
   );
