@@ -15,6 +15,7 @@ import {
   Select,
   MenuItem,
   SelectProps,
+  FormControlLabel,
 } from '@material-ui/core';
 import { styled } from '@material-ui/core/styles';
 import { ButtonProps } from '@material-ui/core/Button';
@@ -25,7 +26,7 @@ import {
   ExpandLess as ExpandLessIcon,
 } from '@material-ui/icons';
 
-/* ───────── styled components ───────── */
+/* ───────────────── styled ───────────────── */
 
 const StyledFilterDiv = styled('div')({
   minHeight: 70,
@@ -81,7 +82,7 @@ const SmallFormControl = styled(FormControl)({
   minWidth: 180,
 });
 
-/* ───────── options (static) ───────── */
+/* ───────────────── options ───────────────── */
 
 const APPROVAL_OPTIONS = [
   'check',
@@ -117,7 +118,7 @@ const WORK_OPTIONS = [
   'leadOther',
 ];
 
-/* ───────── props ───────── */
+/* ───────────────── props ───────────────── */
 
 type FilterProps = {
   filterAssetName: string;
@@ -133,7 +134,7 @@ type FilterProps = {
   onToggleColumn: (id: string) => void;
 };
 
-/* ───────── main ───────── */
+/* ───────────────── component ───────────────── */
 
 const AssetTableFilter: React.FC<FilterProps> = ({
   filterAssetName,
@@ -152,7 +153,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
     setAnchorEl(e.currentTarget);
   const closeMenu = () => setAnchorEl(null);
 
-  // Collapse state for groups in the menu
+  // Collapse state for groups (menu)
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>({
     MDL: true,
     RIG: true,
@@ -214,7 +215,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
     <StyledFilterDiv>
       <StyledPaper>
         <TopRow>
-          {/* LEFT: inline controls (as in your screenshot) */}
+          {/* LEFT: inline controls (screenshot style) */}
           <LeftControls>
             <SmallField
               label="Asset Name"
@@ -254,7 +255,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
             </SmallFormControl>
           </LeftControls>
 
-          {/* RIGHT: Filter (columns menu) + Reset */}
+          {/* RIGHT: Filter (Columns menu) + Reset */}
           <RightButtons>
             <FilterButton
               variant="contained"
@@ -269,7 +270,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
             </Button>
           </RightButtons>
 
-          {/* MENU: Columns only (collapsible groups) */}
+          {/* MENU: Columns only (collapsible, compact, label-click toggles) */}
           <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={closeMenu} keepMounted>
             <div style={{ padding: '6px 16px', fontWeight: 600, opacity: 0.85 }}>
               Columns
@@ -278,7 +279,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
             <List dense disablePadding>
               {COLUMN_GROUPS.map((grp, idx, arr) => (
                 <React.Fragment key={`grp-${grp.key}`}>
-                  {/* Group header (collapse/expand) */}
+                  {/* Group header */}
                   <ListItem
                     button
                     onClick={() => toggleGroup(grp.key)}
@@ -293,43 +294,44 @@ const AssetTableFilter: React.FC<FilterProps> = ({
                     {openGroups[grp.key] ? <ExpandLessIcon /> : <ExpandMoreIcon />}
                   </ListItem>
 
-                  {/* Group body */}
+                  {/* Group body (tight rows; label toggles checkbox) */}
                   <Collapse in={openGroups[grp.key]} timeout="auto" unmountOnExit>
-                    <List dense disablePadding style={{ paddingLeft: 24 }}>
+                    <List dense disablePadding style={{ paddingLeft: 12 }}>
                       {grp.items.map(({ id, label }) => (
-                        <ListItem
-                          key={`col-${id}`}
-                          style={{ padding: '4px 16px' }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onToggleColumn(id);
-                          }}
-                        >
-                          <Checkbox
-                            checked={!!visibleColumns[id]}
-                            onChange={(e) => {
-                              e.stopPropagation();
-                              onToggleColumn(id);
-                            }}
+                        <ListItem key={`col-${id}`} dense disableGutters style={{ padding: '0 8px' }}>
+                          <FormControlLabel
+                            onClick={(e) => e.stopPropagation()} // don’t close/collapse
+                            control={
+                              <Checkbox
+                                size="small"
+                                checked={!!visibleColumns[id]}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  onToggleColumn(id);
+                                }}
+                              />
+                            }
+                            label={
+                              <span style={{ fontSize: 13, lineHeight: 1.1 }}>
+                                {label}
+                              </span>
+                            }
+                            style={{ margin: '2px 0' }} // tighten vertical spacing
                           />
-                          {/* label only */}
-                          <ListItemText primary={label} />
                         </ListItem>
                       ))}
                     </List>
                   </Collapse>
 
-                  {/* dashed separator */}
+                  {/* compact separator */}
                   {idx < arr.length - 1 && (
                     <div
                       style={{
-                        margin: '4px 16px',
-                        opacity: 0.35,
-                        userSelect: 'none',
+                        height: 1,
+                        background: 'rgba(255,255,255,0.18)',
+                        margin: '6px 12px',
                       }}
-                    >
-                      --------------------------------
-                    </div>
+                    />
                   )}
                 </React.Fragment>
               ))}
