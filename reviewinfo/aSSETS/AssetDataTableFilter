@@ -10,6 +10,10 @@ import {
   Select,
   TextField,
   Theme,
+  Menu,             // >>> ADDED
+  Checkbox,         // >>> ADDED
+  ListItemText,     // >>> ADDED
+  Divider,          // >>> ADDED
 } from '@material-ui/core';
 import { styled, useTheme } from '@material-ui/core/styles';
 import { ButtonProps } from '@material-ui/core/Button';
@@ -47,7 +51,7 @@ const StyledDiv = styled('div')(({ theme }) => ({
   backgroundColor: theme.palette.background.paper,
   display: 'flex',
   flexDirection: 'row',
-  width: '100%',
+  alignItems: 'center', // >>> ADDED: a bit nicer vertical align
 }));
 
 const StyledFilterForm = styled('form')(({ theme }) => ({
@@ -65,30 +69,61 @@ const StyledTextField = styled(TextField)({
   minWidth: 180,
 });
 
-const StyledFilterActions = styled('div')(({ theme }) => ({
+const StyledFilterResetForm = styled('form')(({ theme }) => ({
   flexGrow: 1,
   display: 'flex',
   justifyContent: 'flex-end',
-  alignItems: 'center',
-  gap: theme.spacing(1.5), // ⬅️ adds nice spacing between buttons
+  alignItems: 'center',                 // >>> ADDED
+  gap: theme.spacing(1),                // >>> ADDED: spacing between buttons
   marginTop: theme.spacing(1),
   marginRight: theme.spacing(1),
   marginBottom: theme.spacing(0.5),
 }));
 
+// ------------------ STATUS SOURCES (already in your file) ------------------
+// We will reuse these as flat checklists inside the menu.
 const approvalStatuses = [
-  'check','clientReview','dirReview','epdReview','clientOnHold','dirOnHold','epdOnHold',
-  'execRetake','clientRetake','dirRetake','epdRetake','clientApproved','dirApproved','epdApproved','other','omit',
+  'check',
+  'clientReview',
+  'dirReview',
+  'epdReview',
+  'clientOnHold',
+  'dirOnHold',
+  'epdOnHold',
+  'execRetake',
+  'clientRetake',
+  'dirRetake',
+  'epdRetake',
+  'clientApproved',
+  'dirApproved',
+  'epdApproved',
+  'other',
+  'omit',
 ];
 
 const workStatuses = [
-  'check','cgsvOnHold','svOnHold','leadOnHold','cgsvRetake','svRetake','leadRetake',
-  'cgsvApproved','svApproved','leadApproved','svOther','leadOther',
+  'check',
+  'cgsvOnHold',
+  'svOnHold',
+  'leadOnHold',
+  'cgsvRetake',
+  'svRetake',
+  'leadRetake',
+  'cgsvApproved',
+  'svApproved',
+  'leadApproved',
+  'svOther',
+  'leadOther',
 ];
 
 function getStyles(name: string, statuses: string[], theme: Theme) {
-  return { fontWeight: statuses.indexOf(name) === -1 ? theme.typography.fontWeightRegular : theme.typography.fontWeightMedium };
-};
+  return {
+    fontWeight:
+      statuses.indexOf(name) === -1
+        ? theme.typography.fontWeightRegular
+        : theme.typography.fontWeightMedium,
+  };
+}
 
 type StatusSelectProps = {
   statusType: string,
@@ -98,17 +133,31 @@ type StatusSelectProps = {
   onChipDelete: ChipDeleteFunction,
 };
 
+// KEEP: your existing multi-select (not used in the menu, but keeping it intact)
 const FilterStatusSelect: React.FC<StatusSelectProps> = ({
-  statusType, statuses, selectStatuses, onStatusesChange, onChipDelete,
+  statusType,
+  statuses,
+  selectStatuses,
+  onStatusesChange,
+  onChipDelete,
 }) => {
   const itemHeight = 48;
   const itemPaddingTop = 8;
   const theme = useTheme();
-  const MenuProps = { PaperProps: { style: { maxHeight: itemHeight * 4.5 + itemPaddingTop, width: 250 } } };
+  const MenuProps = {
+    PaperProps: {
+      style: {
+        maxHeight: itemHeight * 4.5 + itemPaddingTop,
+        width: 250,
+      },
+    },
+  };
 
   return (
     <StyledFormControl>
-      <InputLabel id="filter-chip-label">{statusType}</InputLabel>
+      <InputLabel id="filter-chip-label">
+        {statusType}
+      </InputLabel>
       <Select
         labelId="select-chip-label"
         id="select-mutiple-chip"
@@ -120,8 +169,7 @@ const FilterStatusSelect: React.FC<StatusSelectProps> = ({
           <StyledChipsDiv>
             {(selected as string[]).map((value) => (
               <StyledChip
-                key={value}
-                label={value}
+                key={value} label={value}
                 onDelete={() => onChipDelete(value)}
                 onMouseDown={(event) => { event.stopPropagation(); }}
               />
@@ -131,7 +179,11 @@ const FilterStatusSelect: React.FC<StatusSelectProps> = ({
         MenuProps={MenuProps}
       >
         {statuses.map((status) => (
-          <MenuItem key={status} value={status} style={getStyles(status, selectStatuses, theme)}>
+          <MenuItem
+            key={status}
+            value={status}
+            style={getStyles(status, selectStatuses, theme)}
+          >
             {status}
           </MenuItem>
         ))}
@@ -150,7 +202,6 @@ type FilterProps = {
   onApprovalStatusChipDelete: ChipDeleteFunction,
   onWorkStatusChipDelete: ChipDeleteFunction,
   onResetClick: ButtonProps['onClick'],
-  onOpenColumnsClick: ButtonProps['onClick'], // new prop
 };
 
 const AssetTableFilter: React.FC<FilterProps> = ({
@@ -163,7 +214,6 @@ const AssetTableFilter: React.FC<FilterProps> = ({
   onApprovalStatusChipDelete,
   onWorkStatusChipDelete,
   onResetClick,
-  onOpenColumnsClick,
 }) => {
   const handleFilterKeyPress: TextFieldProps['onKeyPress'] = event => {
     if (event.key === 'Enter') {
@@ -172,10 +222,38 @@ const AssetTableFilter: React.FC<FilterProps> = ({
     }
   };
 
+  // ------------------ >>> ADDED: Filter menu state & helpers ------------------
+  const [filterMenuAnchor, setFilterMenuAnchor] = React.useState<null | HTMLElement>(null);
+  const filterMenuOpen = Boolean(filterMenuAnchor);
+  const openFilterMenu = (e: React.MouseEvent<HTMLButtonElement>) => setFilterMenuAnchor(e.currentTarget);
+  const closeFilterMenu = () => setFilterMenuAnchor(null);
+
+  // Toggle helpers that reuse your existing onChange props
+  const toggleApproval = (status: string) => {
+    const next = selectApprovalStatuses.includes(status)
+      ? selectApprovalStatuses.filter(s => s !== status)
+      : [...selectApprovalStatuses, status];
+    onApprovalStatusesChange({ target: { value: next } } as any);
+  };
+
+  const toggleWork = (status: string) => {
+    const next = selectWorkStatuses.includes(status)
+      ? selectWorkStatuses.filter(s => s !== status)
+      : [...selectWorkStatuses, status];
+    onWorkStatusesChange({ target: { value: next } } as any);
+  };
+
+  // Count for optional future badge
+  const activeFiltersCount =
+    (filterAssetName && filterAssetName.trim() !== '' ? 1 : 0) +
+    (selectApprovalStatuses ? selectApprovalStatuses.length : 0) +
+    (selectWorkStatuses ? selectWorkStatuses.length : 0);
+
   return (
     <StyledFilterDiv>
       <StyledPaper>
         <StyledDiv>
+          {/* Keep your inline Asset Name input in the bar */}
           <StyledFilterForm>
             <StyledTextField
               id="filter-assetname"
@@ -187,6 +265,9 @@ const AssetTableFilter: React.FC<FilterProps> = ({
             />
           </StyledFilterForm>
 
+          {/* (Optional) keep the chip-style selects visible in-bar if you want
+              or remove these two blocks to rely only on the popup menu */}
+          {/* 
           <FilterStatusSelect
             statusType="Approval Status"
             statuses={approvalStatuses}
@@ -194,7 +275,6 @@ const AssetTableFilter: React.FC<FilterProps> = ({
             onStatusesChange={onApprovalStatusesChange}
             onChipDelete={onApprovalStatusChipDelete}
           />
-
           <FilterStatusSelect
             statusType="Work Status"
             statuses={workStatuses}
@@ -202,12 +282,74 @@ const AssetTableFilter: React.FC<FilterProps> = ({
             onStatusesChange={onWorkStatusesChange}
             onChipDelete={onWorkStatusChipDelete}
           />
+          */}
 
-          {/* Actions: Columns left of Reset */}
-          <StyledFilterActions>
-            <Button variant="outlined" onClick={onOpenColumnsClick}>Columns</Button>
-            <Button variant="outlined" onClick={onResetClick}>Reset</Button>
-          </StyledFilterActions>
+          <StyledFilterResetForm>
+            {/* >>> ADDED: Filter menu trigger button */}
+            <Button
+              variant="contained"
+              onClick={openFilterMenu}
+            >
+              Filter {activeFiltersCount > 0 ? `(${activeFiltersCount})` : ''}
+            </Button>
+
+            {/* Existing Reset button (unchanged) */}
+            <Button
+              variant="outlined"
+              onClick={onResetClick}
+            >
+              Reset
+            </Button>
+          </StyledFilterResetForm>
+
+          {/* >>> ADDED: The flat, ungrouped checklist menu */}
+          <Menu
+            anchorEl={filterMenuAnchor}
+            open={filterMenuOpen}
+            onClose={closeFilterMenu}
+            keepMounted
+          >
+            {/* Asset Name inline inside menu */}
+            <div style={{ padding: '8px 16px', maxWidth: 280 }}>
+              <TextField
+                fullWidth
+                label="Asset Name"
+                value={filterAssetName}
+                onChange={onAssetNameChange}
+                onKeyPress={handleFilterKeyPress}
+              />
+            </div>
+
+            <Divider />
+
+            {/* Flat APPROVAL STATUS list */}
+            {approvalStatuses.map((s) => (
+              <MenuItem key={`appr-${s}`} onClick={() => toggleApproval(s)} dense>
+                <Checkbox
+                  edge="start"
+                  checked={selectApprovalStatuses.includes(s)}
+                  tabIndex={-1}
+                  disableRipple
+                />
+                <ListItemText primary={s} />
+              </MenuItem>
+            ))}
+
+            <Divider />
+
+            {/* Flat WORK STATUS list */}
+            {workStatuses.map((s) => (
+              <MenuItem key={`work-${s}`} onClick={() => toggleWork(s)} dense>
+                <Checkbox
+                  edge="start"
+                  checked={selectWorkStatuses.includes(s)}
+                  tabIndex={-1}
+                  disableRipple
+                />
+                <ListItemText primary={s} />
+              </MenuItem>
+            ))}
+          </Menu>
         </StyledDiv>
       </StyledPaper>
     </StyledFilterDiv>
