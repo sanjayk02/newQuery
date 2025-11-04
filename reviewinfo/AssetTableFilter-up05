@@ -1,4 +1,6 @@
 import React from 'react';
+
+// v4 root imports
 import {
   Button,
   Paper,
@@ -10,23 +12,25 @@ import {
   Collapse,
   Divider,
   TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  SelectProps,
-  FormControlLabel,
 } from '@material-ui/core';
-import { styled } from '@material-ui/core/styles';
+
+// v4 module-path imports
+import FormControl from '@material-ui/core/FormControl';
+import InputLabel from '@material-ui/core/InputLabel';
+import Select from '@material-ui/core/Select';
+import MenuItem from '@material-ui/core/MenuItem';
+
 import { ButtonProps } from '@material-ui/core/Button';
 import { TextFieldProps } from '@material-ui/core/TextField';
+
+import { styled } from '@material-ui/core/styles';
 import {
   FilterList as FilterListIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
 } from '@material-ui/icons';
 
-/* ───────────────── styled ───────────────── */
+/* ───────── styled ───────── */
 
 const StyledFilterDiv = styled('div')({
   minHeight: 70,
@@ -82,7 +86,7 @@ const SmallFormControl = styled(FormControl)({
   minWidth: 180,
 });
 
-/* ───────────────── options ───────────────── */
+/* ───────── options ───────── */
 
 const APPROVAL_OPTIONS = [
   'check',
@@ -118,15 +122,15 @@ const WORK_OPTIONS = [
   'leadOther',
 ];
 
-/* ───────────────── props ───────────────── */
+/* ───────── props ───────── */
 
 type FilterProps = {
   filterAssetName: string;
-  approvalStatuses: string[];            // selected values
-  workStatuses: string[];                // selected values
+  approvalStatuses: string[]; // selected values
+  workStatuses: string[];     // selected values
   onAssetNameChange: TextFieldProps['onChange'];
-  onApprovalStatusesChange: SelectProps['onChange'];
-  onWorkStatusesChange: SelectProps['onChange'];
+  onApprovalStatusesChange: (e: React.ChangeEvent<{ value: unknown }>) => void;
+  onWorkStatusesChange: (e: React.ChangeEvent<{ value: unknown }>) => void;
   onResetClick: ButtonProps['onClick'];
 
   // column visibility (from parent)
@@ -134,7 +138,7 @@ type FilterProps = {
   onToggleColumn: (id: string) => void;
 };
 
-/* ───────────────── component ───────────────── */
+/* ───────── component ───────── */
 
 const AssetTableFilter: React.FC<FilterProps> = ({
   filterAssetName,
@@ -147,13 +151,13 @@ const AssetTableFilter: React.FC<FilterProps> = ({
   visibleColumns,
   onToggleColumn,
 }) => {
-  // Menu state
+  // filter menu state
   const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
   const openMenu = (e: React.MouseEvent<HTMLButtonElement>) =>
     setAnchorEl(e.currentTarget);
   const closeMenu = () => setAnchorEl(null);
 
-  // Collapse state for groups (menu)
+  // collapse state for menu groups
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>({
     MDL: true,
     RIG: true,
@@ -164,7 +168,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
   const toggleGroup = (key: keyof typeof openGroups) =>
     setOpenGroups((s) => ({ ...s, [key]: !s[key] }));
 
-  // Fixed phase groups (3 items each)
+  // column groups shown in the menu
   const COLUMN_GROUPS: {
     key: 'MDL' | 'RIG' | 'BLD' | 'DSN' | 'LDV';
     items: { id: string; label: string }[];
@@ -215,7 +219,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
     <StyledFilterDiv>
       <StyledPaper>
         <TopRow>
-          {/* LEFT: inline controls (screenshot style) */}
+          {/* LEFT: inline (as per your screenshot) */}
           <LeftControls>
             <SmallField
               label="Asset Name"
@@ -227,8 +231,8 @@ const AssetTableFilter: React.FC<FilterProps> = ({
               <InputLabel id="appr-label">Approval Status</InputLabel>
               <Select
                 labelId="appr-label"
-                value={approvalStatuses}
                 multiple
+                value={approvalStatuses}
                 onChange={onApprovalStatusesChange}
               >
                 {APPROVAL_OPTIONS.map((opt) => (
@@ -242,8 +246,8 @@ const AssetTableFilter: React.FC<FilterProps> = ({
               <InputLabel id="work-label">Work Status</InputLabel>
               <Select
                 labelId="work-label"
-                value={workStatuses}
                 multiple
+                value={workStatuses}
                 onChange={onWorkStatusesChange}
               >
                 {WORK_OPTIONS.map((opt) => (
@@ -255,7 +259,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
             </SmallFormControl>
           </LeftControls>
 
-          {/* RIGHT: Filter (Columns menu) + Reset */}
+          {/* RIGHT: Filter (columns) + Reset */}
           <RightButtons>
             <FilterButton
               variant="contained"
@@ -270,7 +274,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
             </Button>
           </RightButtons>
 
-          {/* MENU: Columns only (collapsible, compact, label-click toggles) */}
+          {/* MENU: Columns only (compact, label+checkbox toggle) */}
           <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={closeMenu} keepMounted>
             <div style={{ padding: '6px 16px', fontWeight: 600, opacity: 0.85 }}>
               Columns
@@ -294,42 +298,60 @@ const AssetTableFilter: React.FC<FilterProps> = ({
                     {openGroups[grp.key] ? <ExpandLessIcon /> : <ExpandMoreIcon />}
                   </ListItem>
 
-                  {/* Group body (tight rows; label toggles checkbox) */}
+                  {/* Group body (space-tight & reliable toggle) */}
                   <Collapse in={openGroups[grp.key]} timeout="auto" unmountOnExit>
-                    <List dense disablePadding style={{ paddingLeft: 12 }}>
-                      {grp.items.map(({ id, label }) => (
-                        <ListItem key={`col-${id}`} dense disableGutters style={{ padding: '0 8px' }}>
-                          <FormControlLabel
-                            onClick={(e) => e.stopPropagation()} // don’t close/collapse
-                            control={
-                              <Checkbox
-                                size="small"
-                                checked={!!visibleColumns[id]}
-                                onChange={(e) => {
-                                  e.stopPropagation();
-                                  onToggleColumn(id);
-                                }}
-                              />
-                            }
-                            label={
-                              <span style={{ fontSize: 13, lineHeight: 1.1 }}>
-                                {label}
-                              </span>
-                            }
-                            style={{ margin: '2px 0' }} // tighten vertical spacing
-                          />
-                        </ListItem>
-                      ))}
+                    <List
+                      dense
+                      disablePadding
+                      style={{ paddingLeft: 12, marginTop: 2, marginBottom: 6 }}
+                    >
+                      {grp.items.map(({ id, label }) => {
+                        const checked = !!visibleColumns[id]; // coerce undefined -> false
+                        return (
+                          <div
+                            key={`col-${id}`}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              padding: '2px 10px',
+                            }}
+                          >
+                            <Checkbox
+                              size="small"
+                              checked={checked}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                onToggleColumn(id);
+                              }}
+                              style={{ padding: 4, marginRight: 6 }}
+                            />
+                            <span
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onToggleColumn(id); // label toggles too
+                              }}
+                              style={{
+                                fontSize: 13,
+                                lineHeight: '16px',
+                                cursor: 'pointer',
+                                userSelect: 'none',
+                              }}
+                            >
+                              {label}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </List>
                   </Collapse>
 
-                  {/* compact separator */}
+                  {/* Compact separator */}
                   {idx < arr.length - 1 && (
                     <div
                       style={{
                         height: 1,
                         background: 'rgba(255,255,255,0.18)',
-                        margin: '6px 12px',
+                        margin: '6px 10px',
                       }}
                     />
                   )}
