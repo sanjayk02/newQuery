@@ -104,7 +104,7 @@ const FilterButtonWrap = styled('div')({
   alignItems: 'center',
 });
 
-/* Compact drawer section: override default paddings/margins and shrink fonts */
+/* Compact drawer section: override paddings/margins and shrink fonts */
 const StyledExpansionDetails = styled(ExpansionPanelDetails)(({ theme }) => ({
   paddingTop: 2,
   paddingBottom: 2,
@@ -122,6 +122,8 @@ const StyledExpansionDetails = styled(ExpansionPanelDetails)(({ theme }) => ({
   },
   '& .MuiFormControlLabel-label': {
     fontSize: 11,
+    whiteSpace: 'normal',
+    wordBreak: 'break-word',
   },
 }));
 
@@ -131,37 +133,24 @@ const PriorityText = styled('div')({
   marginTop: 2,
 });
 
-/* Kill outer gaps on panels and summaries to remove all extra space */
+/* Kill outer gaps on panels and summaries to remove extra space */
 const CompactExpansionPanel = styled(ExpansionPanel)({
   margin: 0,
   padding: 0,
   boxShadow: 'none',
   borderRadius: 0,
-  borderTop: '1px solid rgba(255,255,255,0.08)', // subtle separator
-  '&:first-of-type': {
-    borderTop: 'none',
-  },
-  '&:before': {
-    display: 'none',
-  },
-  '&.Mui-expanded': {
-    margin: 0,
-  },
+  borderTop: '1px solid rgba(255,255,255,0.08)',
+  '&:first-of-type': { borderTop: 'none' },
+  '&:before': { display: 'none' },
+  '&.Mui-expanded': { margin: 0 },
 });
 
 const CompactSummary = styled(ExpansionPanelSummary)({
   minHeight: 24,
   padding: '0 6px',
-  '& .MuiExpansionPanelSummary-content': {
-    margin: 0,
-    padding: 0,
-  },
-  '& .MuiExpansionPanelSummary-content.Mui-expanded': {
-    margin: 0,
-  },
-  '&.Mui-expanded': {
-    minHeight: 24,
-  },
+  '& .MuiExpansionPanelSummary-content': { margin: 0, padding: 0 },
+  '& .MuiExpansionPanelSummary-content.Mui-expanded': { margin: 0 },
+  '&.Mui-expanded': { minHeight: 24 },
 });
 
 /* -------------------------------------------------------------- */
@@ -336,6 +325,18 @@ const AssetTableFilter: React.FC<FilterProps> = ({
       onPhasePriorityChange(String(phase));
     };
 
+  // NEW: toggle all helper
+  const setAll = (value: boolean) => {
+    setChecked({
+      mdl: { work: value, appr: value, submitted: value },
+      rig: { work: value, appr: value, submitted: value },
+      bld: { work: value, appr: value, submitted: value },
+      dsn: { work: value, appr: value, submitted: value },
+      ldv: { work: value, appr: value, submitted: value },
+    });
+    // phasePriority stays as-is (we're just showing/hiding)
+  };
+
   const PHASES: Array<{ id: 'mdl' | 'rig' | 'bld' | 'dsn' | 'ldv'; label: string }> = [
     { id: 'mdl', label: 'MDL' },
     { id: 'rig', label: 'RIG' },
@@ -400,22 +401,40 @@ const AssetTableFilter: React.FC<FilterProps> = ({
         </StyledDiv>
       </StyledPaper>
 
-      {/* Drawer RIGHT (fixed size + internal scroll) */}
+      {/* Drawer RIGHT (fixed size + vertical scroll, offset from top) */}
       <Drawer
         anchor="right"
         open={drawerOpen}
         onClose={toggleDrawer(false)}
         PaperProps={{
           style: {
-            width: 200,       // fixed width
-            height: '70vh',   // fixed height
+            width: 200,          // fixed width
+            height: '70vh',      // fixed height
             display: 'flex',
+            position: 'fixed',
+            top: 60,             // open a bit lower
+            right: 0,
           },
         }}
+        ModalProps={{ keepMounted: true }}
       >
         {/* container fills the paper and scrolls internally */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ flex: 1, overflowY: 'auto', paddingTop: 2 }}>
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            overflowX: 'hidden',  // no horizontal scroll
+          }}
+        >
+          <div
+            style={{
+              flex: 1,
+              overflowY: 'auto',
+              overflowX: 'hidden', // no horizontal scroll
+              paddingTop: 2,
+            }}
+          >
             {PHASES.map((phase) => (
               <CompactExpansionPanel key={phase.id} defaultExpanded>
                 <CompactSummary expandIcon={<ExpandMoreIcon />}>
@@ -466,8 +485,24 @@ const AssetTableFilter: React.FC<FilterProps> = ({
             ))}
           </div>
 
-          {/* Footer row (sticks to bottom of drawer) */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: 6 }}>
+          {/* Drawer footer: Show all / Hide all + Close */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '6px 8px',
+            }}
+          >
+            <div>
+              <Button size="small" onClick={() => setAll(true)}>
+                Show all
+              </Button>
+              <Button size="small" onClick={() => setAll(false)}>
+                Hide all
+              </Button>
+            </div>
+
             <Button onClick={toggleDrawer(false)}>Close</Button>
           </div>
         </div>
