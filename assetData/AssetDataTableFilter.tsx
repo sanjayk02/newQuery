@@ -80,7 +80,6 @@ const LeftWrap = styled('div')({
 const RightWrap = styled('div')(({ theme }) => ({
   display: 'flex',
   alignItems: 'center',
-  // theme.spacing is typed differently on some setups; cast for safety
   gap: (theme.spacing as any)(1.5),
   marginRight: (theme.spacing as any)(1),
 }));
@@ -107,23 +106,20 @@ const FilterButtonWrap = styled('div')({
 
 /* Compact drawer section: override default paddings/margins and shrink fonts */
 const StyledExpansionDetails = styled(ExpansionPanelDetails)(({ theme }) => ({
-  paddingTop: 4,
-  paddingBottom: 4,
+  paddingTop: 2,
+  paddingBottom: 2,
   paddingLeft: 6,
   paddingRight: 6,
   display: 'flex',
   flexDirection: 'column',
-  // tighten each checkbox row
   '& .MuiFormControlLabel-root': {
     marginLeft: -4,
-    marginTop: 1,
-    marginBottom: 1,
+    marginTop: 0,
+    marginBottom: 0,
   },
-  // shrink checkbox visual padding a bit
   '& .MuiCheckbox-root': {
     padding: 2,
   },
-  // smaller labels
   '& .MuiFormControlLabel-label': {
     fontSize: 11,
   },
@@ -141,17 +137,30 @@ const CompactExpansionPanel = styled(ExpansionPanel)({
   padding: 0,
   boxShadow: 'none',
   borderRadius: 0,
+  borderTop: '1px solid rgba(255,255,255,0.08)', // subtle separator
+  '&:first-of-type': {
+    borderTop: 'none',
+  },
   '&:before': {
     display: 'none',
+  },
+  '&.Mui-expanded': {
+    margin: 0,
   },
 });
 
 const CompactSummary = styled(ExpansionPanelSummary)({
-  minHeight: 28,
+  minHeight: 24,
   padding: '0 6px',
   '& .MuiExpansionPanelSummary-content': {
     margin: 0,
     padding: 0,
+  },
+  '& .MuiExpansionPanelSummary-content.Mui-expanded': {
+    margin: 0,
+  },
+  '&.Mui-expanded': {
+    minHeight: 24,
   },
 });
 
@@ -391,12 +400,24 @@ const AssetTableFilter: React.FC<FilterProps> = ({
         </StyledDiv>
       </StyledPaper>
 
-      {/* Drawer RIGHT (narrow & compact) */}
-      <Drawer anchor="right" open={drawerOpen} onClose={toggleDrawer(false)}>
-        <div style={{ width: 200, paddingTop: 4 }}>
-          {PHASES.map((phase) => (
-            <React.Fragment key={phase.id}>
-              <CompactExpansionPanel defaultExpanded>
+      {/* Drawer RIGHT (fixed size + internal scroll) */}
+      <Drawer
+        anchor="right"
+        open={drawerOpen}
+        onClose={toggleDrawer(false)}
+        PaperProps={{
+          style: {
+            width: 200,       // fixed width
+            height: '70vh',   // fixed height
+            display: 'flex',
+          },
+        }}
+      >
+        {/* container fills the paper and scrolls internally */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ flex: 1, overflowY: 'auto', paddingTop: 2 }}>
+            {PHASES.map((phase) => (
+              <CompactExpansionPanel key={phase.id} defaultExpanded>
                 <CompactSummary expandIcon={<ExpandMoreIcon />}>
                   <strong>{phase.label}</strong>
                 </CompactSummary>
@@ -442,12 +463,10 @@ const AssetTableFilter: React.FC<FilterProps> = ({
                   </PriorityText>
                 </StyledExpansionDetails>
               </CompactExpansionPanel>
+            ))}
+          </div>
 
-              {/* Remove this divider entirely if you want zero separation */}
-              <Divider style={{ margin: 0 }} />
-            </React.Fragment>
-          ))}
-
+          {/* Footer row (sticks to bottom of drawer) */}
           <div style={{ display: 'flex', justifyContent: 'flex-end', padding: 6 }}>
             <Button onClick={toggleDrawer(false)}>Close</Button>
           </div>
