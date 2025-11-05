@@ -27,7 +27,7 @@ import {
   ArrowDropDown as ArrowDropDownIcon,
 } from '@material-ui/icons';
 
-// MUI v4 names:
+// MUI v4 panel components
 import ExpansionPanel from '@material-ui/core/ExpansionPanel';
 import ExpansionPanelSummary from '@material-ui/core/ExpansionPanelSummary';
 import ExpansionPanelDetails from '@material-ui/core/ExpansionPanelDetails';
@@ -80,6 +80,7 @@ const LeftWrap = styled('div')({
 const RightWrap = styled('div')(({ theme }) => ({
   display: 'flex',
   alignItems: 'center',
+  // theme.spacing is typed differently on some setups; cast for safety
   gap: (theme.spacing as any)(1.5),
   marginRight: (theme.spacing as any)(1),
 }));
@@ -108,20 +109,19 @@ const FilterButtonWrap = styled('div')({
 const StyledExpansionDetails = styled(ExpansionPanelDetails)(({ theme }) => ({
   paddingTop: 4,
   paddingBottom: 4,
-  paddingLeft: 12,
-  paddingRight: 12,
+  paddingLeft: 6,
+  paddingRight: 6,
   display: 'flex',
   flexDirection: 'column',
-
   // tighten each checkbox row
   '& .MuiFormControlLabel-root': {
     marginLeft: -4,
-    marginTop: 2,
-    marginBottom: 2,
+    marginTop: 1,
+    marginBottom: 1,
   },
   // shrink checkbox visual padding a bit
   '& .MuiCheckbox-root': {
-    padding: 4,
+    padding: 2,
   },
   // smaller labels
   '& .MuiFormControlLabel-label': {
@@ -133,6 +133,26 @@ const PriorityText = styled('div')({
   fontSize: 10,
   opacity: 0.7,
   marginTop: 2,
+});
+
+/* Kill outer gaps on panels and summaries to remove all extra space */
+const CompactExpansionPanel = styled(ExpansionPanel)({
+  margin: 0,
+  padding: 0,
+  boxShadow: 'none',
+  borderRadius: 0,
+  '&:before': {
+    display: 'none',
+  },
+});
+
+const CompactSummary = styled(ExpansionPanelSummary)({
+  minHeight: 28,
+  padding: '0 6px',
+  '& .MuiExpansionPanelSummary-content': {
+    margin: 0,
+    padding: 0,
+  },
 });
 
 /* -------------------------------------------------------------- */
@@ -371,15 +391,15 @@ const AssetTableFilter: React.FC<FilterProps> = ({
         </StyledDiv>
       </StyledPaper>
 
-      {/* Drawer RIGHT */}
+      {/* Drawer RIGHT (narrow & compact) */}
       <Drawer anchor="right" open={drawerOpen} onClose={toggleDrawer(false)}>
-        <div style={{ width: 280, paddingTop: 8 }}>
+        <div style={{ width: 200, paddingTop: 4 }}>
           {PHASES.map((phase) => (
             <React.Fragment key={phase.id}>
-              <ExpansionPanel defaultExpanded>
-                <ExpansionPanelSummary expandIcon={<ExpandMoreIcon />}>
+              <CompactExpansionPanel defaultExpanded>
+                <CompactSummary expandIcon={<ExpandMoreIcon />}>
                   <strong>{phase.label}</strong>
-                </ExpansionPanelSummary>
+                </CompactSummary>
 
                 <StyledExpansionDetails>
                   <FormControlLabel
@@ -421,13 +441,14 @@ const AssetTableFilter: React.FC<FilterProps> = ({
                     </b>
                   </PriorityText>
                 </StyledExpansionDetails>
-              </ExpansionPanel>
+              </CompactExpansionPanel>
 
+              {/* Remove this divider entirely if you want zero separation */}
               <Divider style={{ margin: 0 }} />
             </React.Fragment>
           ))}
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: 6 }}>
             <Button onClick={toggleDrawer(false)}>Close</Button>
           </div>
         </div>
