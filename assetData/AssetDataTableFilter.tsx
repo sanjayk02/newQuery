@@ -16,9 +16,22 @@ import { styled, useTheme } from '@material-ui/core/styles';
 import { ButtonProps } from '@material-ui/core/Button';
 import { SelectProps } from '@material-ui/core/Select';
 import { TextFieldProps } from '@material-ui/core/TextField';
-import { ChipDeleteFunction } from './types'
-import { ExpandMore as ExpandMoreIcon, FilterList as FilterListIcon, ArrowDropDown as ArrowDropDownIcon } from '@material-ui/icons';
-import { Accordion, AccordionSummary, AccordionDetails, FormControlLabel, Checkbox, Divider } from '@material-ui/core';
+import { ChipDeleteFunction } from './types';
+
+import {
+  ExpandMore as ExpandMoreIcon,
+  ViewColumn as ViewColumnIcon,
+  ArrowDropDown as ArrowDropDownIcon,
+} from '@material-ui/icons';
+
+import {
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  FormControlLabel,
+  Checkbox,
+  Divider,
+} from '@material-ui/core';
 
 const StyledChipsDiv = styled('div')({
   display: 'flex',
@@ -50,6 +63,7 @@ const StyledDiv = styled('div')(({ theme }) => ({
   backgroundColor: theme.palette.background.paper,
   display: 'flex',
   flexDirection: 'row',
+  alignItems: 'center',
 }));
 
 const StyledFilterForm = styled('form')(({ theme }) => ({
@@ -68,7 +82,6 @@ const StyledTextField = styled(TextField)({
 });
 
 const StyledFilterResetForm = styled('form')(({ theme }) => ({
-  flexGrow: 1,
   display: 'flex',
   justifyContent: 'flex-end',
   marginTop: theme.spacing(1),
@@ -76,13 +89,18 @@ const StyledFilterResetForm = styled('form')(({ theme }) => ({
   marginBottom: theme.spacing(0.5),
 }));
 
-// ADDED :  FilterButtonWrap
 const FilterButtonWrap = styled('div')(({ theme }) => ({
   display: 'flex',
   alignItems: 'center',
   marginLeft: theme.spacing(1),
+  marginRight: theme.spacing(1),
   marginTop: theme.spacing(1),
 }));
+
+
+/* ------------------------------------------------------------------ */
+/* APPROVAL + WORK STATUS SELECT                                      */
+/* ------------------------------------------------------------------ */
 
 const approvalStatuses = [
   'check',
@@ -125,14 +143,14 @@ function getStyles(name: string, statuses: string[], theme: Theme) {
         ? theme.typography.fontWeightRegular
         : theme.typography.fontWeightMedium,
   };
-};
+}
 
 type StatusSelectProps = {
-  statusType: string,
-  statuses: string[],
-  selectStatuses: string[],
-  onStatusesChange: SelectProps['onChange'],
-  onChipDelete: ChipDeleteFunction,
+  statusType: string;
+  statuses: string[];
+  selectStatuses: string[];
+  onStatusesChange: SelectProps['onChange'];
+  onChipDelete: ChipDeleteFunction;
 };
 
 const FilterStatusSelect: React.FC<StatusSelectProps> = ({
@@ -156,12 +174,9 @@ const FilterStatusSelect: React.FC<StatusSelectProps> = ({
 
   return (
     <StyledFormControl>
-      <InputLabel id="filter-chip-label">
-        {statusType}
-      </InputLabel>
+      <InputLabel id="filter-chip-label">{statusType}</InputLabel>
       <Select
         labelId="select-chip-label"
-        id="select-mutiple-chip"
         multiple
         value={selectStatuses}
         onChange={onStatusesChange}
@@ -170,9 +185,10 @@ const FilterStatusSelect: React.FC<StatusSelectProps> = ({
           <StyledChipsDiv>
             {(selected as string[]).map((value) => (
               <StyledChip
-                key={value} label={value}
+                key={value}
+                label={value}
                 onDelete={() => onChipDelete(value)}
-                onMouseDown={(event) => { event.stopPropagation(); }}
+                onMouseDown={(e) => e.stopPropagation()}
               />
             ))}
           </StyledChipsDiv>
@@ -193,49 +209,61 @@ const FilterStatusSelect: React.FC<StatusSelectProps> = ({
   );
 };
 
+
+/* ------------------------------------------------------------------ */
+/* PROPS                                                              */
+/* ------------------------------------------------------------------ */
+
 type FilterProps = {
-  filterAssetName: string,
-  selectApprovalStatuses: string[],
-  selectWorkStatuses: string[],
-  selectPhasePriority: string, // >>>> ADDED
-  onAssetNameChange: TextFieldProps['onChange'],
-  onApprovalStatusesChange: SelectProps['onChange'],
-  onWorkStatusesChange: SelectProps['onChange'],
-  onPhasePriorityChange: (phase: string) => void, // >>>> ADDED
-  onApprovalStatusChipDelete: ChipDeleteFunction,
-  onWorkStatusChipDelete: ChipDeleteFunction,
-  onResetClick: ButtonProps['onClick'],
+  filterAssetName: string;
+  selectApprovalStatuses: string[];
+  selectWorkStatuses: string[];
+  selectPhasePriority: string;
+  onAssetNameChange: TextFieldProps['onChange'];
+  onApprovalStatusesChange: SelectProps['onChange'];
+  onWorkStatusesChange: SelectProps['onChange'];
+  onPhasePriorityChange: (phase: string) => void;
+  onApprovalStatusChipDelete: ChipDeleteFunction;
+  onWorkStatusChipDelete: ChipDeleteFunction;
+  onResetClick: ButtonProps['onClick'];
 };
+
+
+/* ------------------------------------------------------------------ */
+/* MAIN                                                               */
+/* ------------------------------------------------------------------ */
 
 const AssetTableFilter: React.FC<FilterProps> = ({
   filterAssetName,
   selectApprovalStatuses,
   selectWorkStatuses,
-  selectPhasePriority, // >>>> ADDED
+  selectPhasePriority,
   onAssetNameChange,
   onApprovalStatusesChange,
   onWorkStatusesChange,
-  onPhasePriorityChange, // >>>> ADDED
+  onPhasePriorityChange,
   onApprovalStatusChipDelete,
   onWorkStatusChipDelete,
   onResetClick,
 }) => {
-  const handleFilterKeyPress: TextFieldProps['onKeyPress'] = event => {
+
+  /* Prevent ENTER from submitting the form */
+  const handleFilterKeyPress: TextFieldProps['onKeyPress'] = (event) => {
     if (event.key === 'Enter') {
       event.preventDefault();
       return false;
     }
   };
 
-  /** -----------------------------------------------------------------------------
-   * Drawer state and handlers
-   * ------------------------------------------------------------------------------*/  
-
+  /* Drawer toggle */
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const toggleDrawer = (open: boolean) => () => setDrawerOpen(open);
 
-  // UI only: remember which sub-items are checked (you can expand later if needed)
-  const [checked, setChecked] = React.useState<Record<string, Record<'work'|'appr'|'submitted', boolean>>>({
+  /* Phase checkbox state */
+  const [checked, setChecked] = React.useState<Record<
+    string,
+    Record<'work' | 'appr' | 'submitted', boolean>
+  >>({
     mdl: { work: false, appr: false, submitted: false },
     rig: { work: false, appr: false, submitted: false },
     bld: { work: false, appr: false, submitted: false },
@@ -243,17 +271,19 @@ const AssetTableFilter: React.FC<FilterProps> = ({
     ldv: { work: false, appr: false, submitted: false },
   });
 
-  const handlePhaseFieldToggle = (phase: keyof typeof checked, field: 'work'|'appr'|'submitted') =>
+  const handlePhaseFieldToggle =
+    (phase: keyof typeof checked, field: 'work' | 'appr' | 'submitted') =>
     (_e: React.ChangeEvent<HTMLInputElement>, value: boolean) => {
-      setChecked(prev => ({
+      setChecked((prev) => ({
         ...prev,
         [phase]: { ...prev[phase], [field]: value },
       }));
-      // Business decision: picking anything under a phase sets "phase priority"
+
+      // mark phase priority
       onPhasePriorityChange(String(phase));
     };
 
-  const PHASES: Array<{id:'mdl'|'rig'|'bld'|'dsn'|'ldv'; label:string}> = [
+  const PHASES: Array<{ id: 'mdl' | 'rig' | 'bld' | 'dsn' | 'ldv'; label: string }> = [
     { id: 'mdl', label: 'MDL' },
     { id: 'rig', label: 'RIG' },
     { id: 'bld', label: 'BLD' },
@@ -262,68 +292,82 @@ const AssetTableFilter: React.FC<FilterProps> = ({
   ];
 
 
-   return (
-     <StyledFilterDiv>
-       <StyledPaper>
-         <StyledDiv>
-           <StyledFilterForm>
-             <StyledTextField
-               id="filter-assetname"
-               type="search"
-               label="Asset Name"
-               value={filterAssetName}
-               onChange={onAssetNameChange}
-               onKeyPress={handleFilterKeyPress}
-             />
-           </StyledFilterForm>
-          {/* NEW: Filter button (blue, with icon + caret) */}
+  /* ------------------------------------------------------------------ */
+  /* UI                                                                 */
+  /* ------------------------------------------------------------------ */
+
+  return (
+    <StyledFilterDiv>
+      <StyledPaper>
+        <StyledDiv>
+
+          {/* Asset Name TextField */}
+          <StyledFilterForm>
+            <StyledTextField
+              id="filter-assetname"
+              type="search"
+              label="Asset Name"
+              value={filterAssetName}
+              onChange={onAssetNameChange}
+              onKeyPress={handleFilterKeyPress}
+            />
+          </StyledFilterForm>
+
+          {/* COLUMNS button (opens right drawer) */}
           <FilterButtonWrap>
             <Button
               variant="contained"
               color="primary"
-              startIcon={<FilterListIcon />}
+              startIcon={<ViewColumnIcon />}
               endIcon={<ArrowDropDownIcon />}
               onClick={toggleDrawer(true)}
               style={{ borderRadius: 20, paddingLeft: 14, paddingRight: 10 }}
             >
-              Filter
+              COLUMNS
             </Button>
           </FilterButtonWrap>
-           <FilterStatusSelect
-             statusType="Approval Status"
-             statuses={approvalStatuses}
-             selectStatuses={selectApprovalStatuses}
-             onStatusesChange={onApprovalStatusesChange}
-             onChipDelete={onApprovalStatusChipDelete}
-           />
-           <FilterStatusSelect
-             statusType="Work Status"
-             statuses={workStatuses}
-             selectStatuses={selectWorkStatuses}
-             onStatusesChange={onWorkStatusesChange}
-             onChipDelete={onWorkStatusChipDelete}
-           />
-           <StyledFilterResetForm>
-             <Button
-               variant="outlined"
-               onClick={onResetClick}
-             >
-               Reset
-             </Button>
-           </StyledFilterResetForm>
-         </StyledDiv>
-       </StyledPaper>
 
-      {/* NEW: Right Drawer with grouped phase sections */}
+          {/* Approval Status */}
+          <FilterStatusSelect
+            statusType="Approval Status"
+            statuses={approvalStatuses}
+            selectStatuses={selectApprovalStatuses}
+            onStatusesChange={onApprovalStatusesChange}
+            onChipDelete={onApprovalStatusChipDelete}
+          />
+
+          {/* Work Status */}
+          <FilterStatusSelect
+            statusType="Work Status"
+            statuses={workStatuses}
+            selectStatuses={selectWorkStatuses}
+            onStatusesChange={onWorkStatusesChange}
+            onChipDelete={onWorkStatusChipDelete}
+          />
+
+          {/* RESET button */}
+          <StyledFilterResetForm>
+            <Button variant="outlined" onClick={onResetClick}>
+              RESET
+            </Button>
+          </StyledFilterResetForm>
+        </StyledDiv>
+      </StyledPaper>
+
+
+      {/* Drawer RIGHT */}
       <Drawer anchor="right" open={drawerOpen} onClose={toggleDrawer(false)}>
         <div style={{ width: 280, paddingTop: 8 }}>
-          {PHASES.map(phase => (
+          {PHASES.map((phase) => (
             <React.Fragment key={phase.id}>
               <Accordion defaultExpanded>
                 <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                   <strong>{phase.label}</strong>
                 </AccordionSummary>
-                <AccordionDetails style={{ display: 'block', paddingTop: 0 }}>
+
+                <AccordionDetails
+                  style={{ display: 'block', paddingTop: 0 }}
+                >
                   <FormControlLabel
                     control={
                       <Checkbox
@@ -333,6 +377,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
                     }
                     label={`${phase.label} WORK`}
                   />
+
                   <FormControlLabel
                     control={
                       <Checkbox
@@ -342,6 +387,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
                     }
                     label={`${phase.label} APPR`}
                   />
+
                   <FormControlLabel
                     control={
                       <Checkbox
@@ -351,20 +397,35 @@ const AssetTableFilter: React.FC<FilterProps> = ({
                     }
                     label={`${phase.label} SUBMITTED AT`}
                   />
+
                   <div style={{ fontSize: 12, opacity: 0.7, marginTop: 8 }}>
-                    Priority: <b>{selectPhasePriority?.toUpperCase?.() || 'NONE'}</b>
+                    Priority:{' '}
+                    <b>
+                      {selectPhasePriority && typeof selectPhasePriority === 'string'
+                        ? selectPhasePriority.toUpperCase()
+                        : 'NONE'}
+                    </b>
                   </div>
                 </AccordionDetails>
               </Accordion>
+
               <Divider />
             </React.Fragment>
           ))}
-          <div style={{ display:'flex', justifyContent:'flex-end', padding: 8 }}>
+
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'flex-end',
+              padding: 8,
+            }}
+          >
             <Button onClick={toggleDrawer(false)}>Close</Button>
           </div>
         </div>
       </Drawer>
-     </StyledFilterDiv>
-   );
- };
+    </StyledFilterDiv>
+  );
+};
+
 export default AssetTableFilter;
