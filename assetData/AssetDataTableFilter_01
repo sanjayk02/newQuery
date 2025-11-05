@@ -1,0 +1,209 @@
+-import React from 'react';
++import React from 'react';
+ import {
+   Button,
+   Chip,
+   FormControl,
+   Input,
+   InputLabel,
+   MenuItem,
+   Paper,
+   Select,
+   TextField,
+   Theme,
++  Drawer,
+ } from '@material-ui/core';
+ import { styled, useTheme } from '@material-ui/core/styles';
+ import { ButtonProps } from '@material-ui/core/Button';
+ import { SelectProps } from '@material-ui/core/Select';
+ import { TextFieldProps } from '@material-ui/core/TextField';
+ import { ChipDeleteFunction } from './types'
++import { ExpandMore as ExpandMoreIcon, FilterList as FilterListIcon, ArrowDropDown as ArrowDropDownIcon } from '@material-ui/icons';
++import { Accordion, AccordionSummary, AccordionDetails, FormControlLabel, Checkbox, Divider } from '@material-ui/core';
+@@
+ const StyledFilterResetForm = styled('form')(({ theme }) => ({
+   flexGrow: 1,
+   display: 'flex',
+   justifyContent: 'flex-end',
+   marginTop: theme.spacing(1),
+   marginRight: theme.spacing(1),
+   marginBottom: theme.spacing(0.5),
+ }));
++
++const FilterButtonWrap = styled('div')(({ theme }) => ({
++  display: 'flex',
++  alignItems: 'center',
++  marginLeft: theme.spacing(1),
++  marginTop: theme.spacing(1),
++}));
+@@
+ type FilterProps = {
+   filterAssetName: string,
+   selectApprovalStatuses: string[],
+   selectWorkStatuses: string[],
++  selectPhasePriority: string,
+   onAssetNameChange: TextFieldProps['onChange'],
+   onApprovalStatusesChange: SelectProps['onChange'],
+   onWorkStatusesChange: SelectProps['onChange'],
++  onPhasePriorityChange: (phase: string) => void,
+   onApprovalStatusChipDelete: ChipDeleteFunction,
+   onWorkStatusChipDelete: ChipDeleteFunction,
+   onResetClick: ButtonProps['onClick'],
+ };
+@@
+ const AssetTableFilter: React.FC<FilterProps> = ({
+   filterAssetName,
+   selectApprovalStatuses,
+   selectWorkStatuses,
++  selectPhasePriority,
+   onAssetNameChange,
+   onApprovalStatusesChange,
+   onWorkStatusesChange,
++  onPhasePriorityChange,
+   onApprovalStatusChipDelete,
+   onWorkStatusChipDelete,
+   onResetClick,
+ }) => {
+   const handleFilterKeyPress: TextFieldProps['onKeyPress'] = event => {
+     if (event.key === 'Enter') {
+       event.preventDefault();
+       return false;
+     }
+   };
++
++  // --- Drawer (right) state ---
++  const [drawerOpen, setDrawerOpen] = React.useState(false);
++  const toggleDrawer = (open: boolean) => () => setDrawerOpen(open);
++
++  // UI only: remember which sub-items are checked (you can expand later if needed)
++  const [checked, setChecked] = React.useState<Record<string, Record<'work'|'appr'|'submitted', boolean>>>({
++    mdl: { work: false, appr: false, submitted: false },
++    rig: { work: false, appr: false, submitted: false },
++    bld: { work: false, appr: false, submitted: false },
++    dsn: { work: false, appr: false, submitted: false },
++    ldv: { work: false, appr: false, submitted: false },
++  });
++
++  const handlePhaseFieldToggle = (phase: keyof typeof checked, field: 'work'|'appr'|'submitted') =>
++    (_e: React.ChangeEvent<HTMLInputElement>, value: boolean) => {
++      setChecked(prev => ({
++        ...prev,
++        [phase]: { ...prev[phase], [field]: value },
++      }));
++      // Business decision: picking anything under a phase sets "phase priority"
++      onPhasePriorityChange(String(phase));
++    };
++
++  const PHASES: Array<{id:'mdl'|'rig'|'bld'|'dsn'|'ldv'; label:string}> = [
++    { id: 'mdl', label: 'MDL' },
++    { id: 'rig', label: 'RIG' },
++    { id: 'bld', label: 'BLD' },
++    { id: 'dsn', label: 'DSN' },
++    { id: 'ldv', label: 'LDV' },
++  ];
+@@
+   return (
+     <StyledFilterDiv>
+       <StyledPaper>
+         <StyledDiv>
+           <StyledFilterForm>
+             <StyledTextField
+               id="filter-assetname"
+               type="search"
+               label="Asset Name"
+               value={filterAssetName}
+               onChange={onAssetNameChange}
+               onKeyPress={handleFilterKeyPress}
+             />
+           </StyledFilterForm>
++          {/* NEW: Filter button (blue, with icon + caret) */}
++          <FilterButtonWrap>
++            <Button
++              variant="contained"
++              color="primary"
++              startIcon={<FilterListIcon />}
++              endIcon={<ArrowDropDownIcon />}
++              onClick={toggleDrawer(true)}
++              style={{ borderRadius: 20, paddingLeft: 14, paddingRight: 10 }}
++            >
++              Filter
++            </Button>
++          </FilterButtonWrap>
+           <FilterStatusSelect
+             statusType="Approval Status"
+             statuses={approvalStatuses}
+             selectStatuses={selectApprovalStatuses}
+             onStatusesChange={onApprovalStatusesChange}
+             onChipDelete={onApprovalStatusChipDelete}
+           />
+           <FilterStatusSelect
+             statusType="Work Status"
+             statuses={workStatuses}
+             selectStatuses={selectWorkStatuses}
+             onStatusesChange={onWorkStatusesChange}
+             onChipDelete={onWorkStatusChipDelete}
+           />
+           <StyledFilterResetForm>
+             <Button
+               variant="outlined"
+               onClick={onResetClick}
+             >
+               Reset
+             </Button>
+           </StyledFilterResetForm>
+         </StyledDiv>
+       </StyledPaper>
++
++      {/* NEW: Right Drawer with grouped phase sections */}
++      <Drawer anchor="right" open={drawerOpen} onClose={toggleDrawer(false)}>
++        <div style={{ width: 280, paddingTop: 8 }}>
++          {PHASES.map(phase => (
++            <React.Fragment key={phase.id}>
++              <Accordion defaultExpanded>
++                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
++                  <strong>{phase.label}</strong>
++                </AccordionSummary>
++                <AccordionDetails style={{ display: 'block', paddingTop: 0 }}>
++                  <FormControlLabel
++                    control={
++                      <Checkbox
++                        checked={checked[phase.id].work}
++                        onChange={handlePhaseFieldToggle(phase.id, 'work')}
++                      />
++                    }
++                    label={`${phase.label} WORK`}
++                  />
++                  <FormControlLabel
++                    control={
++                      <Checkbox
++                        checked={checked[phase.id].appr}
++                        onChange={handlePhaseFieldToggle(phase.id, 'appr')}
++                      />
++                    }
++                    label={`${phase.label} APPR`}
++                  />
++                  <FormControlLabel
++                    control={
++                      <Checkbox
++                        checked={checked[phase.id].submitted}
++                        onChange={handlePhaseFieldToggle(phase.id, 'submitted')}
++                      />
++                    }
++                    label={`${phase.label} SUBMITTED AT`}
++                  />
++                  <div style={{ fontSize: 12, opacity: 0.7, marginTop: 8 }}>
++                    Priority: <b>{selectPhasePriority?.toUpperCase?.() || 'NONE'}</b>
++                  </div>
++                </AccordionDetails>
++              </Accordion>
++              <Divider />
++            </React.Fragment>
++          ))}
++          <div style={{ display:'flex', justifyContent:'flex-end', padding: 8 }}>
++            <Button onClick={toggleDrawer(false)}>Close</Button>
++          </div>
++        </div>
++      </Drawer>
+     </StyledFilterDiv>
+   );
+ };
