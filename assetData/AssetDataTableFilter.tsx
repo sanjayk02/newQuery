@@ -27,7 +27,7 @@ import {
   ArrowDropDown as ArrowDropDownIcon,
 } from '@material-ui/icons';
 
-// ✅ MUI v4 Expansion replacements
+// MUI v4 names:
 import ExpansionPanel from '@material-ui/core/ExpansionPanel';
 import ExpansionPanelSummary from '@material-ui/core/ExpansionPanelSummary';
 import ExpansionPanelDetails from '@material-ui/core/ExpansionPanelDetails';
@@ -80,8 +80,8 @@ const LeftWrap = styled('div')({
 const RightWrap = styled('div')(({ theme }) => ({
   display: 'flex',
   alignItems: 'center',
-  gap: theme.spacing(1.5),
-  marginRight: theme.spacing(1),
+  gap: (theme.spacing as any)(1.5),
+  marginRight: (theme.spacing as any)(1),
 }));
 
 const StyledFilterForm = styled('form')(({ theme }) => ({
@@ -99,10 +99,41 @@ const StyledTextField = styled(TextField)({
   minWidth: 180,
 });
 
-const FilterButtonWrap = styled('div')(({ theme }) => ({
+const FilterButtonWrap = styled('div')({
   display: 'flex',
   alignItems: 'center',
+});
+
+/* Compact drawer section: override default paddings/margins and shrink fonts */
+const StyledExpansionDetails = styled(ExpansionPanelDetails)(({ theme }) => ({
+  paddingTop: 4,
+  paddingBottom: 4,
+  paddingLeft: 12,
+  paddingRight: 12,
+  display: 'flex',
+  flexDirection: 'column',
+
+  // tighten each checkbox row
+  '& .MuiFormControlLabel-root': {
+    marginLeft: -4,
+    marginTop: 2,
+    marginBottom: 2,
+  },
+  // shrink checkbox visual padding a bit
+  '& .MuiCheckbox-root': {
+    padding: 4,
+  },
+  // smaller labels
+  '& .MuiFormControlLabel-label': {
+    fontSize: 11,
+  },
 }));
+
+const PriorityText = styled('div')({
+  fontSize: 10,
+  opacity: 0.7,
+  marginTop: 2,
+});
 
 /* -------------------------------------------------------------- */
 /* CONSTANTS                                                       */
@@ -340,7 +371,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
         </StyledDiv>
       </StyledPaper>
 
-      {/* DRAWER */}
+      {/* Drawer RIGHT */}
       <Drawer anchor="right" open={drawerOpen} onClose={toggleDrawer(false)}>
         <div style={{ width: 280, paddingTop: 8 }}>
           {PHASES.map((phase) => (
@@ -350,7 +381,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
                   <strong>{phase.label}</strong>
                 </ExpansionPanelSummary>
 
-                <ExpansionPanelDetails style={{ display: 'block' }}>
+                <StyledExpansionDetails>
                   <FormControlLabel
                     control={
                       <Checkbox
@@ -358,7 +389,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
                         onChange={handlePhaseFieldToggle(phase.id, 'work')}
                       />
                     }
-                    label={`${phase.label} WORK`}
+                    label={`${phase.label} WORK STATUS`}
                   />
 
                   <FormControlLabel
@@ -381,18 +412,18 @@ const AssetTableFilter: React.FC<FilterProps> = ({
                     label={`${phase.label} SUBMITTED AT`}
                   />
 
-                  <div style={{ fontSize: 12, opacity: 0.7, marginTop: 8 }}>
+                  <PriorityText>
                     Priority:{' '}
                     <b>
                       {selectPhasePriority && typeof selectPhasePriority === 'string'
                         ? selectPhasePriority.toUpperCase()
                         : 'NONE'}
                     </b>
-                  </div>
-                </ExpansionPanelDetails>
+                  </PriorityText>
+                </StyledExpansionDetails>
               </ExpansionPanel>
 
-              <Divider />
+              <Divider style={{ margin: 0 }} />
             </React.Fragment>
           ))}
 
