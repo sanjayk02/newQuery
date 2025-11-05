@@ -11,6 +11,9 @@ import {
   TextField,
   Theme,
   Drawer,
+  FormControlLabel,
+  Checkbox,
+  Divider,
 } from '@material-ui/core';
 import { styled, useTheme } from '@material-ui/core/styles';
 import { ButtonProps } from '@material-ui/core/Button';
@@ -24,14 +27,10 @@ import {
   ArrowDropDown as ArrowDropDownIcon,
 } from '@material-ui/icons';
 
-import {
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  FormControlLabel,
-  Checkbox,
-  Divider,
-} from '@material-ui/core';
+// MUI v4 names:
+import ExpansionPanel from '@material-ui/core/ExpansionPanel';
+import ExpansionPanelSummary from '@material-ui/core/ExpansionPanelSummary';
+import ExpansionPanelDetails from '@material-ui/core/ExpansionPanelDetails';
 
 const StyledChipsDiv = styled('div')({
   display: 'flex',
@@ -96,7 +95,6 @@ const FilterButtonWrap = styled('div')(({ theme }) => ({
   marginRight: theme.spacing(1),
   marginTop: theme.spacing(1),
 }));
-
 
 /* ------------------------------------------------------------------ */
 /* APPROVAL + WORK STATUS SELECT                                      */
@@ -209,7 +207,6 @@ const FilterStatusSelect: React.FC<StatusSelectProps> = ({
   );
 };
 
-
 /* ------------------------------------------------------------------ */
 /* PROPS                                                              */
 /* ------------------------------------------------------------------ */
@@ -228,7 +225,6 @@ type FilterProps = {
   onResetClick: ButtonProps['onClick'];
 };
 
-
 /* ------------------------------------------------------------------ */
 /* MAIN                                                               */
 /* ------------------------------------------------------------------ */
@@ -246,7 +242,6 @@ const AssetTableFilter: React.FC<FilterProps> = ({
   onWorkStatusChipDelete,
   onResetClick,
 }) => {
-
   /* Prevent ENTER from submitting the form */
   const handleFilterKeyPress: TextFieldProps['onKeyPress'] = (event) => {
     if (event.key === 'Enter') {
@@ -291,17 +286,11 @@ const AssetTableFilter: React.FC<FilterProps> = ({
     { id: 'ldv', label: 'LDV' },
   ];
 
-
-  /* ------------------------------------------------------------------ */
-  /* UI                                                                 */
-  /* ------------------------------------------------------------------ */
-
   return (
     <StyledFilterDiv>
       <StyledPaper>
         <StyledDiv>
-
-          {/* Asset Name TextField */}
+          {/* Asset Name */}
           <StyledFilterForm>
             <StyledTextField
               id="filter-assetname"
@@ -313,7 +302,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
             />
           </StyledFilterForm>
 
-          {/* COLUMNS button (opens right drawer) */}
+          {/* COLUMNS button */}
           <FilterButtonWrap>
             <Button
               variant="contained"
@@ -345,7 +334,7 @@ const AssetTableFilter: React.FC<FilterProps> = ({
             onChipDelete={onWorkStatusChipDelete}
           />
 
-          {/* RESET button */}
+          {/* RESET */}
           <StyledFilterResetForm>
             <Button variant="outlined" onClick={onResetClick}>
               RESET
@@ -354,20 +343,17 @@ const AssetTableFilter: React.FC<FilterProps> = ({
         </StyledDiv>
       </StyledPaper>
 
-
       {/* Drawer RIGHT */}
       <Drawer anchor="right" open={drawerOpen} onClose={toggleDrawer(false)}>
         <div style={{ width: 280, paddingTop: 8 }}>
           {PHASES.map((phase) => (
             <React.Fragment key={phase.id}>
-              <Accordion defaultExpanded>
-                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <ExpansionPanel defaultExpanded>
+                <ExpansionPanelSummary expandIcon={<ExpandMoreIcon />}>
                   <strong>{phase.label}</strong>
-                </AccordionSummary>
+                </ExpansionPanelSummary>
 
-                <AccordionDetails
-                  style={{ display: 'block', paddingTop: 0 }}
-                >
+                <ExpansionPanelDetails style={{ display: 'block', paddingTop: 0 }}>
                   <FormControlLabel
                     control={
                       <Checkbox
@@ -406,20 +392,14 @@ const AssetTableFilter: React.FC<FilterProps> = ({
                         : 'NONE'}
                     </b>
                   </div>
-                </AccordionDetails>
-              </Accordion>
+                </ExpansionPanelDetails>
+              </ExpansionPanel>
 
               <Divider />
             </React.Fragment>
           ))}
 
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'flex-end',
-              padding: 8,
-            }}
-          >
+          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: 8 }}>
             <Button onClick={toggleDrawer(false)}>Close</Button>
           </div>
         </div>
