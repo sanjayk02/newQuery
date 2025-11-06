@@ -23,267 +23,75 @@ import { useFetchAssetThumbnails } from "./hooks";
 //                        COLORS + COLUMN META
 // ======================================================================
 const ASSET_PHASES: { [key: string]: Colors } = {
-  mdl: {
-    lineColor: "#3295fd",
-    backgroundColor: "#354d68",
-  },
-  rig: {
-    lineColor: "#c061fd",
-    backgroundColor: "#5e3568",
-  },
-  bld: {
-    lineColor: "#fc2f8c",
-    backgroundColor: "#5a0028",
-  },
-  dsn: {
-    lineColor: "#98f2fb",
-    backgroundColor: "#045660",
-  },
-  ldv: {
-    lineColor: "#fe5cff",
-    backgroundColor: "#683566",
-  },
+  mdl: { lineColor: "#3295fd", backgroundColor: "#354d68" },
+  rig: { lineColor: "#c061fd", backgroundColor: "#5e3568" },
+  bld: { lineColor: "#fc2f8c", backgroundColor: "#5a0028" },
+  dsn: { lineColor: "#98f2fb", backgroundColor: "#045660" },
+  ldv: { lineColor: "#fe5cff", backgroundColor: "#683566" },
 };
 
-type Status = Readonly<{
-  displayName: string;
-  color: string;
-}>;
+type Status = Readonly<{ displayName: string; color: string }>;
 
 const APPROVAL_STATUS: { [key: string]: Status } = {
-  check: {
-    displayName: "Check",
-    color: "#ca25ed",
-  },
-  clientReview: {
-    displayName: "Client Review",
-    color: "#005fbd",
-  },
-  dirReview: {
-    displayName: "Dir Review",
-    color: "#007fff",
-  },
-  epdReview: {
-    displayName: "EPD Review",
-    color: "#4fa7ff",
-  },
-  clientOnHold: {
-    displayName: "Client On Hold",
-    color: "#d69b00",
-  },
-  dirOnHold: {
-    displayName: "Dir On Hold",
-    color: "#ffcc00",
-  },
-  epdOnHold: {
-    displayName: "EPD On Hold",
-    color: "#ffdd55",
-  },
-  execRetake: {
-    displayName: "Exec Retake",
-    color: "#a60000",
-  },
-  clientRetake: {
-    displayName: "Client Retake",
-    color: "#c60000",
-  },
-  dirRetake: {
-    displayName: "Dir Retake",
-    color: "#ff0000",
-  },
-  epdRetake: {
-    displayName: "EPD Retake",
-    color: "#ff4f4f",
-  },
-  clientApproved: {
-    displayName: "Client Approved",
-    color: "#1d7c39",
-  },
-  dirApproved: {
-    displayName: "Dir Approved",
-    color: "#27ab4f",
-  },
-  epdApproved: {
-    displayName: "EPD Approved",
-    color: "#5cda82",
-  },
-  other: {
-    displayName: "Other",
-    color: "#9a9a9a",
-  },
-  omit: {
-    displayName: "Omit",
-    color: "#646464",
-  },
+  check: { displayName: "Check", color: "#ca25ed" },
+  clientReview: { displayName: "Client Review", color: "#005fbd" },
+  dirReview: { displayName: "Dir Review", color: "#007fff" },
+  epdReview: { displayName: "EPD Review", color: "#4fa7ff" },
+  clientOnHold: { displayName: "Client On Hold", color: "#d69b00" },
+  dirOnHold: { displayName: "Dir On Hold", color: "#ffcc00" },
+  epdOnHold: { displayName: "EPD On Hold", color: "#ffdd55" },
+  execRetake: { displayName: "Exec Retake", color: "#a60000" },
+  clientRetake: { displayName: "Client Retake", color: "#c60000" },
+  dirRetake: { displayName: "Dir Retake", color: "#ff0000" },
+  epdRetake: { displayName: "EPD Retake", color: "#ff4f4f" },
+  clientApproved: { displayName: "Client Approved", color: "#1d7c39" },
+  dirApproved: { displayName: "Dir Approved", color: "#27ab4f" },
+  epdApproved: { displayName: "EPD Approved", color: "#5cda82" },
+  other: { displayName: "Other", color: "#9a9a9a" },
+  omit: { displayName: "Omit", color: "#646464" },
 };
 
 const WORK_STATUS: { [key: string]: Status } = {
-  check: {
-    displayName: "Check",
-    color: "#e287f5",
-  },
-  cgsvOnHold: {
-    displayName: "CGSV On Hold",
-    color: "#ffdd55",
-  },
-  svOnHold: {
-    displayName: "SV On Hold",
-    color: "#ffe373",
-  },
-  leadOnHold: {
-    displayName: "Lead On Hold",
-    color: "#fff04f",
-  },
-  cgsvRetake: {
-    displayName: "CGSV Retake",
-    color: "#ff4f4f",
-  },
-  svRetake: {
-    displayName: "SV Retake",
-    color: "#ff8080",
-  },
-  leadRetake: {
-    displayName: "Lead Retake",
-    color: "#ffbbbb",
-  },
-  cgsvApproved: {
-    displayName: "CGSV Approved",
-    color: "#5cda82",
-  },
-  svApproved: {
-    displayName: "SV Approved",
-    color: "#83e29f",
-  },
-  leadApproved: {
-    displayName: "Lead Approved",
-    color: "#b9eec9",
-  },
-  svOther: {
-    displayName: "SV Other",
-    color: "#9a9a9a",
-  },
-  leadOther: {
-    displayName: "Lead Other",
-    color: "#dbdbdb",
-  },
+  check: { displayName: "Check", color: "#e287f5" },
+  cgsvOnHold: { displayName: "CGSV On Hold", color: "#ffdd55" },
+  svOnHold: { displayName: "SV On Hold", color: "#ffe373" },
+  leadOnHold: { displayName: "Lead On Hold", color: "#fff04f" },
+  cgsvRetake: { displayName: "CGSV Retake", color: "#ff4f4f" },
+  svRetake: { displayName: "SV Retake", color: "#ff8080" },
+  leadRetake: { displayName: "Lead Retake", color: "#ffbbbb" },
+  cgsvApproved: { displayName: "CGSV Approved", color: "#5cda82" },
+  svApproved: { displayName: "SV Approved", color: "#83e29f" },
+  leadApproved: { displayName: "Lead Approved", color: "#b9eec9" },
+  svOther: { displayName: "SV Other", color: "#9a9a9a" },
+  leadOther: { displayName: "Lead Other", color: "#dbdbdb" },
 };
 
 // ======================================================================
-//                        COLUMN LIST (UNCHANGED)
+//                        COLUMN LIST
 // ======================================================================
 const columns: Column[] = [
   { id: "thumbnail", label: "Thumbnail" },
-  {
-    id: "group_1_name",
-    label: "Name",
-    sortable: true,
-    sortKey: "group_1",
-  },
-  {
-    id: "mdl_work_status",
-    label: "MDL WORK",
-    colors: ASSET_PHASES.mdl,
-    sortable: true,
-    sortKey: "mdl_work",
-  },
-  {
-    id: "mdl_approval_status",
-    label: "MDL APPR",
-    colors: ASSET_PHASES.mdl,
-    sortable: true,
-    sortKey: "mdl_appr",
-  },
-  {
-    id: "mdl_submitted_at",
-    label: "MDL Submitted At",
-    colors: ASSET_PHASES.mdl,
-    sortable: true,
-    sortKey: "mdl_submitted",
-  },
-  {
-    id: "rig_work_status",
-    label: "RIG WORK",
-    colors: ASSET_PHASES.rig,
-    sortable: true,
-    sortKey: "rig_work",
-  },
-  {
-    id: "rig_approval_status",
-    label: "RIG APPR",
-    colors: ASSET_PHASES.rig,
-    sortable: true,
-    sortKey: "rig_appr",
-  },
-  {
-    id: "rig_submitted_at",
-    label: "RIG Submitted At",
-    colors: ASSET_PHASES.rig,
-    sortable: true,
-    sortKey: "rig_submitted",
-  },
-  {
-    id: "bld_work_status",
-    label: "BLD WORK",
-    colors: ASSET_PHASES.bld,
-    sortable: true,
-    sortKey: "bld_work",
-  },
-  {
-    id: "bld_approval_status",
-    label: "BLD APPR",
-    colors: ASSET_PHASES.bld,
-    sortable: true,
-    sortKey: "bld_appr",
-  },
-  {
-    id: "bld_submitted_at",
-    label: "BLD Submitted At",
-    colors: ASSET_PHASES.bld,
-    sortable: true,
-    sortKey: "bld_submitted",
-  },
-  {
-    id: "dsn_work_status",
-    label: "DSN WORK",
-    colors: ASSET_PHASES.dsn,
-    sortable: true,
-    sortKey: "dsn_work",
-  },
-  {
-    id: "dsn_approval_status",
-    label: "DSN APPR",
-    colors: ASSET_PHASES.dsn,
-    sortable: true,
-    sortKey: "dsn_appr",
-  },
-  {
-    id: "dsn_submitted_at",
-    label: "DSN Submitted At",
-    colors: ASSET_PHASES.dsn,
-    sortable: true,
-    sortKey: "dsn_submitted",
-  },
-  {
-    id: "ldv_work_status",
-    label: "LDV WORK",
-    colors: ASSET_PHASES.ldv,
-    sortable: true,
-    sortKey: "ldv_work",
-  },
-  {
-    id: "ldv_approval_status",
-    label: "LDV APPR",
-    colors: ASSET_PHASES.ldv,
-    sortable: true,
-    sortKey: "ldv_appr",
-  },
-  {
-    id: "ldv_submitted_at",
-    label: "LDV Submitted At",
-    colors: ASSET_PHASES.ldv,
-    sortable: true,
-    sortKey: "ldv_submitted",
-  },
+  { id: "group_1_name", label: "Name", sortable: true, sortKey: "group_1" },
+
+  { id: "mdl_work_status", label: "MDL WORK", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_work" },
+  { id: "mdl_approval_status", label: "MDL APPR", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_appr" },
+  { id: "mdl_submitted_at", label: "MDL Submitted At", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_submitted" },
+
+  { id: "rig_work_status", label: "RIG WORK", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_work" },
+  { id: "rig_approval_status", label: "RIG APPR", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_appr" },
+  { id: "rig_submitted_at", label: "RIG Submitted At", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_submitted" },
+
+  { id: "bld_work_status", label: "BLD WORK", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_work" },
+  { id: "bld_approval_status", label: "BLD APPR", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_appr" },
+  { id: "bld_submitted_at", label: "BLD Submitted At", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_submitted" },
+
+  { id: "dsn_work_status", label: "DSN WORK", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_work" },
+  { id: "dsn_approval_status", label: "DSN APPR", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_appr" },
+  { id: "dsn_submitted_at", label: "DSN Submitted At", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_submitted" },
+
+  { id: "ldv_work_status", label: "LDV WORK", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_work" },
+  { id: "ldv_approval_status", label: "LDV APPR", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_appr" },
+  { id: "ldv_submitted_at", label: "LDV Submitted At", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_submitted" },
 
   { id: "relation", label: "Relation", sortable: true, sortKey: "relation" },
 ];
@@ -291,65 +99,42 @@ const columns: Column[] = [
 // ======================================================================
 //            🔧 Compact-mode helpers for “only fixed visible”
 // ======================================================================
-
-// IDs that are NOT fixed (everything except thumbnail + name)
-const NON_FIXED_IDS = columns
-  .map((c) => c.id)
-  .filter((id) => id !== "thumbnail" && id !== "group_1_name");
-
-// Helper to know when only the fixed columns are visible
-const isOnlyFixedVisible = (hidden: Set<string>) => {
-  return NON_FIXED_IDS.every((id) => hidden.has(id));
-};
+const NON_FIXED_IDS = columns.map(c => c.id).filter(id => id !== "thumbnail" && id !== "group_1_name");
+const isOnlyFixedVisible = (hidden: Set<string>) => NON_FIXED_IDS.every(id => hidden.has(id));
 
 // ======================================================================
-//                 ✅ MultiLineTooltipTableCell (UNCHANGED)
+//                 ✅ MultiLineTooltipTableCell
 // ======================================================================
-
 type TooltipTableCellProps = {
-  tooltipText: string,
-  status: Status | undefined,
-  leftBorderStyle: string,
-  rightBorderStyle: string,
-  bottomBorderStyle: string,
+  tooltipText: string;
+  status: Status | undefined;
+  leftBorderStyle: string;
+  rightBorderStyle: string;
+  bottomBorderStyle: string;
 };
 
-const MultiLineTooltipTableCell: React.FC<TooltipTableCellProps> = (
-  { tooltipText, status, leftBorderStyle, rightBorderStyle, bottomBorderStyle = 'none' }
-) => {
+const MultiLineTooltipTableCell: React.FC<TooltipTableCellProps> = ({
+  tooltipText, status, leftBorderStyle, rightBorderStyle, bottomBorderStyle = "none",
+}) => {
   const [open, setOpen] = React.useState(false);
-  const isTooltipTextEmpty = tooltipText && tooltipText.trim().length > 0;
-
-  const handleTooltipClose = () => {
-    setOpen(false);
-  };
-
-  const handleTooltipOpen = () => {
-    setOpen(true);
-  };
-
-  const statusText = (status != null) ? status['displayName'] : '-';
+  const hasTooltipText = tooltipText && tooltipText.trim().length > 0;
+  const statusText = status ? status.displayName : "-";
 
   return (
     <TableCell
       style={{
-        color: (status != null) ? status['color'] : '',
-        fontStyle: (tooltipText === '') ? 'normal' : 'oblique',
+        color: status ? status.color : "",
+        fontStyle: tooltipText === "" ? "normal" : "oblique",
         borderLeft: leftBorderStyle,
         borderRight: rightBorderStyle,
         borderBottom: bottomBorderStyle,
       }}
-      onClick={isTooltipTextEmpty ? handleTooltipOpen : undefined}
+      onClick={hasTooltipText ? () => setOpen(true) : undefined}
     >
-      {isTooltipTextEmpty ? (
+      {hasTooltipText ? (
         <Tooltip
-          title={
-            <div
-              style={{ fontSize: '0.8rem', whiteSpace: 'pre-wrap' }}>
-              {tooltipText}
-            </div>
-          }
-          onClose={handleTooltipClose}
+          title={<div style={{ fontSize: "0.8rem", whiteSpace: "pre-wrap" }}>{tooltipText}</div>}
+          onClose={() => setOpen(false)}
           open={open}
           arrow
         >
@@ -358,71 +143,65 @@ const MultiLineTooltipTableCell: React.FC<TooltipTableCellProps> = (
       ) : (
         <span>{statusText}</span>
       )}
-    </TableCell >
+    </TableCell>
   );
 };
 
 // ======================================================================
-//                 ✅ RecordTableHead (UPDATED)
+//                 ✅ RecordTableHead (borders + compact widths)
 // ======================================================================
 const RecordTableHead: React.FC<RecordTableHeadProps & {
-  onSortChange: (sortKey: string) => void,
-  currentSortKey: string,
-  currentSortDir: SortDir, // ADDED: Current sort direction
-  headerCellStylesById?: Record<string, React.CSSProperties>, // NEW
+  onSortChange: (sortKey: string) => void;
+  currentSortKey: string;
+  currentSortDir: SortDir;
+  headerCellStylesById?: Record<string, React.CSSProperties>;
 }> = ({
   columns, onSortChange, currentSortKey, currentSortDir, headerCellStylesById = {},
 }) => {
-  const getSortDir = (id: string, activeSortKey: string, activeSortDir: SortDir): SortDir => {
-    // Only return the direction if the key matches the active key
-    if (activeSortKey === id) return activeSortDir;
-    return 'none';
-  };
+  const getSortDir = (id: string, activeKey: string, activeDir: SortDir): SortDir =>
+    activeKey === id ? activeDir : "none";
 
-  const createSortHandler = (id: string) => () => {
-    // Pass the column's ID to the panel. The panel handles the direction toggle.
-    onSortChange(id);
-  };
+  const createSortHandler = (id: string) => () => onSortChange(id);
 
   return (
     <TableHead>
       <TableRow>
         {columns.map((column) => {
-          const borderLineStyle = column.colors ? `solid 3px ${column.colors.lineColor}` : 'none';
-          const borderTopStyle = column.colors ? borderLineStyle : 'none';
-          const borderLeftStyle = (column.id.indexOf('work_status') !== -1) ? borderLineStyle : 'none';
-          const borderRightStyle = (column.id.indexOf('submitted_at') !== -1) ? borderLineStyle : 'none';
+          // Determine "first/last visible" within a phase to draw borders
+          const phase = ["mdl", "rig", "bld", "dsn", "ldv"].find(p => column.id.startsWith(p));
+          const inPhaseIds = phase
+            ? [`${phase}_work_status`, `${phase}_approval_status`, `${phase}_submitted_at`]
+                .filter(id => columns.some(c => c.id === id))
+            : [];
+          const firstId = inPhaseIds[0];
+          const lastId  = inPhaseIds[inPhaseIds.length - 1];
 
-          const columnSortKey = column.sortKey || column.id;
-          // PASS currentSortKey and currentSortDir
-          const sortDir = getSortDir(columnSortKey, currentSortKey, currentSortDir);
+          const hasPhase = Boolean(phase && column.colors);
+          const rail = hasPhase ? `solid 3px ${column.colors!.lineColor}` : "none";
+
+          const sortKey = column.sortKey || column.id;
+          const sortDir = getSortDir(sortKey, currentSortKey, currentSortDir);
 
           return (
             <TableCell
               key={column.id}
               style={{
-                backgroundColor: column.colors ? column.colors.backgroundColor : 'none',
-                borderTop: borderTopStyle,
-                borderLeft: borderLeftStyle,
-                borderRight: borderRightStyle,
-                ...(headerCellStylesById[column.id] || {}), // << apply compact widths
+                backgroundColor: column.colors ? column.colors.backgroundColor : "none",
+                borderTop: hasPhase ? rail : "none",
+                borderLeft: hasPhase && firstId === column.id ? rail : "none",
+                borderRight: hasPhase && lastId  === column.id ? rail : "none",
+                ...(headerCellStylesById[column.id] || {}),
               }}
             >
               {column.sortable ? (
                 <TableSortLabel
-                  active={sortDir !== 'none'}
+                  active={sortDir !== "none"}
                   hideSortIcon
-                  direction={sortDir === 'desc' ? 'desc' : 'asc'}
-                  onClick={createSortHandler(columnSortKey)}
+                  direction={sortDir === "desc" ? "desc" : "asc"}
+                  onClick={createSortHandler(sortKey)}
                   IconComponent={() => (
-                    <span style={{
-                      fontSize: "16px",
-                      fontWeight: 750,
-                      lineHeight: "24px",
-                      marginLeft: "10px",
-                      userSelect: "none"
-                    }}>
-                      {sortDir === 'desc' ? '▼' : '▲'}
+                    <span style={{ fontSize: 16, fontWeight: 750, lineHeight: "24px", marginLeft: 10, userSelect: "none" }}>
+                      {sortDir === "desc" ? "▼" : "▲"}
                     </span>
                   )}
                 >
@@ -440,50 +219,36 @@ const RecordTableHead: React.FC<RecordTableHeadProps & {
 };
 
 // ======================================================================
-//                      ✅ AssetRow (UPDATED)
+//                      ✅ AssetRow (borders + compact widths)
 // ======================================================================
-const AssetRow: React.FC<
-  AssetRowProps & { hiddenColumns: Set<string>; compact: boolean }
-> = ({ asset, thumbnails, dateTimeFormat, isLastRow, hiddenColumns, compact }) => {
+const AssetRow: React.FC<AssetRowProps & { hiddenColumns: Set<string>; compact: boolean }> = ({
+  asset, thumbnails, dateTimeFormat, isLastRow, hiddenColumns, compact,
+}) => {
   const isHidden = (id: string) => hiddenColumns.has(id);
 
   const getPhaseData = (phase: string) => {
     const workStatusKey = `${phase}_work_status` as keyof AssetPhaseSummary;
-    const approvalStatusKey =
-      `${phase}_approval_status` as keyof AssetPhaseSummary;
-    const submittedAtKey =
-      `${phase}_submitted_at_utc` as keyof AssetPhaseSummary;
+    const approvalStatusKey = `${phase}_approval_status` as keyof AssetPhaseSummary;
+    const submittedAtKey = `${phase}_submitted_at_utc` as keyof AssetPhaseSummary;
 
     const workStatusValue = asset[workStatusKey];
     const approvalStatusValue = asset[approvalStatusKey];
     const submittedAtValue = asset[submittedAtKey];
 
-    const workStatus: Status | undefined = workStatusValue
-      ? WORK_STATUS[String(workStatusValue).toLowerCase()]
-      : undefined;
-    const approvalStatus: Status | undefined = approvalStatusValue
-      ? APPROVAL_STATUS[String(approvalStatusValue).toLowerCase()]
-      : undefined;
+    const workStatus: Status | undefined = workStatusValue ? WORK_STATUS[String(workStatusValue).toLowerCase()] : undefined;
+    const approvalStatus: Status | undefined = approvalStatusValue ? APPROVAL_STATUS[String(approvalStatusValue).toLowerCase()] : undefined;
 
-    const submittedAt = submittedAtValue
-      ? new Date(submittedAtValue as string)
-      : null;
+    const submittedAt = submittedAtValue ? new Date(submittedAtValue as string) : null;
     const localTimeText = submittedAt ? dateTimeFormat.format(submittedAt) : "-";
 
-    return {
-      workStatus,
-      approvalStatus,
-      localTimeText,
-      tooltipText: "",
-    };
+    return { workStatus, approvalStatus, localTimeText, tooltipText: "" };
   };
 
   return (
     <TableRow>
+      {/* THUMBNAIL */}
       {!isHidden("thumbnail") && (
-        <TableCell
-          style={compact ? { width: 140, minWidth: 140, maxWidth: 140 } : undefined}
-        >
+        <TableCell style={compact ? { width: 140, minWidth: 140, maxWidth: 140 } : undefined}>
           {thumbnails[`${asset.group_1}-${asset.relation}`] ? (
             <img
               src={thumbnails[`${asset.group_1}-${asset.relation}`]}
@@ -496,79 +261,85 @@ const AssetRow: React.FC<
         </TableCell>
       )}
 
+      {/* NAME */}
       {!isHidden("group_1_name") && (
-        <TableCell style={compact ? { minWidth: 220 } : undefined}>
-          {asset.group_1}
-        </TableCell>
+        <TableCell style={compact ? { minWidth: 220 } : undefined}>{asset.group_1}</TableCell>
       )}
 
-      {/* Skip phase groups entirely in compact mode */}
+      {/* PHASE GROUPS (skip entirely in compact mode) */}
       {!compact &&
-        Object.entries(ASSET_PHASES).map(([phase, { lineColor }]) => {
-          const kWork = `${phase}_work_status`;
-          const kAppr = `${phase}_approval_status`;
-          const kSub = `${phase}_submitted_at`;
+        (Object.entries(ASSET_PHASES) as Array<[string, { lineColor: string }]>).map(
+          ([phase, { lineColor }]) => {
+            const ids = {
+              work: `${phase}_work_status`,
+              appr: `${phase}_approval_status`,
+              subm: `${phase}_submitted_at`,
+            };
 
-          if (isHidden(kWork) && isHidden(kAppr) && isHidden(kSub)) {
-            return null;
+            const visibleIds = [
+              !isHidden(ids.work) ? ids.work : null,
+              !isHidden(ids.appr) ? ids.appr : null,
+              !isHidden(ids.subm) ? ids.subm : null,
+            ].filter(Boolean) as string[];
+
+            if (visibleIds.length === 0) return null;
+
+            const firstId = visibleIds[0];
+            const lastId  = visibleIds[visibleIds.length - 1];
+            const rail = `solid 3px ${lineColor}`;
+
+            const { workStatus, approvalStatus, localTimeText, tooltipText } = getPhaseData(phase);
+
+            return (
+              <React.Fragment key={`${asset.group_1}-${asset.relation}-${phase}`}>
+                {/* WORK */}
+                {!isHidden(ids.work) && (
+                  <MultiLineTooltipTableCell
+                    tooltipText={tooltipText}
+                    status={workStatus}
+                    leftBorderStyle={firstId === ids.work ? rail : "none"}
+                    rightBorderStyle={lastId  === ids.work ? rail : "none"}
+                    bottomBorderStyle={isLastRow ? rail : "none"}
+                  />
+                )}
+
+                {/* APPR */}
+                {!isHidden(ids.appr) && (
+                  <MultiLineTooltipTableCell
+                    tooltipText={tooltipText}
+                    status={approvalStatus}
+                    leftBorderStyle={firstId === ids.appr ? rail : "none"}
+                    rightBorderStyle={lastId  === ids.appr ? rail : "none"}
+                    bottomBorderStyle={isLastRow ? rail : "none"}
+                  />
+                )}
+
+                {/* SUBMITTED */}
+                {!isHidden(ids.subm) && (
+                  <TableCell
+                    style={{
+                      borderLeft: firstId === ids.subm ? rail : "none",
+                      borderRight: lastId === ids.subm ? rail : "none",
+                      borderBottom: isLastRow ? rail : "none",
+                    }}
+                  >
+                    {localTimeText}
+                  </TableCell>
+                )}
+              </React.Fragment>
+            );
           }
+        )}
 
-          const {
-            workStatus,
-            approvalStatus,
-            localTimeText,
-            tooltipText,
-          } = getPhaseData(phase);
-
-          const borderLineStyle = `solid 3px ${lineColor}`;
-
-          return (
-            <React.Fragment key={`${asset.group_1}-${asset.relation}-${phase}`}>
-              {!isHidden(kWork) && (
-                <MultiLineTooltipTableCell
-                  tooltipText={tooltipText}
-                  status={workStatus}
-                  leftBorderStyle={borderLineStyle}
-                  rightBorderStyle={"none"}
-                  bottomBorderStyle={isLastRow ? borderLineStyle : "none"}
-                />
-              )}
-
-              {!isHidden(kAppr) && (
-                <MultiLineTooltipTableCell
-                  tooltipText={tooltipText}
-                  status={approvalStatus}
-                  leftBorderStyle={"none"}
-                  rightBorderStyle={"none"}
-                  bottomBorderStyle={isLastRow ? borderLineStyle : "none"}
-                />
-              )}
-
-              {!isHidden(kSub) && (
-                <TableCell
-                  style={{
-                    borderLeft: "none",
-                    borderRight: borderLineStyle,
-                    borderBottom: isLastRow ? borderLineStyle : "none",
-                  }}
-                >
-                  {localTimeText}
-                </TableCell>
-              )}
-            </React.Fragment>
-          );
-        })}
-
-      {/* Relation only shown in non-compact mode (to keep two-column compact tidy) */}
+      {/* RELATION (kept to non-compact mode for neat two-column compact) */}
       {!isHidden("relation") && !compact && <TableCell>{asset.relation}</TableCell>}
     </TableRow>
   );
 };
 
 // ======================================================================
-//                   ✅ AssetsDataTable (UPDATED)
+//                   ✅ AssetsDataTable (main)
 // ======================================================================
-
 const AssetsDataTable: React.FC<
   AssetsDataTableProps & {
     currentSortKey: string;
@@ -593,7 +364,7 @@ const AssetsDataTable: React.FC<
     assets.map((a) => ({ name: a.group_1, relation: a.relation }))
   );
 
-  // Detect compact mode (only Thumbnail + Name visible)
+  // Compact mode: only Thumbnail + Name visible
   const compact = isOnlyFixedVisible(hiddenColumns);
 
   // Header widths to keep header/body aligned in compact mode
@@ -604,19 +375,14 @@ const AssetsDataTable: React.FC<
       }
     : {};
 
-  // Filter columns for header
+  // Visible columns for header
   const visibleColumns = columns.filter(
     (c) =>
-      !hiddenColumns.has(c.id) ||
-      c.id === "thumbnail" ||
-      c.id === "group_1_name"
+      !hiddenColumns.has(c.id) || c.id === "thumbnail" || c.id === "group_1_name"
   );
 
   return (
-    <Table
-      stickyHeader
-      style={compact ? { tableLayout: 'fixed', width: '100%' } : undefined}
-    >
+    <Table stickyHeader style={compact ? { tableLayout: "fixed", width: "100%" } : undefined}>
       <RecordTableHead
         key="asset-data-table-head"
         columns={visibleColumns}
