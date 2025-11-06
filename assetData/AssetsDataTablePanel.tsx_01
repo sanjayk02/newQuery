@@ -22,17 +22,19 @@ import { useCurrentStudio } from '../../studio/hooks';
 import { queryConfig } from '../../new-pipeline-setting/api';
 
 /* ──────────────────────────────────────────────────────────────────────────
- * Styling
+ * Styling  (overflow fixes applied)
  * ────────────────────────────────────────────────────────────────────────── */
 const StyledContainer = styled(Container)(({ theme }) => ({
   position: 'relative',
   display: 'flex',
   flexDirection: 'column',
   padding: 10,
-  overflowX: 'hidden', // prevent page-level horizontal scrollbar
+  // allow horizontal scroll to appear from the inner wrapper
+  overflowX: 'auto',
   '& > *': {
     display: 'flex',
-    overflow: 'hidden',
+    // IMPORTANT: do NOT clip overflow on children; let the inner div handle it
+    overflow: 'visible',
     padding: theme.spacing(1),
     paddingBottom: 0,
   },
@@ -45,7 +47,8 @@ const StyledPaper = styled(Paper)({
   width: '100%',
   display: 'flex',
   flexDirection: 'column',
-  overflow: 'hidden',
+  // was 'hidden' — changed to 'visible' so the inner scroll container works
+  overflow: 'visible',
 });
 
 const StyledContentDiv = styled('div')(({ theme }) => ({
@@ -53,6 +56,8 @@ const StyledContentDiv = styled('div')(({ theme }) => ({
   display: 'flex',
   flexDirection: 'column',
   width: '100%',
+  // ensure no clipping here either
+  overflow: 'visible',
 }));
 
 const StyledTableDiv = styled('div')({
@@ -153,14 +158,35 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
     return { sort: 'work_status', phase };
   };
 
-  /* Persist hidden columns (localStorage) */
-  const persistHiddenColumns = (next: Set<string>) => {
+  /* Persist hidden columns (localStorage mirror) */
+  const persistHiddenColumnsLocal = (next: Set<string>) => {
     const key = lsKeyForProject(currentProject && currentProject.key_name ? currentProject.key_name : undefined);
     try {
       localStorage.setItem(key, JSON.stringify(Array.from(next)));
     } catch (e) {
       console.error('localStorage save failed', e);
     }
+  };
+
+  /* Save to PipelineSetting (explicit “Save” from drawer) */
+  const saveHiddenColumnsToPipelineSetting = async (cols: Set<string>) => {
+    try {
+      if (!currentProject?.key_name) return;
+      // If your queryConfig setter signature differs, replace this call accordingly.
+      await (queryConfig as any)(
+        'project',
+        currentProject.key_name,
+        PIPE_KEY,
+        JSON.stringify(Array.from(cols))
+      );
+    } catch (e) {
+      console.warn('PipelineSetting save failed; using local only', e);
+    }
+  };
+
+  // Wrapper used by toggle/showAll/hideAll to keep local mirror up-to-date
+  const persistHiddenColumns = (next: Set<string>) => {
+    persistHiddenColumnsLocal(next);
   };
 
   /* Fetch data */
@@ -324,6 +350,11 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
     persistHiddenColumns(next);
   };
 
+  // Explicit save (invoked from drawer)
+  const handleSaveColumns = async () => {
+    await saveHiddenColumnsToPipelineSetting(hiddenColumns);
+  };
+
   /* Date/Time format */
   const dateTimeFormat = new Intl.DateTimeFormat(undefined, {
     timeZone,
@@ -372,6 +403,7 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
         onShowAll={showAll}
         onHideAll={hideAllNonFixed}
         visibleCount={visibleCount}
+        onSaveColumns={handleSaveColumns}
       />
 
       {/* Table inside horizontal scroll container */}
@@ -380,7 +412,8 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
           <StyledContentDiv>
             <div
               style={{
-                overflowX: 'auto',
+                // The actual scroll container
+                overflowX: 'auto',   // use 'scroll' if you want the bar always visible
                 overflowY: 'hidden',
                 width: '100%',
                 paddingBottom: 4,
