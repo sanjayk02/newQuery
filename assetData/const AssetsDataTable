@@ -1,0 +1,169 @@
+const AssetsDataTable: React.FC<
+  AssetsDataTableProps & {
+    currentSortKey: string;
+    currentSortDir: SortDir;
+    onSortChange: (sortKey: string) => void;
+    hiddenColumns?: Set<string>;
+  }
+> = ({
+  project,
+  assets,
+  tableFooter,
+  dateTimeFormat,
+  onSortChange,
+  currentSortKey,
+  currentSortDir,
+  hiddenColumns = new Set(),
+}) => {
+  if (!project) return null;
+
+  const { thumbnails } = useFetchAssetThumbnails(
+    project,
+    assets.map((a) => ({ name: a.group_1, relation: a.relation }))
+  );
+
+  // NEW: detect compact mode (only Thumbnail + Name are visible)
+  const compact = isOnlyFixedVisible(hiddenColumns);
+
+  // Filter columns for header (unchanged)
+  const visibleColumns = columns.filter(
+    (c) =>
+      !hiddenColumns.has(c.id) ||
+      c.id === "thumbnail" ||
+      c.id === "group_1_name"
+  );
+
+  return (
+    <Table
+      stickyHeader
+      // NEW: when compact, fix layout so header/body stay perfectly aligned
+      style={compact ? { tableLayout: 'fixed', width: '100%' } : undefined}
+    >
+      <RecordTableHead
+        key="asset-data-table-head"
+        columns={visibleColumns}
+        onSortChange={onSortChange}
+        currentSortKey={currentSortKey}
+        currentSortDir={currentSortDir}
+      />
+
+      <TableBody>
+        {assets.map((asset, index) => {
+          // render a row
+          return (
+            <TableRow key={`${asset.group_1}-${asset.relation}-${index}`}>
+              {/* THUMBNAIL (always visible) */}
+              {!hiddenColumns.has("thumbnail") && (
+                <TableCell
+                  // NEW: consistent width in compact mode
+                  style={compact ? { width: 140, minWidth: 140, maxWidth: 140 } : undefined}
+                >
+                  {thumbnails[`${asset.group_1}-${asset.relation}`] ? (
+                    <img
+                      src={thumbnails[`${asset.group_1}-${asset.relation}`]}
+                      alt={`${asset.group_1} thumbnail`}
+                      style={{ width: "100px", height: "auto" }}
+                    />
+                  ) : (
+                    <span>No Thumbnail</span>
+                  )}
+                </TableCell>
+              )}
+
+              {/* NAME (always visible) */}
+              {!hiddenColumns.has("group_1_name") && (
+                <TableCell
+                  // NEW: give name a sensible min width in compact mode
+                  style={compact ? { minWidth: 220 } : undefined}
+                >
+                  {asset.group_1}
+                </TableCell>
+              )}
+
+              {/* PHASE GROUPS (skip entirely if compact) */}
+              {!compact &&
+                Object.entries(ASSET_PHASES).map(([phase, { lineColor }]) => {
+                  const kWork = `${phase}_work_status`;
+                  const kAppr = `${phase}_approval_status`;
+                  const kSub = `${phase}_submitted_at`;
+
+                  if (
+                    hiddenColumns.has(kWork) &&
+                    hiddenColumns.has(kAppr) &&
+                    hiddenColumns.has(kSub)
+                  ) {
+                    return null;
+                  }
+
+                  const workStatusKey = `${phase}_work_status` as keyof AssetPhaseSummary;
+                  const approvalStatusKey = `${phase}_approval_status` as keyof AssetPhaseSummary;
+                  const submittedAtKey = `${phase}_submitted_at_utc` as keyof AssetPhaseSummary;
+
+                  const workStatusValue = asset[workStatusKey];
+                  const approvalStatusValue = asset[approvalStatusKey];
+                  const submittedAtValue = asset[submittedAtKey];
+
+                  const workStatus = workStatusValue
+                    ? WORK_STATUS[String(workStatusValue).toLowerCase()]
+                    : undefined;
+                  const approvalStatus = approvalStatusValue
+                    ? APPROVAL_STATUS[String(approvalStatusValue).toLowerCase()]
+                    : undefined;
+
+                  const submittedAt = submittedAtValue
+                    ? new Date(submittedAtValue as string)
+                    : null;
+                  const localTimeText = submittedAt ? dateTimeFormat.format(submittedAt) : "-";
+
+                  const borderLineStyle = `solid 3px ${lineColor}`;
+
+                  return (
+                    <React.Fragment key={`${asset.group_1}-${asset.relation}-${phase}`}>
+                      {!hiddenColumns.has(kWork) && (
+                        <MultiLineTooltipTableCell
+                          tooltipText={""}
+                          status={workStatus}
+                          leftBorderStyle={borderLineStyle}
+                          rightBorderStyle={"none"}
+                          bottomBorderStyle={index === assets.length - 1 ? borderLineStyle : "none"}
+                        />
+                      )}
+
+                      {!hiddenColumns.has(kAppr) && (
+                        <MultiLineTooltipTableCell
+                          tooltipText={""}
+                          status={approvalStatus}
+                          leftBorderStyle={"none"}
+                          rightBorderStyle={"none"}
+                          bottomBorderStyle={index === assets.length - 1 ? borderLineStyle : "none"}
+                        />
+                      )}
+
+                      {!hiddenColumns.has(kSub) && (
+                        <TableCell
+                          style={{
+                            borderLeft: "none",
+                            borderRight: borderLineStyle,
+                            borderBottom: index === assets.length - 1 ? borderLineStyle : "none",
+                          }}
+                        >
+                          {localTimeText}
+                        </TableCell>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+
+              {/* RELATION (only when not hidden) */}
+              {!hiddenColumns.has("relation") && !compact && (
+                <TableCell>{asset.relation}</TableCell>
+              )}
+            </TableRow>
+          );
+        })}
+      </TableBody>
+
+      {tableFooter || null}
+    </Table>
+  );
+};
