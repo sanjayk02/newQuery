@@ -289,6 +289,20 @@ const columns: Column[] = [
 ];
 
 // ======================================================================
+//            🔧 Compact-mode helpers for “only fixed visible”
+// ======================================================================
+
+// IDs that are NOT fixed (everything except thumbnail + name)
+const NON_FIXED_IDS = columns
+  .map((c) => c.id)
+  .filter((id) => id !== "thumbnail" && id !== "group_1_name");
+
+// Helper to know when only the fixed columns are visible
+const isOnlyFixedVisible = (hidden: Set<string>) => {
+  return NON_FIXED_IDS.every((id) => hidden.has(id));
+};
+
+// ======================================================================
 //                 ✅ MultiLineTooltipTableCell (UNCHANGED)
 // ======================================================================
 
@@ -349,18 +363,19 @@ const MultiLineTooltipTableCell: React.FC<TooltipTableCellProps> = (
 };
 
 // ======================================================================
-//                 ✅ RecordTableHead (UNCHANGED)
+//                 ✅ RecordTableHead (UPDATED)
 // ======================================================================
 const RecordTableHead: React.FC<RecordTableHeadProps & {
   onSortChange: (sortKey: string) => void,
   currentSortKey: string,
   currentSortDir: SortDir, // ADDED: Current sort direction
+  headerCellStylesById?: Record<string, React.CSSProperties>, // NEW
 }> = ({
-  columns, onSortChange, currentSortKey, currentSortDir, // Use currentSortDir
+  columns, onSortChange, currentSortKey, currentSortDir, headerCellStylesById = {},
 }) => {
   const getSortDir = (id: string, activeSortKey: string, activeSortDir: SortDir): SortDir => {
     // Only return the direction if the key matches the active key
-    if (activeSortKey === id) return activeSortDir; 
+    if (activeSortKey === id) return activeSortDir;
     return 'none';
   };
 
@@ -377,7 +392,7 @@ const RecordTableHead: React.FC<RecordTableHeadProps & {
           const borderTopStyle = column.colors ? borderLineStyle : 'none';
           const borderLeftStyle = (column.id.indexOf('work_status') !== -1) ? borderLineStyle : 'none';
           const borderRightStyle = (column.id.indexOf('submitted_at') !== -1) ? borderLineStyle : 'none';
-          
+
           const columnSortKey = column.sortKey || column.id;
           // PASS currentSortKey and currentSortDir
           const sortDir = getSortDir(columnSortKey, currentSortKey, currentSortDir);
@@ -385,33 +400,32 @@ const RecordTableHead: React.FC<RecordTableHeadProps & {
           return (
             <TableCell
               key={column.id}
-              style={
-                {
-                  backgroundColor: column.colors ? column.colors.backgroundColor : 'none',
-                  borderTop: borderTopStyle,
-                  borderLeft: borderLeftStyle,
-                  borderRight: borderRightStyle,
-                }
-              }
+              style={{
+                backgroundColor: column.colors ? column.colors.backgroundColor : 'none',
+                borderTop: borderTopStyle,
+                borderLeft: borderLeftStyle,
+                borderRight: borderRightStyle,
+                ...(headerCellStylesById[column.id] || {}), // << apply compact widths
+              }}
             >
               {column.sortable ? (
-              <TableSortLabel
-                active={sortDir !== 'none'}
-                hideSortIcon
-                direction={sortDir === 'desc' ? 'desc' : 'asc'}
-                onClick={createSortHandler(columnSortKey)}
-                IconComponent={() => (
-                  <span style={{
-                    fontSize: "16px",
-                    fontWeight: 750,
-                    lineHeight: "24px",
-                    marginLeft: "10px",
-                    userSelect: "none"
-                  }}>
-                    {sortDir === 'desc' ? '▼' : '▲'}
-                  </span>
-                )}
-              >
+                <TableSortLabel
+                  active={sortDir !== 'none'}
+                  hideSortIcon
+                  direction={sortDir === 'desc' ? 'desc' : 'asc'}
+                  onClick={createSortHandler(columnSortKey)}
+                  IconComponent={() => (
+                    <span style={{
+                      fontSize: "16px",
+                      fontWeight: 750,
+                      lineHeight: "24px",
+                      marginLeft: "10px",
+                      userSelect: "none"
+                    }}>
+                      {sortDir === 'desc' ? '▼' : '▲'}
+                    </span>
+                  )}
+                >
                   {column.label}
                 </TableSortLabel>
               ) : (
@@ -429,8 +443,8 @@ const RecordTableHead: React.FC<RecordTableHeadProps & {
 //                      ✅ AssetRow (UPDATED)
 // ======================================================================
 const AssetRow: React.FC<
-  AssetRowProps & { hiddenColumns: Set<string> }
-> = ({ asset, thumbnails, dateTimeFormat, isLastRow, hiddenColumns }) => {
+  AssetRowProps & { hiddenColumns: Set<string>; compact: boolean }
+> = ({ asset, thumbnails, dateTimeFormat, isLastRow, hiddenColumns, compact }) => {
   const isHidden = (id: string) => hiddenColumns.has(id);
 
   const getPhaseData = (phase: string) => {
@@ -467,7 +481,9 @@ const AssetRow: React.FC<
   return (
     <TableRow>
       {!isHidden("thumbnail") && (
-        <TableCell>
+        <TableCell
+          style={compact ? { width: 140, minWidth: 140, maxWidth: 140 } : undefined}
+        >
           {thumbnails[`${asset.group_1}-${asset.relation}`] ? (
             <img
               src={thumbnails[`${asset.group_1}-${asset.relation}`]}
@@ -480,68 +496,71 @@ const AssetRow: React.FC<
         </TableCell>
       )}
 
-      {!isHidden("group_1_name") && <TableCell>{asset.group_1}</TableCell>}
+      {!isHidden("group_1_name") && (
+        <TableCell style={compact ? { minWidth: 220 } : undefined}>
+          {asset.group_1}
+        </TableCell>
+      )}
 
-      {Object.entries(ASSET_PHASES).map(([phase, { lineColor }]) => {
-        const kWork = `${phase}_work_status`;
-        const kAppr = `${phase}_approval_status`;
-        const kSub = `${phase}_submitted_at`;
+      {/* Skip phase groups entirely in compact mode */}
+      {!compact &&
+        Object.entries(ASSET_PHASES).map(([phase, { lineColor }]) => {
+          const kWork = `${phase}_work_status`;
+          const kAppr = `${phase}_approval_status`;
+          const kSub = `${phase}_submitted_at`;
 
-        if (
-          isHidden(kWork) &&
-          isHidden(kAppr) &&
-          isHidden(kSub)
-        ) {
-          return null;
-        }
+          if (isHidden(kWork) && isHidden(kAppr) && isHidden(kSub)) {
+            return null;
+          }
 
-        const {
-          workStatus,
-          approvalStatus,
-          localTimeText,
-          tooltipText,
-        } = getPhaseData(phase);
+          const {
+            workStatus,
+            approvalStatus,
+            localTimeText,
+            tooltipText,
+          } = getPhaseData(phase);
 
-        const borderLineStyle = `solid 3px ${lineColor}`;
+          const borderLineStyle = `solid 3px ${lineColor}`;
 
-        return (
-          <React.Fragment key={`${asset.group_1}-${asset.relation}-${phase}`}>
-            {!isHidden(kWork) && (
-              <MultiLineTooltipTableCell
-                tooltipText={tooltipText}
-                status={workStatus}
-                leftBorderStyle={borderLineStyle}
-                rightBorderStyle={"none"}
-                bottomBorderStyle={isLastRow ? borderLineStyle : "none"}
-              />
-            )}
+          return (
+            <React.Fragment key={`${asset.group_1}-${asset.relation}-${phase}`}>
+              {!isHidden(kWork) && (
+                <MultiLineTooltipTableCell
+                  tooltipText={tooltipText}
+                  status={workStatus}
+                  leftBorderStyle={borderLineStyle}
+                  rightBorderStyle={"none"}
+                  bottomBorderStyle={isLastRow ? borderLineStyle : "none"}
+                />
+              )}
 
-            {!isHidden(kAppr) && (
-              <MultiLineTooltipTableCell
-                tooltipText={tooltipText}
-                status={approvalStatus}
-                leftBorderStyle={"none"}
-                rightBorderStyle={"none"}
-                bottomBorderStyle={isLastRow ? borderLineStyle : "none"}
-              />
-            )}
+              {!isHidden(kAppr) && (
+                <MultiLineTooltipTableCell
+                  tooltipText={tooltipText}
+                  status={approvalStatus}
+                  leftBorderStyle={"none"}
+                  rightBorderStyle={"none"}
+                  bottomBorderStyle={isLastRow ? borderLineStyle : "none"}
+                />
+              )}
 
-            {!isHidden(kSub) && (
-              <TableCell
-                style={{
-                  borderLeft: "none",
-                  borderRight: borderLineStyle,
-                  borderBottom: isLastRow ? borderLineStyle : "none",
-                }}
-              >
-                {localTimeText}
-              </TableCell>
-            )}
-          </React.Fragment>
-        );
-      })}
+              {!isHidden(kSub) && (
+                <TableCell
+                  style={{
+                    borderLeft: "none",
+                    borderRight: borderLineStyle,
+                    borderBottom: isLastRow ? borderLineStyle : "none",
+                  }}
+                >
+                  {localTimeText}
+                </TableCell>
+              )}
+            </React.Fragment>
+          );
+        })}
 
-      {!isHidden("relation") && <TableCell>{asset.relation}</TableCell>}
+      {/* Relation only shown in non-compact mode (to keep two-column compact tidy) */}
+      {!isHidden("relation") && !compact && <TableCell>{asset.relation}</TableCell>}
     </TableRow>
   );
 };
@@ -574,6 +593,17 @@ const AssetsDataTable: React.FC<
     assets.map((a) => ({ name: a.group_1, relation: a.relation }))
   );
 
+  // Detect compact mode (only Thumbnail + Name visible)
+  const compact = isOnlyFixedVisible(hiddenColumns);
+
+  // Header widths to keep header/body aligned in compact mode
+  const headerCellStylesById: Record<string, React.CSSProperties> = compact
+    ? {
+        thumbnail: { width: 140, minWidth: 140, maxWidth: 140 },
+        group_1_name: { minWidth: 220 },
+      }
+    : {};
+
   // Filter columns for header
   const visibleColumns = columns.filter(
     (c) =>
@@ -583,13 +613,17 @@ const AssetsDataTable: React.FC<
   );
 
   return (
-    <Table stickyHeader>
+    <Table
+      stickyHeader
+      style={compact ? { tableLayout: 'fixed', width: '100%' } : undefined}
+    >
       <RecordTableHead
         key="asset-data-table-head"
         columns={visibleColumns}
         onSortChange={onSortChange}
         currentSortKey={currentSortKey}
         currentSortDir={currentSortDir}
+        headerCellStylesById={headerCellStylesById}
       />
 
       <TableBody>
@@ -601,6 +635,7 @@ const AssetsDataTable: React.FC<
             dateTimeFormat={dateTimeFormat}
             isLastRow={index === assets.length - 1}
             hiddenColumns={hiddenColumns}
+            compact={compact}
           />
         ))}
       </TableBody>
