@@ -19,21 +19,23 @@ import AssetsDataTableFooter from './AssetsDataTableFooter';
 
 import { useCurrentProject } from '../hooks';
 import { useCurrentStudio } from '../../studio/hooks';
-import { queryConfig } from '../../new-pipeline-setting/api';
+import { queryConfig, updateValue } from '../../new-pipeline-setting/api';
 
 /* ──────────────────────────────────────────────────────────────────────────
- * Styling  (overflow fixes applied)
+ * Styling  (no vertical internal scroll; stretch height)
  * ────────────────────────────────────────────────────────────────────────── */
 const StyledContainer = styled(Container)(({ theme }) => ({
   position: 'relative',
   display: 'flex',
   flexDirection: 'column',
   padding: 10,
-  // allow horizontal scroll to appear from the inner wrapper
+  // Allow horizontal scroll when content is wider than viewport
   overflowX: 'auto',
+  // Let content grow vertically (no inner scrollbar)
+  overflowY: 'visible',
+  height: 'auto',
   '& > *': {
     display: 'flex',
-    // IMPORTANT: do NOT clip overflow on children; let the inner div handle it
     overflow: 'visible',
     padding: theme.spacing(1),
     paddingBottom: 0,
@@ -47,8 +49,9 @@ const StyledPaper = styled(Paper)({
   width: '100%',
   display: 'flex',
   flexDirection: 'column',
-  // was 'hidden' — changed to 'visible' so the inner scroll container works
+  // No clipping; let the table grow
   overflow: 'visible',
+  height: 'auto',
 });
 
 const StyledContentDiv = styled('div')(({ theme }) => ({
@@ -56,11 +59,12 @@ const StyledContentDiv = styled('div')(({ theme }) => ({
   display: 'flex',
   flexDirection: 'column',
   width: '100%',
-  // ensure no clipping here either
   overflow: 'visible',
+  height: 'auto',
 }));
 
 const StyledTableDiv = styled('div')({
+  // no fixed heights here either
   paddingBottom: 8,
 });
 
@@ -120,6 +124,20 @@ const lsKeyForProject = (projectKeyName?: string) => {
 };
 
 /* ──────────────────────────────────────────────────────────────────────────
+ * Filters (for next tasks)
+ * ────────────────────────────────────────────────────────────────────────── */
+type PivotFilters = {
+  namePrefix?: string | null;
+  workStatuses?: string[] | null;
+  approvalStatuses?: string[] | null;
+};
+const normalizeFilters = (p: _FilterProps): PivotFilters => ({
+  namePrefix: p.assetNameKey?.trim() ? p.assetNameKey.trim() : null,
+  workStatuses: p.workStatues && p.workStatues.length ? p.workStatues : null,
+  approvalStatuses: p.applovalStatues && p.applovalStatues.length ? p.applovalStatues : null,
+});
+
+/* ──────────────────────────────────────────────────────────────────────────
  * Component
  * ────────────────────────────────────────────────────────────────────────── */
 const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
@@ -143,22 +161,18 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
   const { currentStudio } = useCurrentStudio();
   const [timeZone, setTimeZone] = useState<string | undefined>();
 
-  /* Resolve UI key -> server sort + phase */
   const resolveServerSort = (key: string): { sort: string; phase: string } => {
     if (key === 'group_1') return { sort: 'group_1', phase: 'none' };
     if (key === 'relation') return { sort: 'relation', phase: 'none' };
-
     const m = key.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
     if (!m) return { sort: 'group_1', phase: 'none' };
-
     const phase = m[1].toLowerCase();
     const field = m[2].toLowerCase();
-
     if (field === 'submitted') return { sort: 'submitted_at_utc', phase };
     return { sort: 'work_status', phase };
   };
 
-  /* Persist hidden columns (localStorage mirror) */
+  /* Persist hidden columns */
   const persistHiddenColumnsLocal = (next: Set<string>) => {
     const key = lsKeyForProject(currentProject && currentProject.key_name ? currentProject.key_name : undefined);
     try {
@@ -168,36 +182,61 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
     }
   };
 
-  /* Save to PipelineSetting (explicit “Save” from drawer) */
   const saveHiddenColumnsToPipelineSetting = async (cols: Set<string>) => {
     try {
       if (!currentProject?.key_name) return;
-      // If your queryConfig setter signature differs, replace this call accordingly.
-      await (queryConfig as any)(
-        'project',
-        currentProject.key_name,
-        PIPE_KEY,
-        JSON.stringify(Array.from(cols))
-      );
+      const payload = { value: JSON.stringify(Array.from(cols)) };
+      await updateValue('project', currentProject.key_name, PIPE_KEY, payload);
     } catch (e) {
       console.warn('PipelineSetting save failed; using local only', e);
     }
   };
 
-  // Wrapper used by toggle/showAll/hideAll to keep local mirror up-to-date
   const persistHiddenColumns = (next: Set<string>) => {
     persistHiddenColumnsLocal(next);
   };
 
+  /* Filters */
+  const filters = useMemo(() => normalizeFilters(filterProps), [filterProps]);
+
   /* Fetch data */
-  const { assets, total } = useFetchAssetsPivot(
+  const { assets: rawAssets, total } = useFetchAssetsPivot(
     currentProject,
     pageProps.page,
     pageProps.rowsPerPage,
     sortKey,
     sortDir,
     phasePriority,
+    filters
   );
+
+  /* Client-side fallback filtering */
+  const assets = useMemo(() => {
+    let list = rawAssets;
+    if (filters.namePrefix) {
+      const q = filters.namePrefix.toLowerCase();
+      list = list.filter(a => String(a.group_1 || '').toLowerCase().startsWith(q));
+    }
+    if (filters.workStatuses && filters.workStatuses.length) {
+      const set = new Set(filters.workStatuses.map(s => s.toLowerCase()));
+      list = list.filter(a =>
+        ['mdl', 'rig', 'bld', 'dsn', 'ldv'].some(p => {
+          const v = a[`${p}_work_status` as const];
+          return v && set.has(String(v).toLowerCase());
+        })
+      );
+    }
+    if (filters.approvalStatuses && filters.approvalStatuses.length) {
+      const set = new Set(filters.approvalStatuses.map(s => s.toLowerCase()));
+      list = list.filter(a =>
+        ['mdl', 'rig', 'bld', 'dsn', 'ldv'].some(p => {
+          const v = a[`${p}_approval_status` as const];
+          return v && set.has(String(v).toLowerCase());
+        })
+      );
+    }
+    return list;
+  }, [rawAssets, filters]);
 
   /* Studio timezone */
   useEffect(() => {
@@ -222,7 +261,7 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
     return () => controller.abort();
   }, [currentStudio]);
 
-  /* Load hidden columns: PipelineSetting -> localStorage fallback */
+  /* Load hidden columns */
   useEffect(() => {
     let aborted = false;
     (async () => {
@@ -301,7 +340,7 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
     }, 2000);
   };
 
-  /* Filters */
+  /* Filters handlers */
   const handleFilterAssetNameChange: TextFieldProps['onChange'] = (event) => {
     setFilterProps(p => ({ ...p, assetNameKey: event.target.value }));
     setPageProps(p => ({ ...p, page: 0 }));
@@ -381,10 +420,16 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
     return c;
   }, [hiddenColumns]);
 
+  /* Filters badge (optional) */
+  const filterCount =
+    (filters.namePrefix ? 1 : 0) +
+    (filters.workStatuses && filters.workStatuses.length ? 1 : 0) +
+    (filters.approvalStatuses && filters.approvalStatuses.length ? 1 : 0);
+
   /* Render */
   return (
     <StyledContainer maxWidth="xl">
-      {/* Filter bar with Reset + COLUMNS (COLUMNS opens Drawer inside AssetTableFilter) */}
+      {/* Filter bar */}
       <AssetTableFilter
         filterAssetName={filterProps.assetNameKey}
         selectApprovalStatuses={filterProps.applovalStatues}
@@ -404,19 +449,20 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
         onHideAll={hideAllNonFixed}
         visibleCount={visibleCount}
         onSaveColumns={handleSaveColumns}
+        filterCount={filterCount}
       />
 
-      {/* Table inside horizontal scroll container */}
+      {/* Table (no vertical internal scrolling; only horizontal if needed) */}
       <StyledTableDiv>
         <StyledPaper>
           <StyledContentDiv>
             <div
               style={{
-                // The actual scroll container
-                overflowX: 'auto',   // use 'scroll' if you want the bar always visible
-                overflowY: 'hidden',
+                overflowX: 'auto',   // keep horizontal scroll for wide tables
+                overflowY: 'visible',// no inner vertical scroll
                 width: '100%',
                 paddingBottom: 4,
+                height: 'auto',
               }}
             >
               <AssetsDataTable
