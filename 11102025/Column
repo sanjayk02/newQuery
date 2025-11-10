@@ -1,0 +1,132 @@
+const columns: Column[] = [
+  { id: 'thumbnail', label: 'Thumbnail' },
+
+  {
+    id: 'group_1_name',
+    label: 'Name',
+    sortable: true,
+    sortKey: 'group_1',                 // ✅ server expects group_1
+  },
+
+  // ===== MDL =====
+  {
+    id: 'mdl_work_status',
+    label: 'MDL WORK',
+    colors: ASSET_PHASES.mdl,
+    sortable: true,
+    sortKey: 'mdl_work_status',         // ✅ was mdl_work
+  },
+  {
+    id: 'mdl_approval_status',
+    label: 'MDL APPR',
+    colors: ASSET_PHASES.mdl,
+    sortable: true,
+    sortKey: 'mdl_approval_status',     // ✅ was mdl_appr
+  },
+  {
+    id: 'mdl_submitted_at',
+    label: 'MDL Submitted At',
+    colors: ASSET_PHASES.mdl,
+    sortable: true,
+    sortKey: 'mdl_submitted_at_utc',    // ✅ server field
+  },
+
+  // ===== RIG =====
+  {
+    id: 'rig_work_status',
+    label: 'RIG WORK',
+    colors: ASSET_PHASES.rig,
+    sortable: true,
+    sortKey: 'rig_work_status',         // ✅ was rig_work
+  },
+  {
+    id: 'rig_approval_status',
+    label: 'RIG APPR',
+    colors: ASSET_PHASES.rig,
+    sortable: true,
+    sortKey: 'rig_approval_status',     // ✅ was rig_appr
+  },
+  {
+    id: 'rig_submitted_at',
+    label: 'RIG Submitted At',
+    colors: ASSET_PHASES.rig,
+    sortable: true,
+    sortKey: 'rig_submitted_at_utc',    // ✅ server field
+  },
+
+  // ===== BLD =====
+  {
+    id: 'bld_work_status',
+    label: 'BLD WORK',
+    colors: ASSET_PHASES.bld,
+    sortable: true,
+    sortKey: 'bld_work_status',         // ✅ was bld_work
+  },
+  {
+    id: 'bld_approval_status',
+    label: 'BLD APPR',
+    colors: ASSET_PHASES.bld,
+    sortable: true,
+    sortKey: 'bld_approval_status',     // ✅ was bld_appr
+  },
+  {
+    id: 'bld_submitted_at',
+    label: 'BLD Submitted At',
+    colors: ASSET_PHASES.bld,
+    sortable: true,
+    sortKey: 'bld_submitted_at_utc',    // ✅ server field
+  },
+
+  // ===== DSN =====
+  {
+    id: 'dsn_work_status',
+    label: 'DSN WORK',
+    colors: ASSET_PHASES.dsn,
+    sortable: true,
+    sortKey: 'dsn_work_status',         // ✅ was dsn_work
+  },
+  {
+    id: 'dsn_approval_status',
+    label: 'DSN APPR',
+    colors: ASSET_PHASES.dsn,
+    sortable: true,
+    sortKey: 'dsn_approval_status',     // ✅ was dsn_appr
+  },
+  {
+    id: 'dsn_submitted_at',
+    label: 'DSN Submitted At',
+    colors: ASSET_PHASES.dsn,
+    sortable: true,
+    sortKey: 'dsn_submitted_at_utc',    // ✅ server field
+  },
+
+  // ===== LDV =====
+  {
+    id: 'ldv_work_status',
+    label: 'LDV WORK',
+    colors: ASSET_PHASES.ldv,
+    sortable: true,
+    sortKey: 'ldv_work_status',         // ✅ was ldv_work
+  },
+  {
+    id: 'ldv_approval_status',
+    label: 'LDV APPR',
+    colors: ASSET_PHASES.ldv,
+    sortable: true,
+    sortKey: 'ldv_approval_status',     // ✅ was ldv_appr
+  },
+  {
+    id: 'ldv_submitted_at',
+    label: 'LDV Submitted At',
+    colors: ASSET_PHASES.ldv,
+    sortable: true,
+    sortKey: 'ldv_submitted_at_utc',    // ✅ server field
+  },
+
+  {
+    id: 'relation',
+    label: 'Relation',
+    sortable: true,
+    sortKey: 'relation',                 // ✅ server field
+  },
+];
