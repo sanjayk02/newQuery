@@ -1,239 +1,95 @@
-// ---------- Count (for pagination total) ----------
-func (r *ReviewInfo) CountLatestSubmissions(ctx context.Context, project, root string) (int64, error) {
-	if project == "" {
-		return 0, fmt.Errorf("project is required")
-	}
-	if root == "" {
-		root = "assets"
-	}
-
-	const countSQL = `
-SELECT COUNT(*) FROM (
-  SELECT project, root, group_1, relation
-  FROM t_review_info
-  WHERE project = ? AND root = ? AND deleted = 0
-  GROUP BY project, root, group_1, relation
-) AS x;`
-
-	var total int64
-	if err := r.db.WithContext(ctx).Raw(countSQL, project, root).Scan(&total).Error; err != nil {
-		return 0, fmt.Errorf("CountLatestSubmissions: %w", err)
-	}
-	return total, nil
-}
-
-// ---------- Dynamic Sorting Function ----------
-func buildOrderClause(alias, key, dir string) string {
-	dir = strings.ToUpper(strings.TrimSpace(dir))
-	if dir != "ASC" && dir != "DESC" {
-		dir = "ASC"
-	}
-	col := func(c string) string {
-		if alias == "" {
-			return c
-		}
-		return alias + "." + c
-	}
-
-	switch key {
-	case "submitted_at_utc":
-		return col("submitted_at_utc") + " " + dir
-	case "modified_at_utc":
-		return col("modified_at_utc") + " " + dir
-	case "phase":
-		return col("phase") + " " + dir
-
-	case "group1_only":
-		return fmt.Sprintf("LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
-			col("group_1"), dir, col("relation"), col("submitted_at_utc"), col("submitted_at_utc"), dir)
-	case "relation_only":
-		return fmt.Sprintf("LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
-			col("relation"), dir, col("group_1"), col("submitted_at_utc"), col("submitted_at_utc"), dir)
-	case "group_rel_submitted":
-		return fmt.Sprintf("LOWER(%s) ASC, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
-			col("group_1"), col("relation"), col("submitted_at_utc"), col("submitted_at_utc"), dir)
-	case "work_status": // legacy alias
-		return fmt.Sprintf("LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
-			col("work_status"), dir, col("group_1"), col("submitted_at_utc"), col("submitted_at_utc"), dir)
-
-	default:
-		// default to group_1
-		return fmt.Sprintf("LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
-			col("group_1"), dir, col("relation"), col("submitted_at_utc"), col("submitted_at_utc"), dir)
-	}
-}
-
-// ---------- ListLatestSubmissionsDynamic (First query) ----------
-func (r *ReviewInfo) ListLatestSubmissionsDynamic(
-	ctx context.Context,
-	project string,
-	root string,
-	preferredPhase string, // "mdl" | "rig" | "bld" | "dsn" | "ldv" | "none"
-	orderKey string,       // group1_only | relation_only | group_rel_submitted | submitted_at_utc | modified_at_utc | phase | work_status
-	direction string,      // ASC | DESC
-	limit, offset int,
-) ([]LatestSubmissionRow, error) {
-
-	if project == "" {
-		return nil, fmt.Errorf("project is required")
-	}
-	if root == "" {
-		root = "assets"
-	}
-	if limit <= 0 {
-		limit = 60
-	}
-	if offset < 0 {
-		offset = 0
-	}
-
-	// phaseGuard=1 disables phase preference
-	phaseGuard := 0
-	if preferredPhase == "" || strings.EqualFold(preferredPhase, "none") {
-		phaseGuard = 1
-	}
-
-	orderClauseWindow := buildOrderClause("", orderKey, direction)  // for ROW_NUMBER() OVER (ORDER BY ...)
-	orderClauseInner  := buildOrderClause("b", orderKey, direction) // for the inner SELECT b.* ORDER BY ...
-
-	q := fmt.Sprintf(`
-WITH ordered AS (
-  SELECT
-    *,
-    ROW_NUMBER() OVER (ORDER BY %s) AS _order
-  FROM (
-    SELECT b.* FROM (
-      SELECT project, root, group_1, relation, phase, MAX(modified_at_utc) AS modified_at_utc
-      FROM t_review_info
-      WHERE project = ? AND root = ? AND deleted = 0
-      GROUP BY project, root, group_1, relation, phase
-    ) AS a
-    LEFT JOIN (
-      SELECT root, project, group_1, phase, relation, work_status, submitted_at_utc, modified_at_utc, executed_computer
-      FROM t_review_info
-      WHERE project = ? AND root = ? AND deleted = 0
-    ) AS b
-      ON a.project = b.project
-     AND a.root = b.root
-     AND a.group_1 = b.group_1
-     AND a.relation = b.relation
-     AND a.phase = b.phase
-     AND a.modified_at_utc = b.modified_at_utc
-    ORDER BY %s
-  ) AS k
-),
-offset_ordered AS (
-  SELECT
-    c.*,
-    CASE
-      WHEN ? = 1 THEN c._order
-      WHEN c.phase = ? THEN c._order
-      ELSE 100000 + c._order
-    END AS __order
-  FROM ordered c
-),
-ranked AS (
-  SELECT
-    b.*,
-    ROW_NUMBER() OVER (
-      PARTITION BY b.root, b.project, b.group_1, b.relation
-      ORDER BY
-        CASE WHEN ? = 1 THEN 0 WHEN b.phase = ? THEN 0 ELSE 1 END,
-        LOWER(b.group_1) ASC,
-        LOWER(b.relation) ASC,
-        b.modified_at_utc DESC
-    ) AS _rank
-  FROM offset_ordered b
-)
-SELECT root, project, group_1, relation, phase, submitted_at_utc
-FROM ( SELECT * FROM ranked WHERE _rank = 1 ) AS t
-ORDER BY __order ASC
-LIMIT ? OFFSET ?;`, orderClauseWindow, orderClauseInner)
-
-	args := []any{
-		project, root, // inner latest-per-phase
-		project, root, // inner join set
-		phaseGuard, preferredPhase, // offset_ordered CASE
-		phaseGuard, preferredPhase, // ranked CASE
-		limit, offset,
-	}
-
-	var rows []LatestSubmissionRow
-	if err := r.db.WithContext(ctx).Raw(q, args...).Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("ListLatestSubmissionsDynamic: %w", err)
-	}
-	return rows, nil
-}
-
-// ---------- ListAssetsPivot (Second query + pivot) ----------
+// ---------- ListAssetsPivot (Second query + pivot; MySQL-8 safe) ----------
 func (r *ReviewInfo) ListAssetsPivot(
 	ctx context.Context,
 	project, root, preferredPhase, orderKey, direction string,
 	limit, offset int,
 ) ([]AssetPivot, int64, error) {
 
+	// 1) Total asset count for pagination UI
 	total, err := r.CountLatestSubmissions(ctx, project, root)
 	if err != nil {
 		return nil, 0, err
 	}
 
+	// 2) Page keys using the same ordering/phase preference as the grid
 	keys, err := r.ListLatestSubmissionsDynamic(ctx, project, root, preferredPhase, orderKey, direction, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
+
+	// No keys on this page → empty pivot (avoid running the phase SQL at all)
 	if len(keys) == 0 {
 		return []AssetPivot{}, total, nil
 	}
 
-	// Fetch "latest row per phase" only for the (group_1, relation) keys on this page.
+	// 3) Build a MySQL-friendly CTE for keys:
+	//    Always start with a dummy "SELECT … WHERE FALSE" so the CTE is valid even if keys is empty.
 	var sb strings.Builder
 	var params []any
-	sb.WriteString(`
-WITH latest_phase AS (
-  SELECT
-    project, root, group_1, relation, phase,
-    work_status, approval_status, submitted_at_utc, modified_at_utc,
-    ROW_NUMBER() OVER (
-      PARTITION BY project, root, group_1, relation, phase
-      ORDER BY modified_at_utc DESC
-    ) rn
-  FROM t_review_info
-  WHERE project = ? AND root = ? AND deleted = 0
-    AND (
-`)
-	params = append(params, project, root)
-	for i, k := range keys {
-		if i > 0 {
-			sb.WriteString(" OR ")
-		}
-		sb.WriteString("(group_1 = ? AND relation = ?)")
-		params = append(params, k.Group1, k.Relation)
+
+	sb.WriteString("WITH keys AS (")
+	sb.WriteString("SELECT '' AS root, '' AS project, '' AS group_1, '' AS relation WHERE FALSE")
+	for _, k := range keys {
+		sb.WriteString(" UNION ALL SELECT ? AS root, ? AS project, ? AS group_1, ? AS relation")
+		params = append(params, k.Root, k.Project, k.Group1, k.Relation)
 	}
-	sb.WriteString(`
-    )
+	sb.WriteString(`),
+latest_per_phase AS (
+  SELECT
+    t.project, t.root, t.group_1, t.relation, t.phase,
+    t.work_status, t.approval_status, t.submitted_at_utc, t.modified_at_utc,
+    ROW_NUMBER() OVER (
+      PARTITION BY t.project, t.root, t.group_1, t.relation, t.phase
+      ORDER BY t.modified_at_utc DESC, t.submitted_at_utc DESC
+    ) rn
+  FROM t_review_info t
+  JOIN keys k
+    ON t.project  = k.project
+   AND t.root     = k.root
+   AND t.group_1  = k.group_1
+   AND t.relation = k.relation
+  WHERE t.deleted = 0
 )
-SELECT project, root, group_1, relation, phase, work_status, approval_status, submitted_at_utc
-FROM latest_phase
+SELECT
+  project, root, group_1, relation, phase,
+  work_status, approval_status, submitted_at_utc
+FROM latest_per_phase
 WHERE rn = 1;`)
 
-	var phases []phaseRow
-	if err := r.db.WithContext(ctx).Raw(sb.String(), params...).Scan(&phases).Error; err != nil {
+	// 4) Fetch the latest row per phase for just this page’s keys
+	var phaseRows []phaseRow
+	if err := r.db.WithContext(ctx).Raw(sb.String(), params...).Scan(&phaseRows).Error; err != nil {
+		// Helpful diagnostics during dev
+		fmt.Println("\n----- ListAssetsPivot: phase fetch SQL ERROR -----")
+		fmt.Println("SQL:\n", sb.String())
+		fmt.Println("PARAMS:", params)
+		fmt.Println("ERROR:", err)
+		fmt.Println("--------------------------------------------------\n")
 		return nil, 0, fmt.Errorf("ListAssetsPivot.phaseFetch: %w", err)
 	}
 
-	// Pivot in Go while preserving the page order from the "keys" slice.
-	type key struct{ p, r, g, rel string }
-	m := make(map[key]*AssetPivot, len(keys))
+	// 5) Pivot in Go while preserving the original page order from `keys`
+	type assetKey struct{ P, R, G, L string }
+	index := make(map[assetKey]*AssetPivot, len(keys))
 	ordered := make([]AssetPivot, 0, len(keys))
+
+	// Initialize one pivot row per asset key (keeps page order)
 	for _, k := range keys {
-		id := key{k.Project, k.Root, k.Group1, k.Relation}
-		ap := &AssetPivot{Root: k.Root, Project: k.Project, Group1: k.Group1, Relation: k.Relation}
-		m[id] = ap
+		id := assetKey{k.Project, k.Root, k.Group1, k.Relation}
+		ap := &AssetPivot{
+			Root:     k.Root,
+			Project:  k.Project,
+			Group1:   k.Group1,
+			Relation: k.Relation,
+		}
+		index[id] = ap
 		ordered = append(ordered, *ap)
 	}
-	for _, pr := range phases {
-		id := key{pr.Project, pr.Root, pr.Group1, pr.Relation}
-		ap, ok := m[id]
+
+	// Fill phases
+	for _, pr := range phaseRows {
+		id := assetKey{pr.Project, pr.Root, pr.Group1, pr.Relation}
+		ap, ok := index[id]
 		if !ok {
 			continue
 		}
@@ -260,11 +116,14 @@ WHERE rn = 1;`)
 			ap.LDVSubmittedAtUTC = pr.SubmittedAtUTC
 		}
 	}
+
+	// Copy filled data back into the ordered slice
 	for i := range ordered {
-		id := key{ordered[i].Project, ordered[i].Root, ordered[i].Group1, ordered[i].Relation}
-		if filled, ok := m[id]; ok {
+		id := assetKey{ordered[i].Project, ordered[i].Root, ordered[i].Group1, ordered[i].Relation}
+		if filled, ok := index[id]; ok {
 			ordered[i] = *filled
 		}
 	}
+
 	return ordered, total, nil
 }
