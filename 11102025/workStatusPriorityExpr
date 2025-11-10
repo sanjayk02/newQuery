@@ -1,0 +1,127 @@
+// ---------- Priority order helpers for status-based sorts ----------
+func workStatusPriorityExpr(col string) string {
+	// Lower rank = earlier in sort (ASC)
+	// Buckets: check(10) < retake(40) < onhold(60) < approved(100) < other/omit(900) < null(999)
+	return fmt.Sprintf(`CASE
+	  WHEN %s IS NULL THEN 999
+	  WHEN LOWER(%s) = 'check' THEN 10
+	  WHEN LOWER(%s) IN ('cgsvretake','svretake','leadretake') THEN 40
+	  WHEN LOWER(%s) IN ('cgsvonhold','svonhold','leadonhold') THEN 60
+	  WHEN LOWER(%s) IN ('cgsvapproved','svapproved','leadapproved') THEN 100
+	  WHEN LOWER(%s) IN ('omit','svother','leadother','other') THEN 900
+	  ELSE 900
+	END`, col, col, col, col, col, col)
+}
+
+func approvalStatusPriorityExpr(col string) string {
+	// Buckets: review(20*) < onhold(60*) < retake(80*) < approved(100*) < other/omit(900) < null(999)
+	// Treat client/dir/epd variants in same bucket families.
+	return fmt.Sprintf(`CASE
+	  WHEN %s IS NULL THEN 999
+	  WHEN LOWER(%s) IN ('check') THEN 10
+	  WHEN LOWER(%s) IN ('clientreview','dirreview','epdreview','review') THEN 20
+	  WHEN LOWER(%s) IN ('clientonhold','dironhold','epdonhold','onhold') THEN 60
+	  WHEN LOWER(%s) IN ('execretake','clientretake','dirretake','epdretake','retake') THEN 80
+	  WHEN LOWER(%s) IN ('clientapproved','dirapproved','epdapproved','approved') THEN 100
+	  WHEN LOWER(%s) IN ('omit','other') THEN 900
+	  ELSE 900
+	END`, col, col, col, col, col, col, col)
+}
+
+// ---------- Dynamic Sorting Function ----------
+func buildOrderClause(alias, key, dir string) string {
+	dir = strings.ToUpper(strings.TrimSpace(dir))
+	if dir != "ASC" && dir != "DESC" {
+		dir = "ASC"
+	}
+	col := func(c string) string {
+		if alias == "" {
+			return c
+		}
+		return alias + "." + c
+	}
+
+	switch key {
+
+	case "submitted_at_utc":
+		return col("submitted_at_utc") + " " + dir
+
+	case "modified_at_utc":
+		return col("modified_at_utc") + " " + dir
+
+	case "phase":
+		return col("phase") + " " + dir
+
+	case "group1_only":
+		return fmt.Sprintf("LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			col("group_1"), dir, col("relation"), col("submitted_at_utc"), col("submitted_at_utc"), dir)
+
+	case "relation_only":
+		return fmt.Sprintf("LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			col("relation"), dir, col("group_1"), col("submitted_at_utc"), col("submitted_at_utc"), dir)
+
+	case "group_rel_submitted":
+		return fmt.Sprintf("LOWER(%s) ASC, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			col("group_1"), col("relation"), col("submitted_at_utc"), col("submitted_at_utc"), dir)
+
+	// Legacy plain A→Z status sort
+	case "work_status":
+		return fmt.Sprintf("LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			col("work_status"), dir, col("group_1"), col("submitted_at_utc"), col("submitted_at_utc"), dir)
+
+	// NEW: status-priority sorts
+	case "work_status_priority":
+		return fmt.Sprintf("%s %s, LOWER(%s) ASC, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			workStatusPriorityExpr(col("work_status")),
+			dir,
+			col("group_1"),
+			col("relation"),
+			col("submitted_at_utc"),
+			col("submitted_at_utc"),
+			dir,
+		)
+
+	case "approval_status_priority":
+		return fmt.Sprintf("%s %s, LOWER(%s) ASC, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			approvalStatusPriorityExpr(col("approval_status")),
+			dir,
+			col("group_1"),
+			col("relation"),
+			col("submitted_at_utc"),
+			col("submitted_at_utc"),
+			dir,
+		)
+
+	default:
+		return fmt.Sprintf("LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			col("group_1"), dir, col("relation"), col("submitted_at_utc"), col("submitted_at_utc"), dir)
+	}
+}
+
+
+// main.go
+var sortKeyMap = map[string]string{
+	"group_1":             "group1_only",
+	"relation":            "relation_only",
+	"submitted_at_utc":    "submitted_at_utc",
+	"modified_at_utc":     "modified_at_utc",
+	"phase":               "phase",
+	"group_rel_submitted": "group_rel_submitted",
+	"work_status":         "work_status",            // legacy
+	"work_status_priority":"work_status_priority",   // NEW
+	"approval_status_priority":"approval_status_priority", // NEW (if you choose to use it)
+}
+
+// AssetsDataTablePanel.tsx
+const resolveServerSort = (key: string): { sort: string; phase: string } => {
+  if (key === 'group_1') return { sort: 'group_1', phase: 'none' };
+  if (key === 'relation') return { sort: 'relation', phase: 'none' };
+  const m = key.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
+  if (!m) return { sort: 'group_1', phase: 'none' };
+  const phase = m[1].toLowerCase();
+  const field = m[2].toLowerCase();
+  if (field === 'submitted') return { sort: 'submitted_at_utc', phase };
+  if (field === 'work')      return { sort: 'work_status_priority', phase };
+  return { sort: 'approval_status_priority', phase }; // 'appr'
+};
+
