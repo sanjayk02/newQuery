@@ -1,0 +1,109 @@
+func (r *ReviewInfo) ListAssetsPivot(
+	ctx context.Context,
+	project, root, preferredPhase, orderKey, direction string,
+	limit, offset int,
+) ([]AssetPivot, int64, error) {
+
+	// 1) total assets (unchanged)
+	total, err := r.CountLatestSubmissions(ctx, project, root)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// 2) get the page of asset keys (your working query)
+	keys, err := r.ListLatestSubmissionsDynamic(ctx, project, root, preferredPhase, orderKey, direction, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(keys) == 0 {
+		return []AssetPivot{}, total, nil
+	}
+
+	// 3) Build a MySQL-friendly CTE for the keys: SELECT ... UNION ALL SELECT ...
+	var sb strings.Builder
+	var params []any
+
+	sb.WriteString("WITH keys AS (")
+	for i, k := range keys {
+		if i > 0 {
+			sb.WriteString(" UNION ALL ")
+		}
+		sb.WriteString("SELECT ? AS root, ? AS project, ? AS group_1, ? AS relation")
+		params = append(params, k.Root, k.Project, k.Group1, k.Relation)
+	}
+	sb.WriteString(`),
+latest_per_phase AS (
+  SELECT
+    t.project, t.root, t.group_1, t.relation, t.phase,
+    t.work_status, t.approval_status, t.submitted_at_utc, t.modified_at_utc,
+    ROW_NUMBER() OVER (
+      PARTITION BY t.project, t.root, t.group_1, t.relation, t.phase
+      ORDER BY t.modified_at_utc DESC, t.submitted_at_utc DESC
+    ) AS rn
+  FROM t_review_info t
+  JOIN keys k
+    ON t.project  = k.project
+   AND t.root     = k.root
+   AND t.group_1  = k.group_1
+   AND t.relation = k.relation
+  WHERE t.deleted = 0
+)
+SELECT project, root, group_1, relation, phase, work_status, approval_status, submitted_at_utc
+FROM latest_per_phase
+WHERE rn = 1;`)
+
+	// 4) Fetch rows
+	var phases []phaseRow
+	if err := r.db.WithContext(ctx).Raw(sb.String(), params...).Scan(&phases).Error; err != nil {
+		return nil, 0, fmt.Errorf("ListAssetsPivot.fetch: %w", err)
+	}
+
+	// 5) Pivot in Go (same as before)
+	type assetKey struct{ Project, Root, Group1, Relation string }
+	m := make(map[assetKey]*AssetPivot, len(keys))
+	ordered := make([]AssetPivot, 0, len(keys))
+
+	for _, k := range keys {
+		id := assetKey{k.Project, k.Root, k.Group1, k.Relation}
+		ap := &AssetPivot{Root: k.Root, Project: k.Project, Group1: k.Group1, Relation: k.Relation}
+		m[id] = ap
+		ordered = append(ordered, *ap)
+	}
+
+	for _, pr := range phases {
+		id := assetKey{pr.Project, pr.Root, pr.Group1, pr.Relation}
+		ap, ok := m[id]
+		if !ok { continue }
+		switch strings.ToLower(pr.Phase) {
+		case "mdl":
+			ap.MDLWorkStatus = pr.WorkStatus
+			ap.MDLApprovalStatus = pr.ApprovalStatus
+			ap.MDLSubmittedAtUTC = pr.SubmittedAtUTC
+		case "rig":
+			ap.RIGWorkStatus = pr.WorkStatus
+			ap.RIGApprovalStatus = pr.ApprovalStatus
+			ap.RIGSubmittedAtUTC = pr.SubmittedAtUTC
+		case "bld":
+			ap.BLDWorkStatus = pr.WorkStatus
+			ap.BLDApprovalStatus = pr.ApprovalStatus
+			ap.BLDSubmittedAtUTC = pr.SubmittedAtUTC
+		case "dsn":
+			ap.DSNWorkStatus = pr.WorkStatus
+			ap.DSNApprovalStatus = pr.ApprovalStatus
+			ap.DSNSubmittedAtUTC = pr.SubmittedAtUTC
+		case "ldv":
+			ap.LDVWorkStatus = pr.WorkStatus
+			ap.LDVApprovalStatus = pr.ApprovalStatus
+			ap.LDVSubmittedAtUTC = pr.SubmittedAtUTC
+		}
+	}
+
+	for i := range ordered {
+		id := assetKey{ordered[i].Project, ordered[i].Root, ordered[i].Group1, ordered[i].Relation}
+		if filled, ok := m[id]; ok {
+			ordered[i] = *filled
+		}
+	}
+
+	return ordered, total, nil
+}
