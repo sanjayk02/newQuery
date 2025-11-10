@@ -374,4 +374,20 @@ WHERE rn = 1;`)
 		case "dsn":
 			ap.DSNWorkStatus = r.WorkStatus
 			ap.DSNApprovalStatus = r.ApprovalStatus
-			ap.DSNSubmittedA
+			ap.DSNSubmittedAtUTC = r.SubmittedAtUTC
+		case "ldv":
+			ap.LDVWorkStatus = r.WorkStatus
+			ap.LDVApprovalStatus = r.ApprovalStatus
+			ap.LDVSubmittedAtUTC = r.SubmittedAtUTC
+		}
+	}
+
+	for i := range out {
+		id := akey{out[i].Project, out[i].Root, out[i].Group1, out[i].Relation}
+		if filled, ok := idx[id]; ok {
+			out[i] = *filled
+		}
+	}
+
+	return out, total, nil
+}
