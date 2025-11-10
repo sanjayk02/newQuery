@@ -1,3 +1,4 @@
+// reviewInfo.go
 package repo
 
 import (
@@ -9,11 +10,16 @@ import (
 	"gorm.io/gorm"
 )
 
-// ---------------- Repo holder ----------------
+// -----------------------------------------------------------------------------
+// Repository holder
+// -----------------------------------------------------------------------------
 type ReviewInfo struct{ db *gorm.DB }
+
 func NewReviewInfo(db *gorm.DB) *ReviewInfo { return &ReviewInfo{db: db} }
 
-// ---------------- Row structs ----------------
+// -----------------------------------------------------------------------------
+// Row structs
+// -----------------------------------------------------------------------------
 type LatestSubmissionRow struct {
 	Root           string     `json:"root"              gorm:"column:root"`
 	Project        string     `json:"project"           gorm:"column:project"`
@@ -62,7 +68,9 @@ type phaseRow struct {
 	ModifiedAtUTC  *time.Time `gorm:"column:modified_at_utc"`
 }
 
-// ---------------- Count (for total) ----------------
+// -----------------------------------------------------------------------------
+// Count (total unique assets for pagination UI)
+// -----------------------------------------------------------------------------
 func (r *ReviewInfo) CountLatestSubmissions(ctx context.Context, project, root string) (int64, error) {
 	if project == "" {
 		return 0, fmt.Errorf("project is required")
@@ -86,10 +94,14 @@ SELECT COUNT(*) FROM (
 	return total, nil
 }
 
-// ---------------- Work-status priority CASE ----------------
+// -----------------------------------------------------------------------------
+// Sorting helpers
+// -----------------------------------------------------------------------------
 func statusOrderExpr(alias string) string {
 	col := func(c string) string {
-		if alias == "" { return c }
+		if alias == "" {
+			return c
+		}
 		return alias + "." + c
 	}
 	ws := col("work_status")
@@ -104,13 +116,15 @@ CASE
 END`, ws, ws, ws, ws, ws)
 }
 
-// ---------------- Dynamic sort key builder ----------------
 func buildOrderClause(alias, key, dir string) string {
 	dir = strings.ToUpper(strings.TrimSpace(dir))
-	if dir != "ASC" && dir != "DESC" { dir = "ASC" }
-
+	if dir != "ASC" && dir != "DESC" {
+		dir = "ASC"
+	}
 	col := func(c string) string {
-		if alias == "" { return c }
+		if alias == "" {
+			return c
+		}
 		return alias + "." + c
 	}
 
@@ -132,7 +146,7 @@ func buildOrderClause(alias, key, dir string) string {
 		return fmt.Sprintf("LOWER(%s) ASC, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
 			col("group_1"), col("relation"), col("submitted_at_utc"), col("submitted_at_utc"), dir)
 
-	case "work_status":
+	case "work_status": // legacy
 		return fmt.Sprintf("LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
 			col("work_status"), dir, col("group_1"), col("submitted_at_utc"), col("submitted_at_utc"), dir)
 
@@ -148,7 +162,9 @@ func buildOrderClause(alias, key, dir string) string {
 	}
 }
 
-// ---------------- First query ----------------
+// -----------------------------------------------------------------------------
+// First query: get one row per asset (phase preference + dynamic sort)
+// -----------------------------------------------------------------------------
 func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 	ctx context.Context,
 	project string,
@@ -159,10 +175,18 @@ func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 	limit, offset int,
 ) ([]LatestSubmissionRow, error) {
 
-	if project == "" { return nil, fmt.Errorf("project is required") }
-	if root == "" { root = "assets" }
-	if limit <= 0 { limit = 60 }
-	if offset < 0 { offset = 0 }
+	if project == "" {
+		return nil, fmt.Errorf("project is required")
+	}
+	if root == "" {
+		root = "assets"
+	}
+	if limit <= 0 {
+		limit = 60
+	}
+	if offset < 0 {
+		offset = 0
+	}
 
 	// Disable phase preference when phase=none
 	phaseGuard := 0
@@ -170,8 +194,8 @@ func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 		phaseGuard = 1
 	}
 
-	orderClauseWindow := buildOrderClause("",  orderKey, direction) // for ROW_NUMBER() OVER (...)
-	orderClauseInner  := buildOrderClause("b", orderKey, direction) // inner ORDER BY
+	orderClauseWindow := buildOrderClause("", orderKey, direction)  // for ROW_NUMBER() OVER
+	orderClauseInner := buildOrderClause("b", orderKey, direction) // for inner ORDER BY
 
 	q := fmt.Sprintf(`
 WITH ordered AS (
@@ -228,10 +252,10 @@ ORDER BY __order ASC
 LIMIT ? OFFSET ?;`, orderClauseWindow, orderClauseInner)
 
 	args := []any{
-		project, root,
-		project, root,
-		phaseGuard, preferredPhase,
-		phaseGuard, preferredPhase,
+		project, root, // inner latest-per-phase
+		project, root, // inner join rows
+		phaseGuard, preferredPhase, // offset_ordered CASE
+		phaseGuard, preferredPhase, // ranked CASE
 		limit, offset,
 	}
 
@@ -242,7 +266,11 @@ LIMIT ? OFFSET ?;`, orderClauseWindow, orderClauseInner)
 	return rows, nil
 }
 
-// ---------------- Second query + Pivot (CTE-free, MySQL-safe) ----------------
+// -----------------------------------------------------------------------------
+// Second query + pivot: latest row per (asset, phase) for just this page
+//  - CTE-free (uses simple OR list) → portable & safe
+//  - Preserves the order produced by the first query
+// -----------------------------------------------------------------------------
 func (r *ReviewInfo) ListAssetsPivot(
 	ctx context.Context,
 	project, root, preferredPhase, orderKey, direction string,
@@ -250,14 +278,19 @@ func (r *ReviewInfo) ListAssetsPivot(
 ) ([]AssetPivot, int64, error) {
 
 	total, err := r.CountLatestSubmissions(ctx, project, root)
-	if err != nil { return nil, 0, err }
+	if err != nil {
+		return nil, 0, err
+	}
 
-	// Get current page asset keys (ordered with same logic)
 	keys, err := r.ListLatestSubmissionsDynamic(ctx, project, root, preferredPhase, orderKey, direction, limit, offset)
-	if err != nil { return nil, 0, err }
-	if len(keys) == 0 { return []AssetPivot{}, total, nil }
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(keys) == 0 {
+		return []AssetPivot{}, total, nil
+	}
 
-	// Build simple OR-list query (no CTE) to fetch latest row per (asset, phase)
+	// Phase fetch for only this page's keys (no CTE for keys; OR chain instead)
 	var sb strings.Builder
 	var params []any
 
@@ -279,7 +312,9 @@ FROM (
 	params = append(params, project, root)
 
 	for i, k := range keys {
-		if i > 0 { sb.WriteString(" OR ") }
+		if i > 0 {
+			sb.WriteString(" OR ")
+		}
 		sb.WriteString("(t.group_1 = ? AND t.relation = ?)")
 		params = append(params, k.Group1, k.Relation)
 	}
@@ -289,9 +324,9 @@ FROM (
 ) latest_phase
 WHERE rn = 1;`)
 
-	var prs []phaseRow
-	if err := r.db.WithContext(ctx).Raw(sb.String(), params...).Scan(&prs).Error; err != nil {
-		// Development logging (remove/guard as needed)
+	var pr []phaseRow
+	if err := r.db.WithContext(ctx).Raw(sb.String(), params...).Scan(&pr).Error; err != nil {
+		// helpful logging during dev
 		fmt.Println("\n----- ListAssetsPivot: phase fetch SQL ERROR -----")
 		fmt.Println("SQL:\n", sb.String())
 		fmt.Println("PARAMS:", params)
@@ -300,24 +335,29 @@ WHERE rn = 1;`)
 		return nil, 0, fmt.Errorf("ListAssetsPivot.phaseFetch: %w", err)
 	}
 
-	// Pivot to AssetPivot while preserving page order
-	type key struct{ P, R, G, L string }
-	index := make(map[key]*AssetPivot, len(keys))
+	// Pivot in Go, preserving the keys order
+	type akey struct{ P, R, G, L string }
+	idx := make(map[akey]*AssetPivot, len(keys))
 	out := make([]AssetPivot, 0, len(keys))
 
 	for _, k := range keys {
-		id := key{k.Project, k.Root, k.Group1, k.Relation}
+		id := akey{k.Project, k.Root, k.Group1, k.Relation}
 		ap := &AssetPivot{
-			Root: k.Root, Project: k.Project, Group1: k.Group1, Relation: k.Relation,
+			Root:     k.Root,
+			Project:  k.Project,
+			Group1:   k.Group1,
+			Relation: k.Relation,
 		}
-		index[id] = ap
+		idx[id] = ap
 		out = append(out, *ap)
 	}
 
-	for _, r := range prs {
-		id := key{r.Project, r.Root, r.Group1, r.Relation}
-		ap, ok := index[id]
-		if !ok { continue }
+	for _, r := range pr {
+		id := akey{r.Project, r.Root, r.Group1, r.Relation}
+		ap, ok := idx[id]
+		if !ok {
+			continue
+		}
 		switch strings.ToLower(r.Phase) {
 		case "mdl":
 			ap.MDLWorkStatus = r.WorkStatus
@@ -334,17 +374,4 @@ WHERE rn = 1;`)
 		case "dsn":
 			ap.DSNWorkStatus = r.WorkStatus
 			ap.DSNApprovalStatus = r.ApprovalStatus
-			ap.DSNSubmittedAtUTC = r.SubmittedAtUTC
-		case "ldv":
-			ap.LDVWorkStatus = r.WorkStatus
-			ap.LDVApprovalStatus = r.ApprovalStatus
-			ap.LDVSubmittedAtUTC = r.SubmittedAtUTC
-		}
-	}
-
-	for i := range out {
-		id := key{out[i].Project, out[i].Root, out[i].Group1, out[i].Relation}
-		if filled, ok := index[id]; ok { out[i] = *filled }
-	}
-	return out, total, nil
-}
+			ap.DSNSubmittedA
