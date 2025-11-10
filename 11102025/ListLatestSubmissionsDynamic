@@ -22,81 +22,75 @@ func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 	}
 
 	// Disable phase priority when caller passes phase=none
-	// (Route also sets phase=none automatically for group_1/relation sorts—see main.go)
 	phaseGuard := 0
 	if preferredPhase == "" || strings.EqualFold(preferredPhase, "none") {
 		phaseGuard = 1
 	}
 
-	// Separate order clauses for inner (alias b) vs window (unqualified)
+	// Keep existing ordering behavior (inner vs window)
 	orderClauseWindow := buildOrderClause("", orderKey, direction)
 	orderClauseInner := buildOrderClause("b", orderKey, direction)
 
-	// We produce an ordered CTE (first query logic) that selects one row per (project,root,group_1,relation)
-	// preferring the requested phase. Then we join that result back to t_review_info to return the full rows
-	// (second query pattern).
+	// Compose query:
+	// 1) produce latest-per-phase rows and assign _order for pagination (first-query pattern)
+	// 2) compute __order that boosts preferredPhase
+	// 3) rank per asset to pick one row preferring preferredPhase
+	// 4) apply LIMIT/OFFSET to selected rows
+	// 5) join back to t_review_info to get the full columns (second-query pattern)
 	q := fmt.Sprintf(`
 WITH ordered AS (
-	SELECT
-		*,
-		ROW_NUMBER() OVER (ORDER BY %s) AS _order
-	FROM (
-		SELECT b.* FROM (
-			SELECT project, root, group_1, relation, phase, MAX(modified_at_utc) AS modified_at_utc
-			FROM t_review_info
-			WHERE project = ? AND root = ? AND deleted = 0
-			GROUP BY project, root, group_1, relation, phase
-		) AS a
-		LEFT JOIN (
-			SELECT root, project, group_1, phase, relation, work_status, submitted_at_utc, modified_at_utc, executed_computer
-			FROM t_review_info
-			WHERE project = ? AND root = ? AND deleted = 0
-		) AS b
-		  ON a.project = b.project
-		 AND a.root = b.root
-		 AND a.group_1 = b.group_1
-		 AND a.relation = b.relation
-		 AND a.phase = b.phase
-		 AND a.modified_at_utc = b.modified_at_utc
-		ORDER BY %s
-	) AS k
+  SELECT *, ROW_NUMBER() OVER (ORDER BY %s) AS _order
+  FROM (
+    SELECT b.* FROM (
+      SELECT project, root, group_1, relation, phase, MAX(modified_at_utc) AS modified_at_utc
+      FROM t_review_info
+      WHERE project = ? AND root = ? AND deleted = 0
+      GROUP BY project, root, group_1, relation, phase
+    ) AS a
+    LEFT JOIN (
+      SELECT root, project, group_1, phase, relation, work_status, submitted_at_utc, modified_at_utc, executed_computer
+      FROM t_review_info
+      WHERE project = ? AND root = ? AND deleted = 0
+    ) AS b
+      ON a.project = b.project
+     AND a.root = b.root
+     AND a.group_1 = b.group_1
+     AND a.relation = b.relation
+     AND a.phase = b.phase
+     AND a.modified_at_utc = b.modified_at_utc
+    ORDER BY %s
+  ) AS k
 ),
 offset_ordered AS (
-	SELECT
-		c.*,
-		CASE
-		  WHEN ? = 1 THEN c._order                      -- no phase preference
-		  WHEN c.phase = ? THEN c._order                -- prefer requested phase
-		  ELSE 100000 + c._order
-		END AS __order
-	FROM ordered c
+  SELECT
+    c.*,
+    CASE
+      WHEN ? = 1 THEN c._order
+      WHEN c.phase = ? THEN c._order
+      ELSE 100000 + c._order
+    END AS __order
+  FROM ordered c
 ),
 ranked AS (
-	SELECT
-		b.*,
-		ROW_NUMBER() OVER (
-			PARTITION BY b.root, b.project, b.group_1, b.relation
-			ORDER BY
-			  CASE
-			    WHEN ? = 1 THEN 0                         -- no phase preference
-			    WHEN b.phase = ? THEN 0 ELSE 1           -- prefer requested phase
-			  END,
-			  LOWER(b.group_1) ASC,
-			  LOWER(b.relation) ASC,
-			  b.modified_at_utc DESC
-		) AS _rank
-	FROM offset_ordered b
+  SELECT
+    b.*,
+    ROW_NUMBER() OVER (
+      PARTITION BY b.root, b.project, b.group_1, b.relation
+      ORDER BY
+        CASE WHEN ? = 1 THEN 0 WHEN b.phase = ? THEN 0 ELSE 1 END,
+        b.modified_at_utc DESC,
+        b.submitted_at_utc DESC
+    ) AS _rank
+  FROM offset_ordered b
 ),
--- pick the top row per asset according to the ranking
 selected AS (
-	SELECT root, project, group_1, relation, phase, modified_at_utc, __order
-	FROM ( SELECT * FROM ranked WHERE _rank = 1 ) AS t
-	ORDER BY __order ASC
-	LIMIT ? OFFSET ?
+  SELECT root, project, group_1, relation, phase, modified_at_utc, __order
+  FROM ( SELECT * FROM ranked WHERE _rank = 1 ) AS t
+  ORDER BY __order ASC
+  LIMIT ? OFFSET ?
 )
--- join back to t_review_info to get the full columns (second-query pattern)
 SELECT
-	b.root, b.project, b.group_1, b.relation, b.phase, b.submitted_at_utc
+  b.root, b.project, b.group_1, b.relation, b.phase, b.submitted_at_utc
 FROM t_review_info b
 JOIN selected s
   ON b.root = s.root
@@ -109,11 +103,11 @@ ORDER BY s.__order ASC;
 `, orderClauseWindow, orderClauseInner)
 
 	args := []any{
-		project, root, // inner latest-per-phase (GROUP BY)
-		project, root, // inner join rows (b)
+		project, root, // group-by latest-per-phase
+		project, root, // join rows b
 		phaseGuard, preferredPhase, // offset_ordered CASE
 		phaseGuard, preferredPhase, // ranked CASE
-		limit, offset, // pagination applied to the selected CTE
+		limit, offset, // pagination on selected
 	}
 
 	var rows []LatestSubmissionRow
@@ -121,4 +115,118 @@ ORDER BY s.__order ASC;
 		return nil, fmt.Errorf("ListLatestSubmissionsDynamic: %w", err)
 	}
 	return rows, nil
+}
+
+// ---------- ListAssetsPivot (pivot fill, uses VALUES-style key list) ----------
+func (r *ReviewInfo) ListAssetsPivot(
+	ctx context.Context,
+	project, root, preferredPhase, orderKey, direction string,
+	limit, offset int,
+) ([]AssetPivot, int64, error) {
+
+	// count total (existing function)
+	total, err := r.CountLatestSubmissions(ctx, project, root)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// fetch the page keys using ListLatestSubmissionsDynamic (we reuse same ordering/phase logic)
+	keys, err := r.ListLatestSubmissionsDynamic(ctx, project, root, preferredPhase, orderKey, direction, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(keys) == 0 {
+		return []AssetPivot{}, total, nil
+	}
+
+	// Build a VALUES-style CTE for the page keys and fetch latest row per phase, then pivot in Go.
+	var sb strings.Builder
+	var params []any
+
+	sb.WriteString(`
+WITH keys(group_1, relation) AS (
+`)
+
+	for i, k := range keys {
+		if i > 0 {
+			sb.WriteString(",\n")
+		}
+		sb.WriteString("(?, ?)")
+		params = append(params, k.Group1, k.Relation)
+	}
+	sb.WriteString(`
+),
+latest_phase AS (
+  SELECT
+    project, root, group_1, relation, phase,
+    work_status, approval_status, submitted_at_utc, modified_at_utc,
+    ROW_NUMBER() OVER (
+      PARTITION BY project, root, group_1, relation, phase
+      ORDER BY modified_at_utc DESC, submitted_at_utc DESC
+    ) rn
+  FROM t_review_info t
+  JOIN keys k ON t.group_1 = k.group_1 AND t.relation = k.relation
+  WHERE t.project = ? AND t.root = ? AND t.deleted = 0
+)
+SELECT project, root, group_1, relation, phase, work_status, approval_status, submitted_at_utc
+FROM latest_phase
+WHERE rn = 1;`)
+
+	// append project/root params for the WHERE
+	params = append(params, project, root)
+
+	var phases []phaseRow
+	if err := r.db.WithContext(ctx).Raw(sb.String(), params...).Scan(&phases).Error; err != nil {
+		return nil, 0, fmt.Errorf("ListAssetsPivot.phaseFetch: %w", err)
+	}
+
+	// pivot in Go
+	type assetKey struct{ Project, Root, Group1, Relation string }
+	m := make(map[assetKey]*AssetPivot, len(keys))
+	ordered := make([]AssetPivot, 0, len(keys))
+	for _, k := range keys {
+		id := assetKey{k.Project, k.Root, k.Group1, k.Relation}
+		ap := &AssetPivot{Root: k.Root, Project: k.Project, Group1: k.Group1, Relation: k.Relation}
+		m[id] = ap
+		ordered = append(ordered, *ap)
+	}
+	for _, pr := range phases {
+		id := assetKey{pr.Project, pr.Root, pr.Group1, pr.Relation}
+		ap, ok := m[id]
+		if !ok {
+			continue
+		}
+		switch strings.ToLower(pr.Phase) {
+		case "mdl":
+			ap.MDLWorkStatus = pr.WorkStatus
+			ap.MDLApprovalStatus = pr.ApprovalStatus
+			ap.MDLSubmittedAtUTC = pr.SubmittedAtUTC
+		case "rig":
+			ap.RIGWorkStatus = pr.WorkStatus
+			ap.RIGApprovalStatus = pr.ApprovalStatus
+			ap.RIGSubmittedAtUTC = pr.SubmittedAtUTC
+		case "bld":
+			ap.BLDWorkStatus = pr.WorkStatus
+			ap.BLDApprovalStatus = pr.ApprovalStatus
+			ap.BLDSubmittedAtUTC = pr.SubmittedAtUTC
+		case "dsn":
+			ap.DSNWorkStatus = pr.WorkStatus
+			ap.DSNApprovalStatus = pr.ApprovalStatus
+			ap.DSNSubmittedAtUTC = pr.SubmittedAtUTC
+		case "ldv":
+			ap.LDVWorkStatus = pr.WorkStatus
+			ap.LDVApprovalStatus = pr.ApprovalStatus
+			ap.LDVSubmittedAtUTC = pr.SubmittedAtUTC
+		}
+	}
+
+	// copy filled pivots back into ordered slice preserving order
+	for i := range ordered {
+		id := assetKey{ordered[i].Project, ordered[i].Root, ordered[i].Group1, ordered[i].Relation}
+		if filled, ok := m[id]; ok {
+			ordered[i] = *filled
+		}
+	}
+
+	return ordered, total, nil
 }
