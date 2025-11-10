@@ -1,65 +1,66 @@
-// ---------- ListAssetsPivot (Second query + pivot; MySQL-8 safe) ----------
+// ---------- ListAssetsPivot (Second query + pivot; CTE-free & safe) ----------
 func (r *ReviewInfo) ListAssetsPivot(
 	ctx context.Context,
 	project, root, preferredPhase, orderKey, direction string,
 	limit, offset int,
 ) ([]AssetPivot, int64, error) {
 
-	// 1) Total asset count for pagination UI
+	// 1) Total for pagination UI
 	total, err := r.CountLatestSubmissions(ctx, project, root)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	// 2) Page keys using the same ordering/phase preference as the grid
+	// 2) Page keys using same ordering/phase preference as the grid
 	keys, err := r.ListLatestSubmissionsDynamic(ctx, project, root, preferredPhase, orderKey, direction, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
-
-	// No keys on this page → empty pivot (avoid running the phase SQL at all)
 	if len(keys) == 0 {
+		// No assets on this page → empty pivot, no SQL needed
 		return []AssetPivot{}, total, nil
 	}
 
-	// 3) Build a MySQL-friendly CTE for keys:
-	//    Always start with a dummy "SELECT … WHERE FALSE" so the CTE is valid even if keys is empty.
+	// 3) Build the phase fetch query using a simple OR list (no CTE).
+	//    This gets the latest row per (asset, phase) only for the current page.
 	var sb strings.Builder
 	var params []any
 
-	sb.WriteString("WITH keys AS (")
-	sb.WriteString("SELECT '' AS root, '' AS project, '' AS group_1, '' AS relation WHERE FALSE")
-	for _, k := range keys {
-		sb.WriteString(" UNION ALL SELECT ? AS root, ? AS project, ? AS group_1, ? AS relation")
-		params = append(params, k.Root, k.Project, k.Group1, k.Relation)
-	}
-	sb.WriteString(`),
-latest_per_phase AS (
+	sb.WriteString(`
+SELECT project, root, group_1, relation, phase, work_status, approval_status, submitted_at_utc
+FROM (
   SELECT
     t.project, t.root, t.group_1, t.relation, t.phase,
     t.work_status, t.approval_status, t.submitted_at_utc, t.modified_at_utc,
     ROW_NUMBER() OVER (
       PARTITION BY t.project, t.root, t.group_1, t.relation, t.phase
       ORDER BY t.modified_at_utc DESC, t.submitted_at_utc DESC
-    ) rn
+    ) AS rn
   FROM t_review_info t
-  JOIN keys k
-    ON t.project  = k.project
-   AND t.root     = k.root
-   AND t.group_1  = k.group_1
-   AND t.relation = k.relation
   WHERE t.deleted = 0
-)
-SELECT
-  project, root, group_1, relation, phase,
-  work_status, approval_status, submitted_at_utc
-FROM latest_per_phase
+    AND t.project = ? AND t.root = ?
+    AND (
+`)
+	params = append(params, project, root)
+
+	for i, k := range keys {
+		if i > 0 {
+			sb.WriteString(" OR ")
+		}
+		// if you want to also pin 'project'/'root' per row, keep as-is
+		sb.WriteString("(t.group_1 = ? AND t.relation = ?)")
+		params = append(params, k.Group1, k.Relation)
+	}
+
+	sb.WriteString(`
+    )
+) AS latest_phase
 WHERE rn = 1;`)
 
-	// 4) Fetch the latest row per phase for just this page’s keys
-	var phaseRows []phaseRow
-	if err := r.db.WithContext(ctx).Raw(sb.String(), params...).Scan(&phaseRows).Error; err != nil {
-		// Helpful diagnostics during dev
+	// 4) Execute
+	var pr []phaseRow
+	if err := r.db.WithContext(ctx).Raw(sb.String(), params...).Scan(&pr).Error; err != nil {
+		// helpful logging during dev
 		fmt.Println("\n----- ListAssetsPivot: phase fetch SQL ERROR -----")
 		fmt.Println("SQL:\n", sb.String())
 		fmt.Println("PARAMS:", params)
@@ -68,62 +69,62 @@ WHERE rn = 1;`)
 		return nil, 0, fmt.Errorf("ListAssetsPivot.phaseFetch: %w", err)
 	}
 
-	// 5) Pivot in Go while preserving the original page order from `keys`
-	type assetKey struct{ P, R, G, L string }
-	index := make(map[assetKey]*AssetPivot, len(keys))
-	ordered := make([]AssetPivot, 0, len(keys))
+	// 5) Pivot in Go while preserving the page order from `keys`
+	type akey struct{ P, R, G, L string }
+	idx := make(map[akey]*AssetPivot, len(keys))
+	out := make([]AssetPivot, 0, len(keys))
 
-	// Initialize one pivot row per asset key (keeps page order)
+	// seed one row per key (keeps order)
 	for _, k := range keys {
-		id := assetKey{k.Project, k.Root, k.Group1, k.Relation}
+		id := akey{k.Project, k.Root, k.Group1, k.Relation}
 		ap := &AssetPivot{
 			Root:     k.Root,
 			Project:  k.Project,
 			Group1:   k.Group1,
 			Relation: k.Relation,
 		}
-		index[id] = ap
-		ordered = append(ordered, *ap)
+		idx[id] = ap
+		out = append(out, *ap)
 	}
 
-	// Fill phases
-	for _, pr := range phaseRows {
-		id := assetKey{pr.Project, pr.Root, pr.Group1, pr.Relation}
-		ap, ok := index[id]
+	// fill phases
+	for _, r := range pr {
+		id := akey{r.Project, r.Root, r.Group1, r.Relation}
+		ap, ok := idx[id]
 		if !ok {
 			continue
 		}
-		switch strings.ToLower(pr.Phase) {
+		switch strings.ToLower(r.Phase) {
 		case "mdl":
-			ap.MDLWorkStatus = pr.WorkStatus
-			ap.MDLApprovalStatus = pr.ApprovalStatus
-			ap.MDLSubmittedAtUTC = pr.SubmittedAtUTC
+			ap.MDLWorkStatus = r.WorkStatus
+			ap.MDLApprovalStatus = r.ApprovalStatus
+			ap.MDLSubmittedAtUTC = r.SubmittedAtUTC
 		case "rig":
-			ap.RIGWorkStatus = pr.WorkStatus
-			ap.RIGApprovalStatus = pr.ApprovalStatus
-			ap.RIGSubmittedAtUTC = pr.SubmittedAtUTC
+			ap.RIGWorkStatus = r.WorkStatus
+			ap.RIGApprovalStatus = r.ApprovalStatus
+			ap.RIGSubmittedAtUTC = r.SubmittedAtUTC
 		case "bld":
-			ap.BLDWorkStatus = pr.WorkStatus
-			ap.BLDApprovalStatus = pr.ApprovalStatus
-			ap.BLDSubmittedAtUTC = pr.SubmittedAtUTC
+			ap.BLDWorkStatus = r.WorkStatus
+			ap.BLDApprovalStatus = r.ApprovalStatus
+			ap.BLDSubmittedAtUTC = r.SubmittedAtUTC
 		case "dsn":
-			ap.DSNWorkStatus = pr.WorkStatus
-			ap.DSNApprovalStatus = pr.ApprovalStatus
-			ap.DSNSubmittedAtUTC = pr.SubmittedAtUTC
+			ap.DSNWorkStatus = r.WorkStatus
+			ap.DSNApprovalStatus = r.ApprovalStatus
+			ap.DSNSubmittedAtUTC = r.SubmittedAtUTC
 		case "ldv":
-			ap.LDVWorkStatus = pr.WorkStatus
-			ap.LDVApprovalStatus = pr.ApprovalStatus
-			ap.LDVSubmittedAtUTC = pr.SubmittedAtUTC
+			ap.LDVWorkStatus = r.WorkStatus
+			ap.LDVApprovalStatus = r.ApprovalStatus
+			ap.LDVSubmittedAtUTC = r.SubmittedAtUTC
 		}
 	}
 
-	// Copy filled data back into the ordered slice
-	for i := range ordered {
-		id := assetKey{ordered[i].Project, ordered[i].Root, ordered[i].Group1, ordered[i].Relation}
-		if filled, ok := index[id]; ok {
-			ordered[i] = *filled
+	// copy filled structs back, preserving order
+	for i := range out {
+		id := akey{out[i].Project, out[i].Root, out[i].Group1, out[i].Relation}
+		if filled, ok := idx[id]; ok {
+			out[i] = *filled
 		}
 	}
 
-	return ordered, total, nil
+	return out, total, nil
 }
