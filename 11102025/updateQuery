@@ -1,0 +1,59 @@
+WITH latest_per_phase AS (
+  SELECT
+    project, root, group_1, relation, phase,
+    work_status, submitted_at_utc, modified_at_utc,
+    ROW_NUMBER() OVER (
+      PARTITION BY project, root, group_1, relation, phase
+      ORDER BY modified_at_utc DESC, submitted_at_utc DESC
+    ) AS rn
+  FROM t_review_info
+  WHERE project = 'potoodev' AND root = 'assets' AND deleted = 0
+),
+
+-- keep only the latest row per phase
+phase_rows AS (
+  SELECT * FROM latest_per_phase WHERE rn = 1
+),
+
+-- compute window order for pagination (phase-preference applied here)
+ordered AS (
+  SELECT
+    p.*,
+    ROW_NUMBER() OVER (
+      ORDER BY
+        -- sort key you want for the page: put work_status or submitted_at_utc here
+        COALESCE(work_status, '') ASC,
+        LOWER(group_1) ASC,
+        LOWER(relation) ASC,
+        modified_at_utc DESC
+    ) AS _order
+  FROM phase_rows p
+),
+
+offset_ordered AS (
+  SELECT
+    o.*,
+    CASE WHEN LOWER(o.phase) = 'mdl' THEN o._order ELSE 100000 + o._order END AS __order
+  FROM ordered o
+),
+
+ranked AS (
+  SELECT
+    b.*,
+    ROW_NUMBER() OVER (
+      PARTITION BY b.root, b.project, b.group_1, b.relation
+      ORDER BY
+        CASE WHEN LOWER(b.phase) = 'mdl' THEN 0 ELSE 1 END,
+        modified_at_utc DESC,
+        submitted_at_utc DESC,
+        LOWER(b.group_1) ASC,
+        LOWER(b.relation) ASC
+    ) AS _rank
+  FROM offset_ordered b
+)
+
+SELECT root, project, group_1, relation
+FROM ranked
+WHERE _rank = 1
+ORDER BY __order ASC
+LIMIT 15 OFFSET 0;
