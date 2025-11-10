@@ -86,3 +86,137 @@ LIMIT ? OFFSET ?;`
 	}
 	return rows, nil
 }
+
+
+func (r *ReviewInfo) ListAssetsPivot(
+    ctx context.Context,
+    project, root, preferredPhase, orderKey, direction string,
+    limit, offset int,
+) ([]AssetPivot, int64, error) {
+
+    // Count total assets
+    total, err := r.CountLatestSubmissions(ctx, project, root)
+    if err != nil {
+        return nil, 0, err
+    }
+
+    // 1) Get paged asset keys
+    keys, err := r.ListLatestSubmissionsDynamic(ctx, project, root, preferredPhase, orderKey, direction, limit, offset)
+    if err != nil {
+        return nil, 0, err
+    }
+    if len(keys) == 0 {
+        return []AssetPivot{}, total, nil
+    }
+
+    //-----------------------------------------------------------
+    // 2) Build VALUES list for second-query
+    //-----------------------------------------------------------
+    var sb strings.Builder
+    params := []any{}
+
+    sb.WriteString(`
+WITH keys(root, project, group_1, relation) AS (
+`)
+
+    for i, k := range keys {
+        if i > 0 {
+            sb.WriteString(",")
+        }
+        sb.WriteString("(?, ?, ?, ?)")
+        params = append(params, k.Root, k.Project, k.Group1, k.Relation)
+    }
+
+    sb.WriteString(`
+),
+latest_per_phase AS (
+    SELECT
+        t.project, t.root, t.group_1, t.relation, t.phase,
+        t.work_status, t.approval_status, t.submitted_at_utc, t.modified_at_utc,
+        ROW_NUMBER() OVER (
+            PARTITION BY t.project, t.root, t.group_1, t.relation, t.phase
+            ORDER BY t.modified_at_utc DESC
+        ) rn
+    FROM t_review_info t
+    JOIN keys k
+      ON t.project = k.project
+     AND t.root = k.root
+     AND t.group_1 = k.group_1
+     AND t.relation = k.relation
+    WHERE t.deleted = 0
+)
+SELECT project, root, group_1, relation, phase,
+       work_status, approval_status, submitted_at_utc
+FROM latest_per_phase
+WHERE rn = 1;`)
+
+    //-----------------------------------------------------------
+    // 3) Fetch all latest phase rows
+    //-----------------------------------------------------------
+    var rows []phaseRow
+    if err := r.db.WithContext(ctx).Raw(sb.String(), params...).Scan(&rows).Error; err != nil {
+        return nil, 0, fmt.Errorf("ListAssetsPivot.fetch: %w", err)
+    }
+
+    //-----------------------------------------------------------
+    // 4) Do pivot in Go
+    //-----------------------------------------------------------
+    type keystruct struct{ P, R, G, L string }
+    mp := map[keystruct]*AssetPivot{}
+    ordered := make([]AssetPivot, 0, len(keys))
+
+    // initialize empty pivots
+    for _, k := range keys {
+        id := keystruct{k.Project, k.Root, k.Group1, k.Relation}
+        ap := &AssetPivot{
+            Root:     k.Root,
+            Project:  k.Project,
+            Group1:   k.Group1,
+            Relation: k.Relation,
+        }
+        mp[id] = ap
+        ordered = append(ordered, *ap)
+    }
+
+    // fill each phase
+    for _, r := range rows {
+        id := keystruct{r.Project, r.Root, r.Group1, r.Relation}
+        ap, ok := mp[id]
+        if !ok {
+            continue
+        }
+        switch strings.ToLower(r.Phase) {
+        case "mdl":
+            ap.MDLWorkStatus = r.WorkStatus
+            ap.MDLApprovalStatus = r.ApprovalStatus
+            ap.MDLSubmittedAtUTC = r.SubmittedAtUTC
+        case "rig":
+            ap.RIGWorkStatus = r.WorkStatus
+            ap.RIGApprovalStatus = r.ApprovalStatus
+            ap.RIGSubmittedAtUTC = r.SubmittedAtUTC
+        case "bld":
+            ap.BLDWorkStatus = r.WorkStatus
+            ap.BLDApprovalStatus = r.ApprovalStatus
+            ap.BLDSubmittedAtUTC = r.SubmittedAtUTC
+        case "dsn":
+            ap.DSNWorkStatus = r.WorkStatus
+            ap.DSNApprovalStatus = r.ApprovalStatus
+            ap.DSNSubmittedAtUTC = r.SubmittedAtUTC
+        case "ldv":
+            ap.LDVWorkStatus = r.WorkStatus
+            ap.LDVApprovalStatus = r.ApprovalStatus
+            ap.LDVSubmittedAtUTC = r.SubmittedAtUTC
+        }
+    }
+
+    // overwrite ordered slice with filled pivots
+    for i := range ordered {
+        id := keystruct{ordered[i].Project, ordered[i].Root, ordered[i].Group1, ordered[i].Relation}
+        if filled, ok := mp[id]; ok {
+            ordered[i] = *filled
+        }
+    }
+
+    return ordered, total, nil
+}
+
