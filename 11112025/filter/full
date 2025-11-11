@@ -1,0 +1,257 @@
+// ...inside GET /api/projects/:project/reviews/assets/pivot handler:
+
+page    := mustAtoi(c.DefaultQuery("page", "1"))
+perPage := clampPerPage(mustAtoi(c.DefaultQuery("per_page", fmt.Sprint(defaultPerPage))))
+limit, offset := perPage, (page-1)*perPage
+
+// sorting inputs (already supported)
+sortParam := c.DefaultQuery("sort", "group_1")
+dirParam  := c.DefaultQuery("dir", "ASC")
+orderKey  := normalizeSortKey(sortParam)
+dir       := normalizeDir(dirParam)
+
+// phase bias (already supported)
+preferredPhase := strings.ToLower(strings.TrimSpace(c.DefaultQuery("phase", "none")))
+
+// NEW: filters
+nameKey  := strings.ToLower(strings.TrimSpace(c.DefaultQuery("name", "")))
+nameMode := strings.ToLower(strings.TrimSpace(c.DefaultQuery("name_mode", "prefix"))) // or "exact"
+workCSV  := strings.TrimSpace(c.DefaultQuery("work", ""))
+apprCSV  := strings.TrimSpace(c.DefaultQuery("appr", ""))
+
+splitCSV := func(s string) []string {
+	if s == "" { return nil }
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		p = strings.ToLower(strings.TrimSpace(p))
+		if p != "" { out = append(out, p) }
+	}
+	return out
+}
+workFilters := splitCSV(workCSV)
+apprFilters := splitCSV(apprCSV)
+
+// call repository (signature updated below)
+assets, total, err := reviewInfoRepository.ListAssetsPivot(
+	c.Request.Context(), project, defaultRoot, preferredPhase,
+	orderKey, dir, limit, offset,
+	nameKey, nameMode, workFilters, apprFilters,
+)
+
+// buildNamePredicate returns an extra WHERE and its arg for name filtering.
+func buildNamePredicate(nameKey, nameMode string) (string, any) {
+	k := strings.ToLower(strings.TrimSpace(nameKey))
+	if k == "" { return "", nil }
+	if nameMode == "exact" { return " AND LOWER(group_1) = ?", k }
+	return " AND LOWER(group_1) LIKE ?", k + "%"
+}
+
+func buildStatusPredicate(work, appr []string) (string, []any) {
+	if len(work) == 0 && len(appr) == 0 { return "", nil }
+	clauses := make([]string, 0, 2)
+	args := make([]any, 0, len(work)+len(appr))
+	if len(work) > 0 {
+		p := strings.Repeat("?,", len(work)); p = p[:len(p)-1]
+		clauses = append(clauses, "LOWER(work_status) IN ("+p+")")
+		for _, v := range work { args = append(args, strings.ToLower(v)) }
+	}
+	if len(appr) > 0 {
+		p := strings.Repeat("?,", len(appr)); p = p[:len(p)-1]
+		clauses = append(clauses, "LOWER(approval_status) IN ("+p+")")
+		for _, v := range appr { args = append(args, strings.ToLower(v)) }
+	}
+	return " AND (" + strings.Join(clauses, " OR ") + ")", args
+}
+
+// ==============================================================================
+func (r *ReviewInfo) ListLatestSubmissionsDynamic(
+	ctx context.Context,
+	project, root, preferredPhase, orderKey, direction string,
+	limit, offset int,
+	// NEW
+	nameKey, nameMode string, work, appr []string,
+) ([]LatestSubmissionRow, error) {
+	// ... existing validation ...
+
+	phaseGuard := 0
+	if preferredPhase == "" || strings.EqualFold(preferredPhase, "none") {
+		phaseGuard = 1
+	}
+
+	orderClauseWindow := buildOrderClause("",  orderKey, direction)
+	orderClauseInner  := buildOrderClause("b", orderKey, direction)
+
+	nameCond, nameArg := buildNamePredicate(nameKey, nameMode)
+	statCond, statArgs := buildStatusPredicate(work, appr)
+
+	q := fmt.Sprintf(`
+WITH ordered AS (
+  SELECT *, ROW_NUMBER() OVER (ORDER BY %s) AS _order
+  FROM (
+    SELECT b.*
+    FROM (
+      SELECT project, root, group_1, relation, phase, MAX(modified_at_utc) AS modified_at_utc
+      FROM t_review_info
+      WHERE project = ? AND root = ? AND deleted = 0 %s
+      GROUP BY project, root, group_1, relation, phase
+    ) AS a
+    LEFT JOIN (
+      SELECT root, project, group_1, phase, relation, work_status, approval_status, submitted_at_utc, modified_at_utc, executed_computer
+      FROM t_review_info
+      WHERE project = ? AND root = ? AND deleted = 0 %s
+    ) AS b
+      ON a.project = b.project AND a.root = b.root AND a.group_1 = b.group_1
+     AND a.relation = b.relation AND a.phase = b.phase AND a.modified_at_utc = b.modified_at_utc
+    WHERE 1=1 %s                -- NEW: work/appr filter on the joined latest row
+    ORDER BY %s
+  ) AS k
+),
+offset_ordered AS (
+  SELECT c.*,
+         CASE WHEN ? = 1 THEN c._order
+              WHEN c.phase = ? THEN c._order
+              ELSE 100000 + c._order END AS __order
+  FROM ordered c
+),
+ranked AS (
+  SELECT b.*,
+         ROW_NUMBER() OVER (
+           PARTITION BY b.root, b.project, b.group_1, b.relation
+           ORDER BY CASE WHEN ? = 1 THEN 0 WHEN b.phase = ? THEN 0 ELSE 1 END,
+                    LOWER(b.group_1) ASC, LOWER(b.relation) ASC, b.modified_at_utc DESC
+         ) AS _rank
+  FROM offset_ordered b
+)
+SELECT root, project, group_1, relation, phase, submitted_at_utc
+FROM (SELECT * FROM ranked WHERE _rank = 1) AS t
+ORDER BY __order ASC
+LIMIT ? OFFSET ?`, orderClauseWindow, nameCond, nameCond, statCond, orderClauseInner)
+
+	args := []any{project, root, project, root}
+	if nameArg != nil { args = append(args, nameArg) } // for a
+	if nameArg != nil { args = append(args, nameArg) } // for b
+	args = append(args, statArgs...)
+	args = append(args, phaseGuard, preferredPhase, phaseGuard, preferredPhase, limit, offset)
+
+	var rows []LatestSubmissionRow
+	if err := r.db.WithContext(ctx).Raw(q, args...).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("ListLatestSubmissionsDynamic: %w", err)
+	}
+	return rows, nil
+}
+
+func (r *ReviewInfo) CountLatestSubmissions(
+	ctx context.Context, project, root string,
+	// NEW
+	nameKey, nameMode string, work, appr []string,
+) (int64, error) {
+	if root == "" { root = "assets" }
+	nameCond, nameArg := buildNamePredicate(nameKey, nameMode)
+	statCond, statArgs := buildStatusPredicate(work, appr)
+
+	q := `
+WITH latest_phase AS (
+  SELECT project, root, group_1, relation, phase, work_status, approval_status,
+         submitted_at_utc, modified_at_utc,
+         ROW_NUMBER() OVER (PARTITION BY project, root, group_1, relation, phase
+                            ORDER BY modified_at_utc DESC) rn
+  FROM t_review_info
+  WHERE project = ? AND root = ? AND deleted = 0` + nameCond + `
+)
+SELECT COUNT(*)
+FROM (
+  SELECT project, root, group_1, relation
+  FROM latest_phase
+  WHERE rn = 1 ` + statCond + `
+  GROUP BY project, root, group_1, relation
+) x;`
+
+	args := []any{project, root}
+	if nameArg != nil { args = append(args, nameArg) }
+	args = append(args, statArgs...)
+
+	var total int64
+	if err := r.db.WithContext(ctx).Raw(q, args...).Scan(&total).Error; err != nil {
+		return 0, fmt.Errorf("CountLatestSubmissions: %w", err)
+	}
+	return total, nil
+}
+
+
+func (r *ReviewInfo) ListAssetsPivot(
+	ctx context.Context,
+	project, root, preferredPhase, orderKey, direction string,
+	limit, offset int,
+	// NEW
+	nameKey, nameMode string, work, appr []string,
+) ([]AssetPivot, int64, error) {
+
+	total, err := r.CountLatestSubmissions(ctx, project, root, nameKey, nameMode, work, appr)
+	if err != nil { return nil, 0, err }
+
+	keys, err := r.ListLatestSubmissionsDynamic(
+		ctx, project, root, preferredPhase, orderKey, direction,
+		limit, offset, nameKey, nameMode, work, appr,
+	)
+	if err != nil { return nil, 0, err }
+	if len(keys) == 0 { return []AssetPivot{}, total, nil }
+
+	// ...existing phase fetch & pivot below (unchanged)...
+}
+
+// ==================================================================
+hooks.ts – extend useFetchAssetsPivot signature and call
+
+export function useFetchAssetsPivot(
+  project: Project | null | undefined,
+  page: number,
+  rowsPerPage: number,
+  sortKey: string,
+  sortDir: SortDir,      // 'asc' | 'desc' | 'none'
+  phase: string,         // 'mdl' | 'rig' | 'bld' | 'dsn' | 'ldv' | 'none'
+  // NEW:
+  nameKey?: string,
+  workStatuses: string[] = [],
+  apprStatuses: string[] = [],
+): { assets: AssetPhaseSummary[]; total: number } {
+
+
+const res = await fetchAssetsPivot(
+  project.key_name,
+  page,
+  rowsPerPage,
+  sortKey,
+  sortDir,
+  phase,
+  controller.signal,
+  nameKey,
+  workStatuses,
+  apprStatuses,
+);
+
+}, [project, page, rowsPerPage, sortKey, sortDir, phase, nameKey, workStatuses.join(','), apprStatuses.join(',')]);
+
+// ================================================================
+AssetsDataTablePanel.tsx – pass current filter state into hook
+
+const { assets, total } = useFetchAssetsPivot(
+  currentProject,
+  pageProps.page,
+  pageProps.rowsPerPage,
+  sortKey,
+  sortDir,
+  phasePriority,
+  // NEW:
+  filterProps.assetNameKey,
+  filterProps.workStatues,
+  filterProps.applovalStatues,
+);
+
+//================================================================
+c) (If you use a typed api.ts) – ensure query params include filters
+
+params.set('name', nameKey.trim());
+params.set('name_mode', 'prefix'); // per your decision
+if (workStatuses.length) params.set('work', workStatuses.join(','));
+if (apprStatuses.length) params.set('appr', apprStatuses.join(','));
+
