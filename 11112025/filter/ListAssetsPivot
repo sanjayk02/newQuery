@@ -1,0 +1,23 @@
+func (r *ReviewInfo) ListAssetsPivot(
+	ctx context.Context,
+	project, root, preferredPhase, orderKey, direction string,
+	limit, offset int,
+	nameKey, nameMode string, work, appr []string,
+) ([]AssetPivot, int64, error) {
+
+	total, err := r.CountLatestSubmissions(ctx, project, root, nameKey, nameMode, work, appr)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	keys, err := r.ListLatestSubmissionsDynamic(ctx, project, root, preferredPhase, orderKey, direction, limit, offset, nameKey, nameMode, work, appr)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(keys) == 0 {
+		return []AssetPivot{}, total, nil
+	}
+
+	// fetch latest-by-phase for just this page (unchanged)
+	// ...
+}
