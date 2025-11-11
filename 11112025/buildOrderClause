@@ -1,0 +1,58 @@
+// ---------- Dynamic Sorting Function (FIXED) ----------
+func buildOrderClause(alias, key, dir string) string {
+	dir = strings.ToUpper(strings.TrimSpace(dir))
+	if dir != "ASC" && dir != "DESC" {
+		dir = "ASC"
+	}
+	col := func(c string) string {
+		if alias == "" {
+			return c
+		}
+		return alias + "." + c
+	}
+
+	switch key {
+	// Generic Sorts (use column directly)
+	case "submitted_at_utc", "modified_at_utc", "phase":
+		return col(key) + " " + dir
+
+	// Asset Name/Relation Sorts (use compound keys)
+	case "group1_only":
+		return fmt.Sprintf(
+			"LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			col("group_1"), dir, col("relation"), col("submitted_at_utc"), col("submitted_at_utc"), dir,
+		)
+	case "relation_only":
+		return fmt.Sprintf(
+			"LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			col("relation"), dir, col("group_1"), col("submitted_at_utc"), col("submitted_at_utc"), dir,
+		)
+	case "group_rel_submitted":
+		return fmt.Sprintf(
+			"LOWER(%s) ASC, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			col("group_1"), col("relation"), col("submitted_at_utc"), col("submitted_at_utc"), dir,
+		)
+
+	// Phase-Specific Submitted Sorts
+	// IMPORTANT FIX: Always push NULLs last with "(... IS NULL) ASC" (do NOT depend on dir)
+	case "mdl_submitted", "rig_submitted", "bld_submitted", "dsn_submitted", "ldv_submitted":
+		return fmt.Sprintf(
+			"(%s IS NULL) ASC, %s %s, LOWER(%s) ASC",
+			col("submitted_at_utc"), col("submitted_at_utc"), dir, col("group_1"),
+		)
+
+	// Phase-Specific Work/Approval Sorts
+	case "mdl_work", "rig_work", "bld_work", "dsn_work", "ldv_work",
+		"mdl_appr", "rig_appr", "bld_appr", "dsn_appr", "ldv_appr", "work_status":
+		return fmt.Sprintf(
+			"LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			col("work_status"), dir, col("group_1"), col("submitted_at_utc"), col("submitted_at_utc"), dir,
+		)
+
+	default:
+		return fmt.Sprintf(
+			"LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			col("group_1"), dir, col("relation"), col("submitted_at_utc"), col("submitted_at_utc"), dir,
+		)
+	}
+}
