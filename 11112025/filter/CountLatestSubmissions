@@ -1,0 +1,40 @@
+func (r *ReviewInfo) CountLatestSubmissions(
+	ctx context.Context, project, root string,
+	nameKey, nameMode string, work, appr []string,
+) (int64, error) {
+	if project == "" {
+		return 0, fmt.Errorf("project is required")
+	}
+	if root == "" {
+		root = "assets"
+	}
+	nameCond, nameArg := buildNamePredicate(nameKey, nameMode)
+	statCond, statArgs := buildStatusPredicate(work, appr)
+
+	// Count distinct assets after applying filters on latest-per-phase rows
+	q := `
+WITH latest_phase AS (
+  SELECT project, root, group_1, relation, phase,
+         work_status, approval_status, submitted_at_utc, modified_at_utc,
+         ROW_NUMBER() OVER (PARTITION BY project, root, group_1, relation, phase
+                            ORDER BY modified_at_utc DESC) rn
+  FROM t_review_info
+  WHERE project = ? AND root = ? AND deleted = 0 ` + nameCond + `
+)
+SELECT COUNT(*) FROM (
+  SELECT project, root, group_1, relation
+  FROM latest_phase
+  WHERE rn = 1 ` + statCond + `
+  GROUP BY project, root, group_1, relation
+) x;`
+
+	args := []any{project, root}
+	if nameArg != nil { args = append(args, nameArg) }
+	args = append(args, statArgs...)
+
+	var total int64
+	if err := r.db.WithContext(ctx).Raw(q, args...).Scan(&total).Error; err != nil {
+		return 0, fmt.Errorf("CountLatestSubmissions: %w", err)
+	}
+	return total, nil
+}
