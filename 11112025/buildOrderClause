@@ -1,4 +1,4 @@
-// ---------- Dynamic Sorting Function (FIXED) ----------
+// ---------- Dynamic Sorting Function (BUSINESS-ORDERED) ----------
 func buildOrderClause(alias, key, dir string) string {
 	dir = strings.ToUpper(strings.TrimSpace(dir))
 	if dir != "ASC" && dir != "DESC" {
@@ -11,12 +11,44 @@ func buildOrderClause(alias, key, dir string) string {
 		return alias + "." + c
 	}
 
+	// Business order for statuses (lowercased)
+	// Approval: Approved → Check/Reviews → On Holds → Retakes → Other/Omit
+	approvalOrder := []string{
+		"clientapproved", "dirapproved", "epdapproved",
+		"check", "dirreview", "clientreview", "epdreview",
+		"clientonhold", "dironhold", "epdonhold",
+		"execretake", "clientretake", "dirretake", "epdretake",
+		"other", "omit",
+	}
+	// Work: Approved → Check → On Holds → Retakes → Other
+	workOrder := []string{
+		"cgsvapproved", "svapproved", "leadapproved",
+		"check",
+		"cgswonhold", "svonhold", "leadonhold",
+		"cgsvretake", "svretake", "leadretake",
+		"svother", "leadother",
+	}
+
+	// Helper to build FIELD() rank with alias
+	fieldRank := func(column string, order []string) string {
+		parts := make([]string, 0, len(order))
+		for _, s := range order {
+			parts = append(parts, fmt.Sprintf("'%s'", s))
+		}
+		// CASE ensures NULLs go last
+		// e.g. CASE WHEN b.work_status IS NULL THEN 999 ELSE FIELD(LOWER(b.work_status), ... ) END
+		return fmt.Sprintf(
+			"CASE WHEN %s IS NULL THEN 999 ELSE FIELD(LOWER(%s), %s) END",
+			col(column), col(column), strings.Join(parts, ", "),
+		)
+	}
+
 	switch key {
-	// Generic Sorts (use column directly)
+	// Generic Sorts
 	case "submitted_at_utc", "modified_at_utc", "phase":
 		return col(key) + " " + dir
 
-	// Asset Name/Relation Sorts (use compound keys)
+	// Name / Relation buckets
 	case "group1_only":
 		return fmt.Sprintf(
 			"LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
@@ -33,20 +65,27 @@ func buildOrderClause(alias, key, dir string) string {
 			col("group_1"), col("relation"), col("submitted_at_utc"), col("submitted_at_utc"), dir,
 		)
 
-	// Phase-Specific Submitted Sorts
-	// IMPORTANT FIX: Always push NULLs last with "(... IS NULL) ASC" (do NOT depend on dir)
+	// Phase-specific Submitted
 	case "mdl_submitted", "rig_submitted", "bld_submitted", "dsn_submitted", "ldv_submitted":
+		// NULLs last regardless of dir; then date by dir; stable by name
 		return fmt.Sprintf(
 			"(%s IS NULL) ASC, %s %s, LOWER(%s) ASC",
 			col("submitted_at_utc"), col("submitted_at_utc"), dir, col("group_1"),
 		)
 
-	// Phase-Specific Work/Approval Sorts
-	case "mdl_work", "rig_work", "bld_work", "dsn_work", "ldv_work",
-		"mdl_appr", "rig_appr", "bld_appr", "dsn_appr", "ldv_appr", "work_status":
-		return fmt.Sprintf(
-			"LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
-			col("work_status"), dir, col("group_1"), col("submitted_at_utc"), col("submitted_at_utc"), dir,
+	// Phase-specific Work & Approval (business priority via FIELD())
+	case "mdl_work", "rig_work", "bld_work", "dsn_work", "ldv_work", "work_status":
+		rank := fieldRank("work_status", workOrder)
+		return fmt.Sprintf("%s %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			rank, dir, col("group_1"), col("submitted_at_utc"), col("submitted_at_utc"), dir,
+		)
+
+	case "mdl_appr", "rig_appr", "bld_appr", "dsn_appr", "ldv_appr":
+		// approval_status lives in the same column (work_status) in your latest-per-phase view;
+		// if you actually store it separately, change the first arg to "approval_status".
+		rank := fieldRank("work_status", approvalOrder)
+		return fmt.Sprintf("%s %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			rank, dir, col("group_1"), col("submitted_at_utc"), col("submitted_at_utc"), dir,
 		)
 
 	default:
