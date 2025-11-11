@@ -21,28 +21,26 @@ const resolveServerSort = (key: string): { sort: string; phase: string } => {
 
 
 
-/* 2s debounced sort */
-  const handleSortChange = (newUiKey: string) => {
-    const { sort: newServerSortKey, phase } = resolveServerSort(newUiKey);
+// AssetsDataTablePanel.tsx
 
-    // Determine the next server direction: Flip only if the RESOLVED server key matches the current active server key.
-    const nextServerDir: SortDir =
-      sortKey === newServerSortKey ? (sortDir === 'asc' ? 'desc' : 'asc') : 'asc';
-    
-    // UI update (immediate visual feedback)
-    setUiSortKey(newUiKey);
-    setUiSortDir(nextServerDir); // Immediately set UI direction based on the logic above
+/* Immediate Sort Commit (Replacing 2s Debounced Sort) */
+const handleSortChange = (newUiKey: string) => {
+  const { sort: newServerSortKey, phase } = resolveServerSort(newUiKey);
 
-    if (commitTimerRef.current != null) {
-      window.clearTimeout(commitTimerRef.current);
-    }
+  // 1. Determine the next direction (flip if clicking the currently active server key)
+  const nextServerDir: SortDir =
+    sortKey === newServerSortKey ? (sortDir === 'asc' ? 'desc' : 'asc') : 'asc';
 
-    // Debounced server state update
-    commitTimerRef.current = window.setTimeout(() => {
-      setPhasePriority(phase);
-      setSortKey(newServerSortKey); // Commit the new resolved server key
-      setSortDir(nextServerDir);    // Commit the new direction
+  // 2. Commit the new sort to the server state immediately. This triggers useFetchAssetsPivot.
+  setPhasePriority(phase);
+  setSortKey(newServerSortKey);
+  setSortDir(nextServerDir);
 
-      commitTimerRef.current = null;
-    }, 2000); // Keep debounce for performance
-  };
+  // 3. Update the UI sort state immediately to reflect the arrow.
+  setUiSortKey(newUiKey);
+  setUiSortDir(nextServerDir);
+  
+  // Also reset page when sorting changes
+  setPageProps(p => ({ ...p, page: 0 }));
+};
+// Remove useEffect cleanup logic for commitTimerRef as well
