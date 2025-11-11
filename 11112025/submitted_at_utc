@@ -1,0 +1,8 @@
+case "submitted_at_utc":
+    // NULLS LAST for both ASC and DESC + stable tiebreakers
+    return fmt.Sprintf("(%s IS NULL) ASC, %s %s, LOWER(%s) ASC, LOWER(%s) ASC",
+        col("submitted_at_utc"),
+        col("submitted_at_utc"), dir,
+        col("group_1"),
+        col("relation"),
+    )
