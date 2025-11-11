@@ -1,0 +1,92 @@
+func (r *ReviewInfo) ListLatestSubmissionsDynamic(
+	ctx context.Context,
+	project, root, preferredPhase, orderKey, direction string,
+	limit, offset int,
+	nameKey, nameMode string, work, appr []string,
+) ([]LatestSubmissionRow, error) {
+
+	// ... (validation omitted)
+
+	phaseGuard := 0
+	if preferredPhase == "" || strings.EqualFold(preferredPhase, "none") {
+		phaseGuard = 1
+	}
+
+	orderClauseWindow := buildOrderClause("",  orderKey, direction)
+	orderClauseInner  := buildOrderClause("b", orderKey, direction)
+
+	nameCond, nameArg := buildNamePredicate(nameKey, nameMode)
+	statCond, statArgs := buildStatusPredicate(work, appr)
+
+	q := fmt.Sprintf(`
+WITH ordered AS (
+	SELECT
+		*,
+		ROW_NUMBER() OVER (ORDER BY %s) AS _order
+	FROM (
+		SELECT b.* FROM (
+			SELECT project, root, group_1, relation, phase, MAX(modified_at_utc) AS modified_at_utc
+			FROM t_review_info
+			WHERE project = ? AND root = ? AND deleted = 0 %s
+			GROUP BY project, root, group_1, relation, phase
+		) AS a
+		LEFT JOIN (
+			SELECT root, project, group_1, phase, relation, work_status, approval_status, submitted_at_utc, modified_at_utc, executed_computer
+			FROM t_review_info
+			WHERE project = ? AND root = ? AND deleted = 0 %s
+		) AS b
+		  ON a.project = b.project
+		 AND a.root = b.root
+		 AND a.group_1 = b.group_1
+		 AND a.relation = b.relation
+		 AND a.phase = b.phase
+		 AND a.modified_at_utc = b.modified_at_utc
+		WHERE 1=1 %s   -- <- filters on the joined row (work/appr)
+		ORDER BY %s
+	) AS k
+),
+offset_ordered AS (
+	SELECT
+		c.*,
+		CASE WHEN ? = 1 THEN c._order
+		     WHEN c.phase = ? THEN c._order
+		     ELSE 100000 + c._order END AS __order
+	FROM ordered c
+),
+ranked AS (
+	SELECT
+		b.*,
+		ROW_NUMBER() OVER (
+			PARTITION BY b.root, b.project, b.group_1, b.relation
+			ORDER BY
+			  CASE WHEN ? = 1 THEN 0 WHEN b.phase = ? THEN 0 ELSE 1 END,
+			  LOWER(b.group_1) ASC,
+			  LOWER(b.relation) ASC,
+			  b.modified_at_utc DESC
+		) AS _rank
+	FROM offset_ordered b
+)
+SELECT root, project, group_1, relation, phase, submitted_at_utc
+FROM ( SELECT * FROM ranked WHERE _rank = 1 ) AS t
+ORDER BY __order ASC
+LIMIT ? OFFSET ?;`, orderClauseWindow, nameCond, nameCond, statCond, orderClauseInner)
+
+	args := []any{
+		project, root,              // a
+		project, root,              // b
+	}
+	if nameArg != nil { args = append(args, nameArg) } // for "a"
+	if nameArg != nil { args = append(args, nameArg) } // for "b"
+	args = append(args, statArgs...)                   // for WHERE ... (work/appr)
+	args = append(args,
+		phaseGuard, preferredPhase,   // offset_ordered
+		phaseGuard, preferredPhase,   // ranked
+		limit, offset,
+	)
+
+	var rows []LatestSubmissionRow
+	if err := r.db.WithContext(ctx).Raw(q, args...).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("ListLatestSubmissionsDynamic: %w", err)
+	}
+	return rows, nil
+}
