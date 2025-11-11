@@ -1,0 +1,193 @@
+package repository
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"gorm.io/gorm"
+)
+
+type ReviewInfoRepository struct {
+	DB *gorm.DB
+}
+
+type AssetKey struct {
+	Root     string `gorm:"column:root"      json:"root"`
+	Project  string `gorm:"column:project"   json:"project"`
+	Group1   string `gorm:"column:group_1"   json:"group_1"`
+	Relation string `gorm:"column:relation"  json:"relation"`
+}
+
+func NewReviewInfoRepository(db *gorm.DB) *ReviewInfoRepository {
+	return &ReviewInfoRepository{DB: db}
+}
+
+// ListAssetsPivot implements the pivot listing used by your GET /projects/:project/reviews/assets/pivot
+// - preferredPhase: "mdl" | "rig" | ... | "none"  ("none" disables phase bias completely)
+// - orderKey: normalized key from your handler (e.g., "group1_only", "relation_only", "group_rel_submitted")
+// - dir: "asc" | "desc"
+// - limit/offset: pagination
+func (r *ReviewInfoRepository) ListAssetsPivot(
+	ctx context.Context,
+	project, root, preferredPhase, orderKey, dir string,
+	limit, offset int,
+) ([]AssetKey, int64, error) {
+
+	// ------------------------------------------------------------------
+	// 1) Map orderKey -> (outerSortField, innerSortField)
+	//    outer -> ROW_NUMBER() OVER (ORDER BY outer ...)
+	//    inner -> the inner SELECT ... ORDER BY inner ...
+	//    All fields are strictly whitelisted.
+	// ------------------------------------------------------------------
+	var outerField, innerField string
+	switch orderKey {
+	case "group1_only":
+		outerField, innerField = "group_1", "group_1"
+	case "relation_only":
+		outerField, innerField = "relation", "relation"
+	case "group_rel_submitted":
+		// Most natural: keep outer by group_1 (bucket), inner by submitted timestamp
+		outerField, innerField = "group_1", "submitted_at_utc"
+	// (Optional) if you also use these keys elsewhere in UI, they’re easy to add:
+	case "mdl_submitted":
+		outerField, innerField = "group_1", "submitted_at_utc"
+	case "mdl_work":
+		outerField, innerField = "group_1", "work_status"
+	case "mdl_appr":
+		outerField, innerField = "group_1", "approval_status"
+	default:
+		outerField, innerField = "group_1", "submitted_at_utc"
+	}
+
+	// Normalize dir safely
+	dir = strings.ToUpper(dir)
+	if dir != "ASC" && dir != "DESC" {
+		dir = "ASC"
+	}
+
+	// Whitelist inner/outer fields (defense-in-depth)
+	if !isAllowedOuter(outerField) {
+		return nil, 0, fmt.Errorf("outer sort field not allowed: %s", outerField)
+	}
+	if !isAllowedInner(innerField) {
+		return nil, 0, fmt.Errorf("inner sort field not allowed: %s", innerField)
+	}
+
+	// ------------------------------------------------------------------
+	// 2) Build SQL (keeps your original shape).
+	//    Phase bias becomes a no-op when preferredPhase == "none".
+	//    We use IF(?='none', ..., ...) so the same SQL works for both.
+	// ------------------------------------------------------------------
+	sql := fmt.Sprintf(`
+WITH ordered AS (
+  SELECT *,
+         ROW_NUMBER() OVER (
+           ORDER BY %s %s
+         ) AS _order
+  FROM (
+    SELECT b.* FROM (
+      SELECT project, root, group_1, relation, phase, MAX(modified_at_utc) AS modified_at_utc
+      FROM t_review_info
+      WHERE project = ? AND root = ? AND deleted = 0
+      GROUP BY project, root, group_1, relation, phase
+    ) AS a
+    LEFT JOIN (
+      SELECT root, project, group_1, phase, relation, work_status, approval_status, submitted_at_utc, modified_at_utc, executed_computer
+      FROM t_review_info
+      WHERE project = ? AND root = ? AND deleted = 0
+    ) AS b
+      ON a.project = b.project
+     AND a.root = b.root
+     AND a.group_1 = b.group_1
+     AND a.relation = b.relation
+     AND a.phase = b.phase
+     AND a.modified_at_utc = b.modified_at_utc
+    ORDER BY %s %s
+  ) AS k
+),
+offset_ordered AS (
+  SELECT c.*,
+         IF(?='none', c._order,
+           CASE WHEN c.phase = ? THEN c._order ELSE 100000 + c._order END
+         ) AS __order
+  FROM ordered c
+),
+ranked AS (
+  SELECT b.*,
+         ROW_NUMBER() OVER (
+           PARTITION BY b.root, b.project, b.group_1, b.relation
+           ORDER BY
+             IF(?='none', 0,
+               CASE WHEN b.phase = ? THEN 0 ELSE 1 END
+             )
+         ) AS _rank
+  FROM offset_ordered b
+)
+SELECT root, project, group_1, relation
+FROM (
+  SELECT *
+  FROM ranked
+  WHERE _rank = 1
+) AS t
+ORDER BY __order ASC
+LIMIT ? OFFSET ?;`, outerField, dir, innerField, dir)
+
+	// params in order of placeholders
+	args := []any{
+		// a.*
+		project, root,
+		// b.*
+		project, root,
+		// phase bias (twice for __order, twice for _rank)
+		preferredPhase, preferredPhase, preferredPhase, preferredPhase,
+		// pagination
+		limit, offset,
+	}
+
+	var assets []AssetKey
+	if err := r.DB.WithContext(ctx).Raw(sql, args...).Scan(&assets).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// ------------------------------------------------------------------
+	// 3) Total count for pagination
+	//    Count unique (project,root,group_1,relation) under the same base filter.
+	//    This matches “one picked row per asset” semantics.
+	// ------------------------------------------------------------------
+	var total int64
+	countSQL := `
+SELECT COUNT(*) AS total FROM (
+  SELECT project, root, group_1, relation
+  FROM t_review_info
+  WHERE project = ? AND root = ? AND deleted = 0
+  GROUP BY project, root, group_1, relation
+) x;`
+	if err := r.DB.WithContext(ctx).Raw(countSQL, project, root).Scan(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	return assets, total, nil
+}
+
+// ----------------------------------------------------------------------
+// Whitelists
+// ----------------------------------------------------------------------
+
+func isAllowedOuter(col string) bool {
+	switch col {
+	case "group_1", "relation":
+		return true
+	default:
+		return false
+	}
+}
+
+func isAllowedInner(col string) bool {
+	switch col {
+	case "group_1", "relation", "submitted_at_utc", "modified_at_utc", "work_status", "approval_status":
+		return true
+	default:
+		return false
+	}
+}
