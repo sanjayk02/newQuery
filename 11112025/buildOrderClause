@@ -118,3 +118,17 @@ func buildOrderClause(alias, key, dir string) string {
 		)
 	}
 }
+
+
+case "mdl_work", "rig_work", "bld_work", "dsn_work", "ldv_work", "work_status":
+    return fmt.Sprintf(
+        "(%s IS NULL) ASC, LOWER(%s) %s, LOWER(%s) ASC",
+        col("work_status"), col("work_status"), dir, col("group_1"),
+    )
+
+case "mdl_appr", "rig_appr", "bld_appr", "dsn_appr", "ldv_appr":
+    return fmt.Sprintf(
+        "(%s IS NULL) ASC, LOWER(%s) %s, LOWER(%s) ASC",
+        col("work_status"), col("work_status"), dir, col("group_1"),
+    )
+
