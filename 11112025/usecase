@@ -1,0 +1,55 @@
+// ListAssetsPivot provides filtered, phase-aware pivoted asset data.
+// Called by: delivery/reviewinfo.go → ListAssetsPivot handler
+func (uc *ReviewInfo) ListAssetsPivot(
+	ctx context.Context,
+	project, root, preferredPhase, sortKey, direction string,
+	limit, offset int,
+	assetNameKey string,
+	approvalStatuses []string,
+	workStatuses []string,
+) ([]entity.AssetPivot, int64, error) {
+	// --- Sanitize parameters ---
+	if root == "" {
+		root = "assets"
+	}
+	if limit <= 0 {
+		limit = 60
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	dir := strings.ToLower(direction)
+	if dir != "asc" && dir != "desc" {
+		dir = "asc"
+	}
+
+	// --- Context + project validation ---
+	timeoutCtx, cancel := context.WithTimeout(ctx, uc.ReadTimeout)
+	defer cancel()
+
+	db := uc.repo.WithContext(timeoutCtx)
+
+	if err := uc.checkForProject(db, project); err != nil {
+		return nil, 0, err
+	}
+
+	// --- Call repository implementation ---
+	list, total, err := uc.repo.ListAssetsPivot(
+		timeoutCtx,
+		project,
+		root,
+		preferredPhase,
+		sortKey,
+		dir,
+		limit,
+		offset,
+		assetNameKey,
+		approvalStatuses,
+		workStatuses,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return list, total, nil
+}
