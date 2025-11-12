@@ -1,11 +1,18 @@
+// src/project/asset-data/hooks.ts
+import { useEffect, useState } from 'react';
+import { Project } from '../types';            // adjust if your Project type lives elsewhere
+import { AssetPhaseSummary, SortDir } from './types'; // matches your components’ imports
+import { fetchAssetsPivot } from './api';      // keep your relative path
+
 export function useFetchAssetsPivot(
   project: Project | null | undefined,
   page: number,
   rowsPerPage: number,
   sortKey: string,
-  sortDir: SortDir,
-  phase: string,
-  // NEW (your params)
+  sortDir: SortDir,                     // 'asc' | 'desc' | 'none'
+  phase: string,                        // 'mdl' | 'rig' | 'bld' | 'dsn' | 'ldv' | 'none'
+
+  // FILTERS (server-side)
   nameKey2: string,
   workStatuses: string[] = [],
   apprStatuses: string[] = [],
@@ -18,8 +25,30 @@ export function useFetchAssetsPivot(
     if (sortDir === 'none') return;
 
     const controller = new AbortController();
+
     (async () => {
       try {
+        // ---- Build filter object (NO optional chaining) ----
+        const nameTrimmed = (typeof nameKey2 === 'string' ? nameKey2 : '').trim();
+
+        const filterObj: {
+          name?: string;
+          name_mode?: 'prefix' | 'exact';
+          work?: string;
+          appr?: string;
+        } = {};
+
+        if (nameTrimmed) {
+          filterObj.name = nameTrimmed;
+          filterObj.name_mode = 'prefix'; // decided behavior: case-insensitive prefix
+        }
+        if (Array.isArray(workStatuses) && workStatuses.length > 0) {
+          filterObj.work = workStatuses.join(',');
+        }
+        if (Array.isArray(apprStatuses) && apprStatuses.length > 0) {
+          filterObj.appr = apprStatuses.join(',');
+        }
+
         const res = await fetchAssetsPivot(
           project.key_name,
           page,
@@ -28,25 +57,22 @@ export function useFetchAssetsPivot(
           sortDir,
           phase,
           controller.signal,
-          {
-            // ✅ use nameKey2 here
-            ...(nameKey2?.trim() ? { name: nameKey2.trim(), name_mode: 'prefix' } : {}),
-            ...(workStatuses.length ? { work: workStatuses.join(',') } : {}),
-            ...(apprStatuses.length ? { appr: apprStatuses.join(',') } : {}),
-          }
+          filterObj,
         );
 
+        // tolerate { assets, total } or { data, total }
         const list  = (res as any)?.assets ?? (res as any)?.data ?? [];
         const count = (res as any)?.total  ?? 0;
+
         setAssets(list);
         setTotal(count);
       } catch (err) {
         if (controller.signal.aborted) return;
+        // eslint-disable-next-line no-console
         console.error(err);
       }
     })();
 
-    // include joined arrays so deps are stable
     return () => controller.abort();
   }, [
     project,
@@ -56,7 +82,7 @@ export function useFetchAssetsPivot(
     sortDir,
     phase,
     nameKey2,
-    workStatuses.join(','),
+    workStatuses.join(','),  // stable deps
     apprStatuses.join(','),
   ]);
 
