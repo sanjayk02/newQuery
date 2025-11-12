@@ -1,0 +1,11 @@
+const { assets, total } = useFetchAssetsPivot(
+  currentProject,
+  pageProps.page,
+  pageProps.rowsPerPage,
+  sortKey,
+  sortDir,
+  phasePriority,
+  filterProps.assetNameKey,
+  filterProps.workStatues,
+  filterProps.applovalStatues,
+);
