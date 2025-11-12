@@ -1,11 +1,161 @@
-const { assets, total } = useFetchAssetsPivot(
-  currentProject,
-  pageProps.page,
-  pageProps.rowsPerPage,
-  sortKey,
-  sortDir,
-  phasePriority,
-  filterProps.assetNameKey,
-  filterProps.workStatues,
-  filterProps.applovalStatues,
-);
+import React, { FC, useEffect, useRef, useState, useMemo } from 'react';
+// ... (imports remain the same)
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Styling  (overflow fixes applied)
+ * ────────────────────────────────────────────────────────────────────────── */
+// ... (Styled components remain the same)
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Initial state
+ * ────────────────────────────────────────────────────────────────────────── */
+// ... (initPageProps, initFilterProps remain the same)
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Column metadata (ids must match table columns)
+ * ────────────────────────────────────────────────────────────────────────── */
+// ... (COLUMN_META, FIXED_VISIBLE, Settings keys remain the same)
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Component
+ * ────────────────────────────────────────────────────────────────────────── */
+const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
+  const [pageProps, setPageProps] = useState<PageProps>(initPageProps);
+  const [filterProps, setFilterProps] = useState<_FilterProps>(initFilterProps);
+
+  // Server-side sorting (drives fetch)
+  const [sortKey, setSortKey] = useState<string>('group_1');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [phasePriority, setPhasePriority] = useState<string>('none'); // mdl|rig|bld|dsn|ldv|none
+
+  // UI sort (instant arrow feedback; DEBOUNCE REMOVED)
+  const [uiSortKey, setUiSortKey] = useState<string>('group_1');
+  const [uiSortDir, setUiSortDir] = useState<SortDir>('asc');
+  
+  // Debounce ref is now unused but kept for history
+  const commitTimerRef = useRef<number | null>(null);
+
+  // Column visibility
+  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+
+  const { currentProject } = useCurrentProject();
+  const { currentStudio } = useCurrentStudio();
+  const [timeZone, setTimeZone] = useState<string | undefined>();
+
+  /* Resolve UI key -> server sort + phase */
+// ... (resolveServerSort remains the same)
+
+  /* Persist hidden columns (localStorage mirror) */
+// ... (persistHiddenColumnsLocal, saveHiddenColumnsToPipelineSetting, persistHiddenColumns remain the same)
+
+
+  /* Fetch data */
+  const { assets, total } = useFetchAssetsPivot(
+    currentProject,
+    pageProps.page,
+    pageProps.rowsPerPage,
+    sortKey,
+    sortDir,
+    phasePriority,
+    filterProps.assetNameKey,         // ADDED: Passed filter state to hook
+    filterProps.applovalStatues,      // ADDED
+    filterProps.workStatues,          // ADDED
+  );
+
+  /* Studio timezone */
+// ... (Studio timezone effect remains the same)
+
+  /* Load hidden columns: PipelineSetting -> localStorage fallback */
+// ... (Load hidden columns effect remains the same)
+
+  /* Cleanup pending debounce on unmount */
+// ... (Cleanup effect remains the same)
+
+  /* Pagination */
+// ... (handleRowsPerPageChange, handlePageChange remain the same)
+
+  /* Immediate sort commit (Replaced 2s debounce) */
+// ... (handleSortChange remains the same)
+
+  /* Filters */
+  // The filter handlers already update filterProps, triggering the hook's useEffect
+  const handleFilterAssetNameChange: TextFieldProps['onChange'] = (event) => {
+    setFilterProps(p => ({ ...p, assetNameKey: event.target.value }));
+    setPageProps(p => ({ ...p, page: 0 }));
+  };
+  const handleApprovalStatusesChange: SelectProps['onChange'] = (event: React.ChangeEvent<{ value: unknown }>) => {
+    setFilterProps(p => ({ ...p, applovalStatues: event.target.value as string[] }));
+    setPageProps(p => ({ ...p, page: 0 }));
+  };
+  const handleWorkStatusesChange: SelectProps['onChange'] = (event: React.ChangeEvent<{ value: unknown }>) => {
+    setFilterProps(p => ({ ...p, workStatues: event.target.value as string[] }));
+    setPageProps(p => ({ ...p, page: 0 }));
+  };
+  const handleApprovalStatusesChipDelete = (name: string) => {
+    setFilterProps(p => ({ ...p, applovalStatues: p.applovalStatues.filter(v => v !== name) }));
+    setPageProps(p => ({ ...p, page: 0 }));
+  };
+  const handleWorkStatusesChipDelete = (name: string) => {
+    setFilterProps(p => ({ ...p, workStatues: p.workStatues.filter(v => v !== name) }));
+    setPageProps(p => ({ ...p, page: 0 }));
+  };
+  const handleFilterResetClick: ButtonProps['onClick'] = () => setFilterProps(initFilterProps);
+
+  /* Column actions for Drawer */
+// ... (Column actions for Drawer remain the same)
+
+  // Explicit save (invoked from drawer)
+  const handleSaveColumns = async () => {
+    await saveHiddenColumnsToPipelineSetting(hiddenColumns);
+  };
+
+  /* Date/Time format */
+// ... (dateTimeFormat remains the same)
+
+  /* Footer */
+// ... (tableFooter remains the same)
+
+  /* Drawer badge count (visible columns among togglable ones) */
+// ... (visibleCount memo remains the same)
+
+  /* Render */
+  return (
+    <StyledContainer maxWidth="xl">
+      {/* Filter bar with Reset + COLUMNS (COLUMNS opens Drawer inside AssetTableFilter) */}
+// ... (AssetTableFilter props remain the same)
+
+      {/* Table inside horizontal scroll container */}
+      <StyledTableDiv>
+        <StyledPaper>
+          <StyledContentDiv>
+            <div
+              style={{
+                // The actual scroll container
+                overflowX: 'auto',   // use 'scroll' if you want the bar always visible
+                overflowY: 'hidden',
+                width: '100%',
+                paddingBottom: 4,
+              }}
+            >
+              <AssetsDataTable
+                project={currentProject}
+                assets={assets}
+                tableFooter={tableFooter}
+                dateTimeFormat={dateTimeFormat}
+                onSortChange={handleSortChange}
+                currentSortKey={uiSortKey}
+                currentSortDir={uiSortDir}
+                hiddenColumns={hiddenColumns}
+                assetNameKey={filterProps.assetNameKey}      // ADDED: Passed filter state to table
+                approvalStatuses={filterProps.applovalStatues} // ADDED
+                workStatuses={filterProps.workStatues}        // ADDED
+              />
+            </div>
+          </StyledContentDiv>
+        </StyledPaper>
+      </StyledTableDiv>
+    </StyledContainer>
+  );
+};
+
+export default AssetsDataTablePanel;
