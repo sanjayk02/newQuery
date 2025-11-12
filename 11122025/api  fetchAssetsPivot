@@ -1,8 +1,6 @@
 import { AuthorizationError } from '../../auth/types';
 import { getAuthHeader, setNewToken } from '../../auth/util';
-import { Asset, ReviewInfo, AssetsPivotResponse } from './types';
-
-// ... (fetchAssets, fetchAssetReviewInfos, fetchAssetThumbnail remain the same)
+import { AssetsPivotResponse } from './types';
 
 // Returns AssetsPivotResponse
 export const fetchAssetsPivot = async (
@@ -12,28 +10,34 @@ export const fetchAssetsPivot = async (
   sortKey: string,
   sortDir: string, // 'asc' | 'desc'
   phase: string,   // 'mdl' | 'rig' | 'bld' | 'dsn' | 'ldv' | 'none' | ''
-  assetNameKey: string,       // ADDED
-  approvalStatuses: string[], // ADDED
-  workStatuses: string[],     // ADDED
+  assetNameKey: string,       // Name filter (prefix, case-insensitive)
+  approvalStatuses: string[], // Approval filter (OR within set)
+  workStatuses: string[],     // Work filter (OR within set)
   signal?: AbortSignal | null,
 ): Promise<AssetsPivotResponse> => {
   const headers = getAuthHeader();
-
-  // ✅ match backend route + encode project
-  let url: string = `/api/projects/${encodeURIComponent(project)}/reviews/assets/pivot`;
+  let url = `/api/projects/${encodeURIComponent(project)}/reviews/assets/pivot`;
 
   const params = new URLSearchParams();
   params.set('per_page', String(rowsPerPage));
   params.set('page', String(page + 1));
-
   if (sortKey) params.set('sort', sortKey);
-  if (sortDir) params.set('dir', sortDir.toUpperCase()); // backend normalizes; upper is fine
+  if (sortDir) params.set('dir', sortDir.toUpperCase());
   if (phase)   params.set('phase', phase);
-  
-  // ADDED: Filter parameters
-  if (assetNameKey) params.set('asset_name_key', assetNameKey);
-  approvalStatuses.forEach(status => params.append('approval_statuses', status));
-  workStatuses.forEach(status => params.append('work_statuses', status));
+
+  // ✅ Server expects these keys:
+  // name (with name_mode=prefix), work (CSV), appr (CSV)
+  const trimmed = (typeof assetNameKey === 'string' ? assetNameKey : '').trim();
+  if (trimmed) {
+    params.set('name', trimmed);
+    params.set('name_mode', 'prefix'); // keep prefix per your spec
+  }
+  if (Array.isArray(workStatuses) && workStatuses.length > 0) {
+    params.set('work', workStatuses.join(',')); // CSV
+  }
+  if (Array.isArray(approvalStatuses) && approvalStatuses.length > 0) {
+    params.set('appr', approvalStatuses.join(',')); // CSV
+  }
 
   url += `?${params.toString()}`;
 
@@ -48,9 +52,6 @@ export const fetchAssetsPivot = async (
   if (!res.ok) throw new Error('Failed to fetch pivoted assets.');
 
   setNewToken(res);
-  const json: AssetsPivotResponse = await res.json();
-  console.log("Fetched pivoted assets:", json);
+  const json = (await res.json()) as AssetsPivotResponse;
   return json;
 };
-
-// ... (rest of the file)
