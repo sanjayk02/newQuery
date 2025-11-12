@@ -1,0 +1,30 @@
+func buildStatusPredicate(work, appr []string) (string, []any) {
+	if len(work) == 0 && len(appr) == 0 {
+		return "", nil
+	}
+
+	args := []any{}
+	clauses := []string{}
+
+	if len(work) > 0 {
+		p := strings.Repeat("?,", len(work))
+		p = p[:len(p)-1]
+		clauses = append(clauses, "LOWER(work_status) IN ("+p+")")
+		for _, v := range work {
+			args = append(args, strings.ToLower(v))
+		}
+	}
+
+	if len(appr) > 0 {
+		p := strings.Repeat("?,", len(appr))
+		p = p[:len(p)-1]
+		// ✅ make it a separate AND (not OR)
+		clauses = append(clauses, "LOWER(approval_status) IN ("+p+")")
+		for _, v := range appr {
+			args = append(args, strings.ToLower(v))
+		}
+	}
+
+	// ✅ Combine with AND so both must match if both filters are set
+	return " AND " + strings.Join(clauses, " AND "), args
+}
