@@ -1,3 +1,17 @@
+func splitCSV(v string) []string {
+	if v == "" {
+		return nil
+	}
+	raw := strings.Split(v, ",")
+	out := make([]string, 0, len(raw))
+	for _, s := range raw {
+		if trimmed := strings.TrimSpace(s); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
 // ============================================================
 // ListAssetsPivot — filtered, phase-aware asset review listing
 // Route: GET /api/projects/:project/reviews/assets/pivot
