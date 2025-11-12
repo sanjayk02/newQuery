@@ -2,6 +2,7 @@
 func (r *ReviewInfo) CountLatestSubmissions(
 	ctx context.Context,
 	project, root, assetNameKey string,
+	preferredPhase string,          // ✅ added
 	approvalStatuses []string,
 	workStatuses []string,
 ) (int64, error) {
@@ -14,47 +15,18 @@ func (r *ReviewInfo) CountLatestSubmissions(
 
 	db := r.db.WithContext(ctx)
 
-	// Name predicate: case-insensitive PREFIX (index-friendly)
+	// Name: case-insensitive PREFIX
 	nameCond := ""
 	var nameArg any
-	trim := strings.TrimSpace(assetNameKey)
-	if trim != "" {
+	if strings.TrimSpace(assetNameKey) != "" {
 		nameCond = " AND LOWER(group_1) LIKE ?"
-		nameArg = strings.ToLower(trim) + "%"
+		nameArg = strings.ToLower(strings.TrimSpace(assetNameKey)) + "%"
 	}
 
-	// Build status predicate: OR within a type, AND across types
-	buildIn := func(col string, vals []string) (string, []any) {
-		if len(vals) == 0 {
-			return "", nil
-		}
-		place := strings.Repeat("?,", len(vals))
-		place = place[:len(place)-1]
-		args := make([]any, 0, len(vals))
-		for _, v := range vals {
-			args = append(args, strings.ToLower(strings.TrimSpace(v)))
-		}
-		return fmt.Sprintf("LOWER(%s) IN (%s)", col, place), args
-	}
-	apprClause, apprArgs := buildIn("approval_status", approvalStatuses)
-	workClause, workArgs := buildIn("work_status", workStatuses)
+	// Phase-aware status filter
+	statusWhere, statusArgs := buildPhaseAwareStatusWhere(preferredPhase, approvalStatuses, workStatuses)
 
-	statusWhere := ""
-	statusArgs := []any{}
-	if apprClause != "" && workClause != "" {
-		statusWhere = " AND (" + apprClause + ") AND (" + workClause + ")"
-		statusArgs = append(statusArgs, apprArgs...)
-		statusArgs = append(statusArgs, workArgs...)
-	} else if apprClause != "" {
-		statusWhere = " AND (" + apprClause + ")"
-		statusArgs = append(statusArgs, apprArgs...)
-	} else if workClause != "" {
-		statusWhere = " AND (" + workClause + ")"
-		statusArgs = append(statusArgs, workArgs...)
-	}
-
-	// Latest per PHASE (not just per asset)
-	latestPerPhase := `
+	sql := `
 WITH latest_phase AS (
   SELECT project, root, group_1, relation, phase,
          work_status, approval_status, submitted_at_utc, modified_at_utc,
@@ -79,7 +51,7 @@ SELECT COUNT(*) FROM (
 	args = append(args, statusArgs...)
 
 	var total int64
-	if err := db.Raw(latestPerPhase, args...).Scan(&total).Error; err != nil {
+	if err := db.Raw(sql, args...).Scan(&total).Error; err != nil {
 		return 0, fmt.Errorf("CountLatestSubmissions: %w", err)
 	}
 	return total, nil
