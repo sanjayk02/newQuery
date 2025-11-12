@@ -1,0 +1,111 @@
+// ============================================================================
+		// START: UNAUTHENTICATED ENDPOINT BLOCK (ASSET LISTING WITH DYNAMIC SORT)
+		// ===========================================================================
+		apiRouter.GET("/projects/:project/reviews/assets/pivot", func(c *gin.Context) {
+			project := strings.TrimSpace(c.Param("project"))
+			if project == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "project is required in the path"})
+				return
+			}
+
+			root := c.DefaultQuery("root", defaultRoot)
+
+			// NO DEFAULT PHASE: read as-is; if empty, we won't echo it back.
+			phaseParam := strings.TrimSpace(c.Query("phase")) // "" if not provided
+
+			// If a phase is supplied, allow only known phases (plus "none")
+			if phaseParam != "" {
+				lp := strings.ToLower(phaseParam)
+				if lp != "none" {
+					if _, ok := allowedPhases[lp]; !ok {
+						c.JSON(http.StatusBadRequest, gin.H{
+							"error":          "invalid phase",
+							"allowed_phases": []string{"mdl", "rig", "bld", "dsn", "ldv", "none"},
+						})
+						return
+					}
+				}
+			}
+
+			// Pagination
+			page := mustAtoi(c.DefaultQuery("page", "1"))
+			page = int(math.Max(float64(page), 1))
+			perPage := clampPerPage(mustAtoi(c.DefaultQuery("per_page", fmt.Sprint(defaultPerPage))))
+			limit := perPage
+			offset := (page - 1) * perPage
+
+			// Sorting
+			sortParam := c.DefaultQuery("sort", "group_1")
+			dirParam := c.DefaultQuery("dir", "ASC")
+			orderKey := normalizeSortKey(sortParam)
+			dir := normalizeDir(dirParam)
+
+			// FILTERS: Read Asset Name and Statuses from query parameters (REQUIRED FIX)
+			assetNameKey := strings.TrimSpace(c.Query("asset_name_key"))
+			approvalStatuses := c.QueryArray("approval_statuses")
+			workStatuses := c.QueryArray("work_statuses")
+
+			// Internal preferredPhase we pass to repo:
+			// - If sorting by group/relation buckets, force "none" (no phase bias).
+			// - Else, use the provided phase if any, otherwise "none".
+			preferredPhase := phaseParam
+			if orderKey == "group1_only" || orderKey == "relation_only" || orderKey == "group_rel_submitted" {
+				preferredPhase = "none"
+			}
+			if preferredPhase == "" {
+				preferredPhase = "none"
+			}
+
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 7*time.Second)
+			defer cancel()
+
+			assets, total, err := reviewInfoRepository.ListAssetsPivot(
+				ctx,
+				project,
+				root,
+				preferredPhase,
+				orderKey,
+				dir,
+				limit,
+				offset,
+				assetNameKey,       // <-- ADDED: Filter parameter 1
+				approvalStatuses,   // <-- ADDED: Filter parameter 2
+				workStatuses,       // <-- ADDED: Filter parameter 3
+			)
+			if err != nil {
+				log.Printf("[pivot-submissions] query error for project %q: %v", project, err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
+				return
+			}
+
+			// Response
+			c.Header("Cache-Control", "public, max-age=15")
+			baseURL := fmt.Sprintf("/api/projects/%s/reviews/pivot", project)
+			if links := paginationLinks(baseURL, page, perPage, int(total)); links != "" {
+				c.Header("Link", links)
+			}
+
+			// Build payload; only echo "phase" if user supplied it
+			resp := gin.H{
+				"assets":    assets,
+				"total":     total,
+				"page":      page,
+				"per_page":  perPage,
+				"sort":      sortParam,
+				"dir":       strings.ToLower(dir),
+				"project":   project,
+				"root":      root,
+				"has_next":  offset+limit < int(total),
+				"has_prev":  page > 1,
+				"page_last": (int(total) + perPage - 1) / perPage,
+			}
+			if phaseParam != "" {
+				resp["phase"] = phaseParam
+			}
+
+			c.IndentedJSON(http.StatusOK, resp)
+		})
+		// =========================================================================
+		// END: UNAUTHENTICATED ENDPOINT BLOCK
+		// =========================================================================
+		// Review Status Log API
