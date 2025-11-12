@@ -1,7 +1,11 @@
-// ---------- ListLatestSubmissionsDynamic ----------
+// ---------- ListLatestSubmissionsDynamic (phase priority is CONDITIONAL) ----------
 func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 	ctx context.Context,
-	project, root, preferredPhase, orderKey, direction string,
+	project string,
+	root string,
+	preferredPhase string,
+	orderKey string,
+	direction string,
 	limit, offset int,
 	assetNameKey string,
 	approvalStatuses []string,
@@ -28,46 +32,18 @@ func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 	orderClauseWindow := buildOrderClause("", orderKey, direction)
 	orderClauseInner := buildOrderClause("b", orderKey, direction)
 
-	// Name predicate (case-insensitive prefix)
+	// Name prefix (case-insensitive)
 	nameCond := ""
 	var nameArg any
-	trim := strings.TrimSpace(assetNameKey)
-	if trim != "" {
+	if strings.TrimSpace(assetNameKey) != "" {
 		nameCond = " AND LOWER(group_1) LIKE ?"
-		nameArg = strings.ToLower(trim) + "%"
+		nameArg = strings.ToLower(strings.TrimSpace(assetNameKey)) + "%"
 	}
 
-	// Build status predicate (AND across types)
-	buildIn := func(col string, vals []string) (string, []any) {
-		if len(vals) == 0 {
-			return "", nil
-		}
-		place := strings.Repeat("?,", len(vals))
-		place = place[:len(place)-1]
-		args := make([]any, 0, len(vals))
-		for _, v := range vals {
-			args = append(args, strings.ToLower(strings.TrimSpace(v)))
-		}
-		return fmt.Sprintf("LOWER(%s) IN (%s)", col, place), args
-	}
-	apprClause, apprArgs := buildIn("approval_status", approvalStatuses)
-	workClause, workArgs := buildIn("work_status", workStatuses)
+	// Phase-aware status filter
+	statusWhere, statusArgs := buildPhaseAwareStatusWhere(preferredPhase, approvalStatuses, workStatuses)
 
-	statusWhere := ""
-	statusArgs := []any{}
-	if apprClause != "" && workClause != "" {
-		statusWhere = " AND (" + apprClause + ") AND (" + workClause + ")"
-		statusArgs = append(statusArgs, apprArgs...)
-		statusArgs = append(statusArgs, workArgs...)
-	} else if apprClause != "" {
-		statusWhere = " AND (" + apprClause + ")"
-		statusArgs = append(statusArgs, apprArgs...)
-	} else if workClause != "" {
-		statusWhere = " AND (" + workClause + ")"
-		statusArgs = append(statusArgs, workArgs...)
-	}
-
-	// Keys subquery: latest per PHASE + optional name/status filters
+	// Keys subquery (latest per phase, then apply filters)
 	keysSQL := `
 WITH latest_phase AS (
   SELECT project, root, group_1, relation, phase,
@@ -84,7 +60,6 @@ FROM latest_phase
 WHERE rn = 1` + statusWhere + `
 GROUP BY project, root, group_1, relation`
 
-	// Main query: order window → phase-priority → rank-within-asset
 	q := fmt.Sprintf(`
 WITH ordered AS (
   SELECT *, ROW_NUMBER() OVER (ORDER BY %s) AS _order
@@ -138,14 +113,14 @@ LIMIT ? OFFSET ?;`, orderClauseWindow, keysSQL, orderClauseInner)
 		project, root,
 		// 'b' join
 		project, root,
-		// filtered keys subquery (latest_phase)
+		// keys subquery params (project, root, [nameArg?], statusArgs...)
 		project, root,
 	}
 	if nameArg != nil {
 		args = append(args, nameArg)
 	}
 	args = append(args, statusArgs...)
-	// phase offset / rank
+	// phase offsets + limit/offset
 	args = append(args, phaseGuard, preferredPhase, phaseGuard, preferredPhase, limit, offset)
 
 	var rows []LatestSubmissionRow
