@@ -1,19 +1,28 @@
-api.ts: accept an object of filters (object mode)
+// src/project/asset-data/api.ts
+// If your file exports more functions, just replace this one and keep the rest.
+// This version accepts a filter OBJECT from the hook.
+
+import { SortDir } from './types';
+
+// keep these if they already exist in your api.ts; otherwise remove the headers lines
+declare function getAuthHeader(): Record<string, string>;
+declare function setNewToken(res: Response): void;
+
 export async function fetchAssetsPivot(
   projectKey: string,
   page: number,
   perPage: number,
   sort: string,
-  dir: 'asc'|'desc'|'none',
+  dir: SortDir, // 'asc' | 'desc' | 'none'
   phase: string,
   signal?: AbortSignal | null,
-  extra?: { name?: string; name_mode?: 'prefix'|'exact'; work?: string; appr?: string },
-) {
+  extra?: { name?: string; name_mode?: 'prefix' | 'exact'; work?: string; appr?: string },
+): Promise<any> {
   const params = new URLSearchParams();
   params.set('page', String(page + 1));
   params.set('per_page', String(perPage));
   if (sort) params.set('sort', sort);
-  if (dir && dir !== 'none') params.set('dir', dir.toUpperCase());
+  if (dir && dir !== 'none') params.set('dir', String(dir).toUpperCase());
   if (phase && phase !== 'none') params.set('phase', phase);
 
   if (extra?.name) params.set('name', extra.name);
@@ -22,7 +31,20 @@ export async function fetchAssetsPivot(
   if (extra?.appr) params.set('appr', extra.appr);
 
   const url = `/api/projects/${encodeURIComponent(projectKey)}/reviews/assets/pivot?${params.toString()}`;
-  const res = await fetch(url, { method: 'GET', signal: signal || undefined });
-  if (!res.ok) throw new Error('Failed to fetch pivoted assets.');
+
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: typeof getAuthHeader === 'function' ? getAuthHeader() : undefined,
+    mode: 'cors',
+    signal: signal || undefined,
+  });
+
+  if (res.status === 401) {
+    throw new Error('Unauthorized');
+  }
+  if (!res.ok) {
+    throw new Error(`Failed to fetch pivoted assets. (${res.status})`);
+  }
+  if (typeof setNewToken === 'function') setNewToken(res);
   return res.json();
 }
