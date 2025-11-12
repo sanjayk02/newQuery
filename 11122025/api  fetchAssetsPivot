@@ -1,0 +1,28 @@
+api.ts: accept an object of filters (object mode)
+export async function fetchAssetsPivot(
+  projectKey: string,
+  page: number,
+  perPage: number,
+  sort: string,
+  dir: 'asc'|'desc'|'none',
+  phase: string,
+  signal?: AbortSignal | null,
+  extra?: { name?: string; name_mode?: 'prefix'|'exact'; work?: string; appr?: string },
+) {
+  const params = new URLSearchParams();
+  params.set('page', String(page + 1));
+  params.set('per_page', String(perPage));
+  if (sort) params.set('sort', sort);
+  if (dir && dir !== 'none') params.set('dir', dir.toUpperCase());
+  if (phase && phase !== 'none') params.set('phase', phase);
+
+  if (extra?.name) params.set('name', extra.name);
+  if (extra?.name_mode) params.set('name_mode', extra.name_mode);
+  if (extra?.work) params.set('work', extra.work);
+  if (extra?.appr) params.set('appr', extra.appr);
+
+  const url = `/api/projects/${encodeURIComponent(projectKey)}/reviews/assets/pivot?${params.toString()}`;
+  const res = await fetch(url, { method: 'GET', signal: signal || undefined });
+  if (!res.ok) throw new Error('Failed to fetch pivoted assets.');
+  return res.json();
+}
