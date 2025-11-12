@@ -1,0 +1,62 @@
+// helper builds the status-filter subquery, phase-aware when phase != "none".
+func buildPhaseAwareStatusFilterSQL(phase string, approvalStatuses, workStatuses []string) (string, []any) {
+    // status predicates
+    whereParts := []string{}
+    if len(approvalStatuses) > 0 {
+        whereParts = append(whereParts, fmt.Sprintf("approval_status IN ('%s')", strings.Join(approvalStatuses, "', '")))
+    }
+    if len(workStatuses) > 0 {
+        whereParts = append(whereParts, fmt.Sprintf("work_status IN ('%s')", strings.Join(workStatuses, "', '")))
+    }
+    if len(whereParts) == 0 {
+        return "", nil
+    }
+
+    if strings.EqualFold(phase, "none") || phase == "" {
+        // ANY-PHASE LATEST per asset (what you had)
+        latestStatusSQL := `
+SELECT
+  group_1, relation
+FROM t_review_info AS T1
+INNER JOIN (
+  SELECT project, root, group_1, relation, MAX(modified_at_utc) AS max_modified
+  FROM t_review_info
+  WHERE project = ? AND root = ? AND deleted = 0
+  GROUP BY project, root, group_1, relation
+) AS T2
+  ON T1.project = T2.project AND T1.root = T2.root
+ AND T1.group_1 = T2.group_1 AND T1.relation = T2.relation
+ AND T1.modified_at_utc = T2.max_modified
+WHERE T1.project = ? AND T1.root = ? AND T1.deleted = 0
+`
+        args := []any{}
+        args = append(args, /* ? */ nil) // we bind later next to project/root
+        return fmt.Sprintf(
+            "SELECT group_1, relation FROM (%s) AS status_check WHERE %s GROUP BY group_1, relation",
+            latestStatusSQL, strings.Join(whereParts, " OR "),
+        ), args
+    }
+
+    // PHASE-SPECIFIC: latest per asset **for that phase**
+    latestStatusSQL := `
+SELECT
+  group_1, relation
+FROM t_review_info AS T1
+INNER JOIN (
+  SELECT project, root, group_1, relation, phase, MAX(modified_at_utc) AS max_modified
+  FROM t_review_info
+  WHERE project = ? AND root = ? AND deleted = 0 AND phase = ?
+  GROUP BY project, root, group_1, relation, phase
+) AS T2
+  ON T1.project = T2.project AND T1.root = T2.root
+ AND T1.group_1 = T2.group_1 AND T1.relation = T2.relation
+ AND T1.phase   = T2.phase
+ AND T1.modified_at_utc = T2.max_modified
+WHERE T1.project = ? AND T1.root = ? AND T1.deleted = 0 AND T1.phase = ?
+`
+    // We’ll bind: project, root, phase, project, root, phase
+    return fmt.Sprintf(
+        "SELECT group_1, relation FROM (%s) AS status_check WHERE %s GROUP BY group_1, relation",
+        latestStatusSQL, strings.Join(whereParts, " OR "),
+    ), []any{ /* placeholders: we’ll supply in caller */ }
+}
