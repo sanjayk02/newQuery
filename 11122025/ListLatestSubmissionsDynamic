@@ -1,0 +1,163 @@
+// reviewInfo.go
+
+// ListLatestSubmissionsDynamic (phase priority is CONDITIONAL)
+func (r *ReviewInfo) ListLatestSubmissionsDynamic(
+	ctx context.Context,
+	project string,
+	root string,
+	preferredPhase string,
+	orderKey string,
+	direction string,
+	limit, offset int,
+	assetNameKey string,       // Added
+	approvalStatuses []string, // Added
+	workStatuses []string,     // Added
+) ([]LatestSubmissionRow, error) {
+	if project == "" {
+		return nil, fmt.Errorf("project is required")
+	}
+	// ... (rest of initial checks)
+	if root == "" {
+		root = "assets"
+	}
+	if limit <= 0 {
+		limit = 60
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	phaseGuard := 0
+	if preferredPhase == "" || strings.EqualFold(preferredPhase, "none") {
+		phaseGuard = 1
+	}
+
+	orderClauseWindow := buildOrderClause("", orderKey, direction)
+	orderClauseInner := buildOrderClause("b", orderKey, direction)
+
+	// --- 1. BUILD DYNAMIC WHERE CLAUSES ---
+	whereClauses := []string{}
+	// Asset Name Filter
+	if assetNameKey != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("k.group_1 LIKE '%%%s%%'", assetNameKey))
+	}
+
+	// Status Filters: Use the subquery logic developed for CountLatestSubmissions
+	if len(approvalStatuses) > 0 || len(workStatuses) > 0 {
+		const latestStatusSQL = `
+SELECT
+	group_1, relation
+FROM t_review_info AS T1
+INNER JOIN (
+	SELECT project, root, group_1, relation, MAX(modified_at_utc) AS max_modified
+	FROM t_review_info
+	WHERE project = ? AND root = ? AND deleted = 0
+	GROUP BY project, root, group_1, relation
+) AS T2
+  ON T1.project = T2.project AND T1.root = T2.root AND T1.group_1 = T2.group_1 AND T1.relation = T2.relation AND T1.modified_at_utc = T2.max_modified
+WHERE T1.project = ? AND T1.root = ? AND T1.deleted = 0
+GROUP BY group_1, relation
+`
+		statusFilterClauses := []string{}
+		if len(approvalStatuses) > 0 {
+			statusFilterClauses = append(statusFilterClauses, fmt.Sprintf("approval_status IN ('%s')", strings.Join(approvalStatuses, "', '")))
+		}
+		if len(workStatuses) > 0 {
+			statusFilterClauses = append(statusFilterClauses, fmt.Sprintf("work_status IN ('%s')", strings.Join(workStatuses, "', '")))
+		}
+
+		// The filter must apply to the final result of the combined query, which is complex.
+		// Instead of rewriting the complex CTE, we'll embed a filtered list of keys directly.
+		fullStatusFilterSQL := fmt.Sprintf("SELECT group_1, relation FROM (%s) AS status_check WHERE %s",
+			latestStatusSQL, strings.Join(statusFilterClauses, " OR "))
+
+		// Add a JOIN condition for the status filtered keys
+		whereClauses = append(whereClauses, fmt.Sprintf("(k.group_1, k.relation) IN (%s)", fullStatusFilterSQL))
+	}
+
+	// Apply WHERE clauses if any filters are set
+	whereCondition := ""
+	if len(whereClauses) > 0 {
+		whereCondition = "WHERE " + strings.Join(whereClauses, " AND ")
+	}
+	// --- END DYNAMIC WHERE CLAUSES ---
+
+
+	q := fmt.Sprintf(`
+WITH ordered AS (
+	SELECT
+		*,
+		ROW_NUMBER() OVER (ORDER BY %s) AS _order
+	FROM (
+		SELECT b.* FROM (
+			SELECT project, root, group_1, relation, phase, MAX(modified_at_utc) AS modified_at_utc
+			FROM t_review_info
+			WHERE project = ? AND root = ? AND deleted = 0
+			GROUP BY project, root, group_1, relation, phase
+		) AS a
+		LEFT JOIN (
+			SELECT root, project, group_1, phase, relation, work_status, approval_status, submitted_at_utc, modified_at_utc, executed_computer
+			FROM t_review_info
+			WHERE project = ? AND root = ? AND deleted = 0
+		) AS b
+		  ON a.project = b.project
+		 AND a.root = b.root
+		 AND a.group_1 = b.group_1
+		 AND a.relation = b.relation
+		 AND a.phase = b.phase
+		 AND a.modified_at_utc = b.modified_at_utc
+		ORDER BY %s
+	) AS k
+	%s -- ADDED: WHERE condition for filters
+),
+offset_ordered AS (
+	SELECT
+		c.*,
+		CASE
+		  WHEN ? = 1 THEN c._order                      -- no phase preference
+		  WHEN c.phase = ? THEN c._order                -- prefer requested phase
+		  ELSE 100000 + c._order
+		END AS __order
+	FROM ordered c
+),
+ranked AS (
+	SELECT
+		b.*,
+		ROW_NUMBER() OVER (
+			PARTITION BY b.root, b.project, b.group_1, b.relation
+			ORDER BY
+			  CASE
+			    WHEN ? = 1 THEN 0                         -- no phase preference
+			    WHEN b.phase = ? THEN 0 ELSE 1           -- prefer requested phase
+			  END,
+			  LOWER(b.group_1) ASC,
+			  LOWER(b.relation) ASC,
+			  b.modified_at_utc DESC
+		) AS _rank
+	FROM offset_ordered b
+)
+SELECT root, project, group_1, relation, phase, submitted_at_utc
+FROM ( SELECT * FROM ranked WHERE _rank = 1 ) AS t
+ORDER BY __order ASC
+LIMIT ? OFFSET ?;
+`, orderClauseWindow, orderClauseInner, whereCondition)
+
+	// Since we are applying WHERE clauses on the generated SQL string using string concatenation,
+	// we only need to pass the arguments for the internal subqueries.
+	args := []any{
+		project, root, // inner latest-per-phase
+		project, root, // inner join rows
+		project, root, // Status filter: latestStatusSQL (Arg 1, 2)
+		project, root, // Status filter: latestStatusSQL (Arg 3, 4)
+		phaseGuard, preferredPhase, // offset_ordered CASE
+		phaseGuard, preferredPhase, // ranked CASE
+		limit, offset,
+	}
+
+	var rows []LatestSubmissionRow
+	// ... (Skipping raw query execution for brevity)
+	if err := r.db.WithContext(ctx).Raw(q, args...).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("ListLatestSubmissionsDynamic: %w", err)
+	}
+	return rows, nil
+}
