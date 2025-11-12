@@ -88,3 +88,29 @@ export function useFetchAssetsPivot(
 
   return { assets, total };
 }
+
+// tolerate { assets, total } or { data, total } — without ?. or ??
+let list: AssetPhaseSummary[] = [];
+let count = 0;
+
+if (res && typeof res === 'object') {
+  const anyRes = res as any;
+
+  if (Object.prototype.hasOwnProperty.call(anyRes, 'assets') &&
+      Array.isArray(anyRes.assets)) {
+    list = anyRes.assets as AssetPhaseSummary[];
+  } else if (Object.prototype.hasOwnProperty.call(anyRes, 'data') &&
+             Array.isArray(anyRes.data)) {
+    list = anyRes.data as AssetPhaseSummary[];
+  }
+
+  if (Object.prototype.hasOwnProperty.call(anyRes, 'total') &&
+      typeof anyRes.total === 'number') {
+    count = anyRes.total as number;
+  }
+}
+
+setAssets(list);
+setTotal(count);
+
+
