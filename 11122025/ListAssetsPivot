@@ -8,7 +8,8 @@ func (r *ReviewInfo) ListAssetsPivot(
 	workStatuses []string,
 ) ([]AssetPivot, int64, error) {
 
-	total, err := r.CountLatestSubmissions(ctx, project, root, assetNameKey, approvalStatuses, workStatuses)
+	// ✅ pass preferredPhase so the total matches the UI filter
+	total, err := r.CountLatestSubmissions(ctx, project, root, assetNameKey, preferredPhase, approvalStatuses, workStatuses)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -62,7 +63,6 @@ WHERE rn = 1;`)
 	type key struct{ p, r, g, rel string }
 	m := make(map[key]*AssetPivot, len(keys))
 	ordered := make([]AssetPivot, 0, len(keys))
-
 	for _, k := range keys {
 		id := key{k.Project, k.Root, k.Group1, k.Relation}
 		ap := &AssetPivot{Root: k.Root, Project: k.Project, Group1: k.Group1, Relation: k.Relation}
