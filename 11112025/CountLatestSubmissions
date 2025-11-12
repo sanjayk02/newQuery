@@ -1,0 +1,126 @@
+// CountLatestSubmissions returns the number of distinct assets (group_1, relation)
+// after applying optional filters: assetNameKey, approvalStatuses, workStatuses.
+// When preferredPhase != "none", the status filters are applied to the latest
+// row **for that phase** per asset. When "none", they are applied to the asset's
+// overall latest row (any phase).
+func (r *ReviewInfo) CountLatestSubmissions(
+	ctx context.Context,
+	project string,
+	root string,
+	assetNameKey string,
+	preferredPhase string,        // <--- NEW: pass the same phase you use for listing
+	approvalStatuses []string,
+	workStatuses []string,
+) (int64, error) {
+	if project == "" {
+		return 0, fmt.Errorf("project is required")
+	}
+	if root == "" {
+		root = "assets"
+	}
+
+	db := r.db.WithContext(ctx)
+
+	// Base set: distinct asset keys from t_review_info for this project/root
+	// (we group here so we can simply wrap and count the groups later)
+	base := db.Model(&model.ReviewInfo{}).
+		Where("project = ? AND root = ? AND deleted = 0", project, root).
+		Group("project, root, group_1, relation")
+
+	// Optional: asset name contains (case-insensitive typically by collation)
+	if key := strings.TrimSpace(assetNameKey); key != "" {
+		base = base.Where("group_1 LIKE ?", "%"+key+"%")
+	}
+
+	// If no status filters, just count distinct groups from base
+	if len(approvalStatuses) == 0 && len(workStatuses) == 0 {
+		var total int64
+		if err := db.Raw("SELECT COUNT(*) FROM (?) AS x", base).
+			Scan(&total).Error; err != nil {
+			return 0, err
+		}
+		return total, nil
+	}
+
+	// ---------- Build phase-aware status filter subquery ----------
+	// This subquery returns (group_1, relation) that satisfy the status filters
+	// at the appropriate "latest" granularity (overall latest vs phase-latest).
+	var statusWhereParts []string
+	if len(approvalStatuses) > 0 {
+		statusWhereParts = append(statusWhereParts,
+			fmt.Sprintf("approval_status IN ('%s')", strings.Join(approvalStatuses, "', '")))
+	}
+	if len(workStatuses) > 0 {
+		statusWhereParts = append(statusWhereParts,
+			fmt.Sprintf("work_status IN ('%s')", strings.Join(workStatuses, "', '")))
+	}
+	statusPredicate := strings.Join(statusWhereParts, " OR ")
+
+	var filterSQL string
+	var args []any
+
+	if preferredPhase == "" || strings.EqualFold(preferredPhase, "none") {
+		// ANY-PHASE: pick the asset's overall latest row (max modified_at_utc)
+		filterSQL = fmt.Sprintf(`
+SELECT group_1, relation
+FROM (
+	SELECT T1.*
+	FROM t_review_info AS T1
+	INNER JOIN (
+		SELECT project, root, group_1, relation, MAX(modified_at_utc) AS max_modified
+		FROM t_review_info
+		WHERE project = ? AND root = ? AND deleted = 0
+		GROUP BY project, root, group_1, relation
+	) AS T2
+	  ON T1.project = T2.project
+	 AND T1.root = T2.root
+	 AND T1.group_1 = T2.group_1
+	 AND T1.relation = T2.relation
+	 AND T1.modified_at_utc = T2.max_modified
+	WHERE T1.project = ? AND T1.root = ? AND T1.deleted = 0
+) AS latest_any
+WHERE %s
+GROUP BY group_1, relation
+`, statusPredicate)
+		args = []any{project, root, project, root}
+	} else {
+		// PHASE-SPECIFIC: latest row for that phase per asset
+		filterSQL = fmt.Sprintf(`
+SELECT group_1, relation
+FROM (
+	SELECT T1.*
+	FROM t_review_info AS T1
+	INNER JOIN (
+		SELECT project, root, group_1, relation, phase, MAX(modified_at_utc) AS max_modified
+		FROM t_review_info
+		WHERE project = ? AND root = ? AND deleted = 0 AND phase = ?
+		GROUP BY project, root, group_1, relation, phase
+	) AS T2
+	  ON T1.project = T2.project
+	 AND T1.root = T2.root
+	 AND T1.group_1 = T2.group_1
+	 AND T1.relation = T2.relation
+	 AND T1.phase   = T2.phase
+	 AND T1.modified_at_utc = T2.max_modified
+	WHERE T1.project = ? AND T1.root = ? AND T1.deleted = 0 AND T1.phase = ?
+) AS latest_phase
+WHERE %s
+GROUP BY group_1, relation
+`, statusPredicate)
+		args = []any{project, root, preferredPhase, project, root, preferredPhase}
+	}
+
+	// Join the base grouped assets with the filtered keys to enforce the status filter.
+	joined := base.Joins(
+		"INNER JOIN (?) AS filter_keys ON t_review_info.group_1 = filter_keys.group_1 AND t_review_info.relation = filter_keys.relation",
+		db.Raw(filterSQL, args...),
+	)
+
+	// Final count
+	var total int64
+	if err := db.Raw("SELECT COUNT(*) FROM (?) AS x", joined).
+		Scan(&total).Error; err != nil {
+		return 0, err
+	}
+	return total, nil
+}
