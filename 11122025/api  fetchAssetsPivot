@@ -1,6 +1,11 @@
 // src/project/asset-data/api.ts
 import { SortDir } from "./types";
 
+// these already exist in your app; import from your auth/util module if needed
+declare function getAuthHeader(): Record<string, string>;
+declare class AuthorizationError extends Error {}
+declare function setNewToken(res: Response): void;
+
 export async function fetchAssetsPivot(
   projectKey: string,
   page: number,
@@ -14,12 +19,10 @@ export async function fetchAssetsPivot(
   const params = new URLSearchParams();
   params.set("page", String(page + 1));
   params.set("per_page", String(perPage));
-
   if (sort) params.set("sort", sort);
   if (dir && dir !== "none") params.set("dir", String(dir).toUpperCase());
   if (phase && phase !== "none") params.set("phase", phase);
 
-  // ✅ no optional chaining here — safe manual checks
   if (extra && typeof extra === "object") {
     if (extra.name) params.set("name", extra.name);
     if (extra.name_mode) params.set("name_mode", extra.name_mode);
@@ -27,18 +30,34 @@ export async function fetchAssetsPivot(
     if (extra.appr) params.set("appr", extra.appr);
   }
 
-  const url = "/api/projects/" + encodeURIComponent(projectKey) +
-              "/reviews/assets/pivot?" + params.toString();
+  const url =
+    "/api/projects/" +
+    encodeURIComponent(projectKey) +
+    "/reviews/assets/pivot?" +
+    params.toString();
+
+  // ✅ send Authorization header (Bearer ... or whatever getAuthHeader supplies)
+  const headers: Record<string, string> =
+    typeof getAuthHeader === "function" ? getAuthHeader() : {};
+  headers.Accept = "application/json";
 
   const res = await fetch(url, {
     method: "GET",
     mode: "cors",
+    headers,
+    // If your auth is cookie/session based, uncomment this:
+    // credentials: "include",
     signal: signal || undefined,
   });
 
+  // keep your existing 401 flow so PrivateRoute can handle it
+  if (res.status === 401) {
+    throw new AuthorizationError("Unauthorized");
+  }
   if (!res.ok) {
     throw new Error("Failed to fetch pivoted assets (" + res.status + ")");
   }
 
+  if (typeof setNewToken === "function") setNewToken(res);
   return res.json();
 }
