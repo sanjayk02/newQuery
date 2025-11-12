@@ -1,63 +1,56 @@
-// src/project/asset-data/api.ts
-import { SortDir } from "./types";
+import { AuthorizationError } from '../../auth/types';
+import { getAuthHeader, setNewToken } from '../../auth/util';
+import { Asset, ReviewInfo, AssetsPivotResponse } from './types';
 
-// these already exist in your app; import from your auth/util module if needed
-declare function getAuthHeader(): Record<string, string>;
-declare class AuthorizationError extends Error {}
-declare function setNewToken(res: Response): void;
+// ... (fetchAssets, fetchAssetReviewInfos, fetchAssetThumbnail remain the same)
 
-export async function fetchAssetsPivot(
-  projectKey: string,
+// Returns AssetsPivotResponse
+export const fetchAssetsPivot = async (
+  project: string,
   page: number,
-  perPage: number,
-  sort: string,
-  dir: SortDir, // 'asc' | 'desc' | 'none'
-  phase: string,
+  rowsPerPage: number,
+  sortKey: string,
+  sortDir: string, // 'asc' | 'desc'
+  phase: string,   // 'mdl' | 'rig' | 'bld' | 'dsn' | 'ldv' | 'none' | ''
+  assetNameKey: string,       // ADDED
+  approvalStatuses: string[], // ADDED
+  workStatuses: string[],     // ADDED
   signal?: AbortSignal | null,
-  extra?: { name?: string; name_mode?: "prefix" | "exact"; work?: string; appr?: string }
-): Promise<any> {
+): Promise<AssetsPivotResponse> => {
+  const headers = getAuthHeader();
+
+  // ✅ match backend route + encode project
+  let url: string = `/api/projects/${encodeURIComponent(project)}/reviews/assets/pivot`;
+
   const params = new URLSearchParams();
-  params.set("page", String(page + 1));
-  params.set("per_page", String(perPage));
-  if (sort) params.set("sort", sort);
-  if (dir && dir !== "none") params.set("dir", String(dir).toUpperCase());
-  if (phase && phase !== "none") params.set("phase", phase);
+  params.set('per_page', String(rowsPerPage));
+  params.set('page', String(page + 1));
 
-  if (extra && typeof extra === "object") {
-    if (extra.name) params.set("name", extra.name);
-    if (extra.name_mode) params.set("name_mode", extra.name_mode);
-    if (extra.work) params.set("work", extra.work);
-    if (extra.appr) params.set("appr", extra.appr);
-  }
+  if (sortKey) params.set('sort', sortKey);
+  if (sortDir) params.set('dir', sortDir.toUpperCase()); // backend normalizes; upper is fine
+  if (phase)   params.set('phase', phase);
+  
+  // ADDED: Filter parameters
+  if (assetNameKey) params.set('asset_name_key', assetNameKey);
+  approvalStatuses.forEach(status => params.append('approval_statuses', status));
+  workStatuses.forEach(status => params.append('work_statuses', status));
 
-  const url =
-    "/api/projects/" +
-    encodeURIComponent(projectKey) +
-    "/reviews/assets/pivot?" +
-    params.toString();
-
-  // ✅ send Authorization header (Bearer ... or whatever getAuthHeader supplies)
-  const headers: Record<string, string> =
-    typeof getAuthHeader === "function" ? getAuthHeader() : {};
-  headers.Accept = "application/json";
+  url += `?${params.toString()}`;
 
   const res = await fetch(url, {
-    method: "GET",
-    mode: "cors",
+    method: 'GET',
     headers,
-    // If your auth is cookie/session based, uncomment this:
-    // credentials: "include",
+    mode: 'cors',
     signal: signal || undefined,
   });
 
-  // keep your existing 401 flow so PrivateRoute can handle it
-  if (res.status === 401) {
-    throw new AuthorizationError("Unauthorized");
-  }
-  if (!res.ok) {
-    throw new Error("Failed to fetch pivoted assets (" + res.status + ")");
-  }
+  if (res.status === 401) throw new AuthorizationError();
+  if (!res.ok) throw new Error('Failed to fetch pivoted assets.');
 
-  if (typeof setNewToken === "function") setNewToken(res);
-  return res.json();
-}
+  setNewToken(res);
+  const json: AssetsPivotResponse = await res.json();
+  console.log("Fetched pivoted assets:", json);
+  return json;
+};
+
+// ... (rest of the file)
