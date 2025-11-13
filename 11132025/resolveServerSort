@@ -1,0 +1,13 @@
+const resolveServerSort = (key: string): { sort: string } => {
+  if (key === 'group_1' || key === 'relation') return { sort: key };
+
+  const m = key.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
+  if (!m) return { sort: 'group_1' };
+
+  const phase = m[1].toLowerCase();
+  const field = m[2].toLowerCase();
+
+  if (field === 'submitted') return { sort: `${phase}_submitted` };
+  if (field === 'appr') return { sort: `${phase}_appr` };
+  return { sort: `${phase}_work` };
+};
