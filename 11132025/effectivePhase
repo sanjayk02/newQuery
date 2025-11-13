@@ -1,0 +1,90 @@
+  // Decide which phase to enforce on the backend for status filtering.
+  // Priority: explicit phase selection > inferred from filters > none.
+  const effectivePhase = useMemo(() => {
+    if (phasePriority && phasePriority !== 'none') return phasePriority;
+
+    // Works with either `approvalStatuses` or legacy `applovalStatues`
+    const approvals =
+      (filterProps as any).approvalStatuses ??
+      filterProps.applovalStatues ??
+      [];
+
+    // If user picked any approval filters, lock to BLD by default
+    if (approvals.length > 0) return 'bld';
+
+    return 'none';
+  }, [phasePriority, (filterProps as any).approvalStatuses, filterProps.applovalStatues]);
+
+  const { assets, total } = useFetchAssetsPivot(
+    currentProject,
+    pageProps.page,
+    pageProps.rowsPerPage,
+    sortKey,
+    sortDir,
+    effectivePhase, // <— phase guard ON when filtering
+    filterProps.assetNameKey,
+    // allow either new or old names to work
+    (filterProps as any).approvalStatuses ?? filterProps.applovalStatues,
+    (filterProps as any).workStatuses ?? filterProps.workStatues,
+  );
+
+  // 🔍 Client-side row filter so that changing filter options
+  // actually removes non-matching rows from the table.
+  const filteredAssets = useMemo(() => {
+    if (!assets) return [];
+
+    const nameFilter = (filterProps.assetNameKey || '').trim().toLowerCase();
+    const approvalFilters = (
+      ((filterProps as any).approvalStatuses ?? filterProps.applovalStatues) || []
+    ).map((s: string) => s.toLowerCase());
+    const workFilters = (
+      ((filterProps as any).workStatuses ?? filterProps.workStatues) || []
+    ).map((s: string) => s.toLowerCase());
+
+    const phases = ['mdl', 'rig', 'bld', 'dsn', 'ldv'] as const;
+
+    return assets.filter((asset: any) => {
+      // 1) Asset Name filter (group_1)
+      if (nameFilter) {
+        const name = (asset.group_1 || '').toString().toLowerCase();
+        if (!name.includes(nameFilter)) return false;
+      }
+
+      // 2) Phase-locked matching
+      const phase =
+        effectivePhase && effectivePhase !== 'none'
+          ? effectivePhase.toLowerCase()
+          : null;
+
+      const matchesPhase = (p: string) => {
+        if (approvalFilters.length > 0) {
+          const rawAppr = (asset[`${p}_approval_status`] || '')
+            .toString()
+            .toLowerCase();
+          if (!approvalFilters.includes(rawAppr)) return false;
+        }
+        if (workFilters.length > 0) {
+          const rawWork = (asset[`${p}_work_status`] || '')
+            .toString()
+            .toLowerCase();
+          if (!workFilters.includes(rawWork)) return false;
+        }
+        return true;
+      };
+
+      // No filters at all → keep row
+      if (!nameFilter && approvalFilters.length === 0 && workFilters.length === 0) {
+        return true;
+      }
+
+      // If a specific phase is active (e.g. "rig"), only that phase decides.
+      if (phase) {
+        return matchesPhase(phase);
+      }
+
+      // Otherwise, keep the row if ANY phase matches.
+      return phases.some((p) => matchesPhase(p));
+    });
+  }, [assets, effectivePhase, filterProps.assetNameKey,
+      (filterProps as any).approvalStatuses, filterProps.applovalStatues,
+      (filterProps as any).workStatuses, filterProps.workStatues]);
