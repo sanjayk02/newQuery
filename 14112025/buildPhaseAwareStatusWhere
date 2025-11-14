@@ -1,18 +1,5 @@
-// AND across types; OR within a type.
-// NOTE: preferredPhase is *ignored* now – phase is only for sort priority.
 func buildPhaseAwareStatusWhere(preferredPhase string, approvalStatuses, workStatuses []string) (string, []any) {
-    buildIn := func(col string, vals []string) (string, []any) {
-        if len(vals) == 0 {
-            return "", nil
-        }
-        ph := strings.Repeat("?,", len(vals))
-        ph = ph[:len(ph)-1]
-        args := make([]any, len(vals))
-        for i, v := range vals {
-            args[i] = strings.ToLower(strings.TrimSpace(v))
-        }
-        return fmt.Sprintf("LOWER(%s) IN (%s)", col, ph), args
-    }
+    buildIn := func(col string, vals []string) (string, []any) { /* ... */ }
 
     clauses := []string{}
     args := []any{}
