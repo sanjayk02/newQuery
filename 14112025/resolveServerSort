@@ -1,0 +1,32 @@
+  /* Resolve UI key -> server sort + phase */
+  const resolveServerSort = (key: string): { sort: string; phase: string } => {
+    // ── 1) Check if any filter is active ─────────────────────────────
+    const nameFilterActive = !!(filterProps.assetNameKey || '').trim();
+
+    const approvalSelected =
+      (((filterProps as any).approvalStatuses || filterProps.applovalStatues) || []).length > 0;
+
+    const workSelected =
+      (((filterProps as any).workStatuses || filterProps.workStatues) || []).length > 0;
+
+    const isFilterActive = nameFilterActive || approvalSelected || workSelected;
+
+    // ── 2) Fixed keys: map directly, never bias phase ─────────────────
+    if (key === 'group_1') return { sort: 'group_1', phase: 'none' };
+    if (key === 'relation') return { sort: 'relation', phase: 'none' };
+
+    // ── 3) Phase-specific keys (mdl/rig/bld/dsn/ldv) ──────────────────
+    const m = key.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
+    if (!m) return { sort: 'group_1', phase: 'none' };
+
+    const phase = m[1].toLowerCase();
+    const field = m[2].toLowerCase();
+
+    // If filters are active → do NOT lock phase (use "none")
+    // If no filters → let this phase be the preferredPhase for sorting
+    const resolvedPhase = isFilterActive ? 'none' : phase;
+
+    if (field === 'submitted') return { sort: `${phase}_submitted`, phase: resolvedPhase };
+    if (field === 'appr')      return { sort: `${phase}_appr`,      phase: resolvedPhase };
+    return { sort: `${phase}_work`, phase: resolvedPhase };
+  };
