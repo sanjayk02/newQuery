@@ -231,132 +231,8 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
     (filterProps as any).workStatuses || filterProps.workStatues,
   );
 
-  // 🔍 Client-side row filter + sort so that changing filters or sort actually
-  // affects what you see even when backend uses phase=none.
-  const filteredAssets = useMemo(() => {
-    if (!assets) return [];
-
-    const nameFilter = (filterProps.assetNameKey || '').trim().toLowerCase();
-    const approvalFilters = (
-      ((filterProps as any).approvalStatuses || filterProps.applovalStatues) || []
-    ).map((s: string) => s.toLowerCase());
-    const workFilters = (
-      ((filterProps as any).workStatuses || filterProps.workStatues) || []
-    ).map((s: string) => s.toLowerCase());
-
-    const phases = ['mdl', 'rig', 'bld', 'dsn', 'ldv'] as const;
-
-    // --- local comparators for sorting ---
-    const compareStrings = (a: string | null, b: string | null) => {
-      const aa = (a || '').toLowerCase();
-      const bb = (b || '').toLowerCase();
-      if (aa < bb) return -1;
-      if (aa > bb) return 1;
-      return 0;
-    };
-
-    const compareDates = (a: any, b: any) => {
-      const ta = a ? new Date(a as any).getTime() : 0;
-      const tb = b ? new Date(b as any).getTime() : 0;
-      if (ta < tb) return -1;
-      if (ta > tb) return 1;
-      return 0;
-    };
-
-    const comparator = (a: any, b: any): number => {
-      if (!uiSortKey || uiSortDir === 'none') return 0;
-      const dirFactor = uiSortDir === 'asc' ? 1 : -1;
-
-      // Name / relation columns
-      if (uiSortKey === 'group_1') {
-        return dirFactor * compareStrings(a.group_1, b.group_1);
-      }
-      if (uiSortKey === 'relation') {
-        return dirFactor * compareStrings(a.relation, b.relation);
-      }
-
-      // Phase-specific: mdl_*, rig_*, bld_*, dsn_*, ldv_*
-      const m = uiSortKey.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
-      if (m) {
-        const phase = m[1].toLowerCase();
-        const field = m[2].toLowerCase();
-
-        if (field === 'submitted') {
-          const colKey = `${phase}_submitted_at_utc`; // matches AssetPhaseSummary
-          return dirFactor * compareDates(a[colKey], b[colKey]);
-        }
-
-        let colKey: string;
-        if (field === 'appr') colKey = `${phase}_approval_status`;
-        else colKey = `${phase}_work_status`;
-
-        return dirFactor * compareStrings(
-          (a[colKey] || '').toString(),
-          (b[colKey] || '').toString(),
-        );
-      }
-
-      return 0;
-    };
-
-    // --- filter first ---
-    const base = assets.filter((asset: any) => {
-      // 1) Asset Name filter (group_1)
-      if (nameFilter) {
-        const name = (asset.group_1 || '').toString().toLowerCase();
-        if (!name.includes(nameFilter)) return false;
-      }
-
-      // 2) Phase-locked matching (for client view)
-      const phase =
-        effectivePhase && effectivePhase !== 'none'
-          ? effectivePhase.toLowerCase()
-          : null;
-
-      const matchesPhase = (p: string) => {
-        if (approvalFilters.length > 0) {
-          const rawAppr = (asset[`${p}_approval_status`] || '')
-            .toString()
-            .toLowerCase();
-          if (!approvalFilters.includes(rawAppr)) return false;
-        }
-        if (workFilters.length > 0) {
-          const rawWork = (asset[`${p}_work_status`] || '')
-            .toString()
-            .toLowerCase();
-          if (!workFilters.includes(rawWork)) return false;
-        }
-        return true;
-      };
-
-      // No filters at all → keep row
-      if (!nameFilter && approvalFilters.length === 0 && workFilters.length === 0) {
-        return true;
-      }
-
-      // If a specific phase is active (e.g. "rig"), only that phase decides.
-      if (phase) {
-        return matchesPhase(phase);
-      }
-
-      // Otherwise, keep the row if ANY phase matches.
-      return phases.some((p) => matchesPhase(p));
-    });
-
-    // --- then sort according to current UI sort key/dir ---
-    base.sort(comparator);
-    return base;
-  }, [
-    assets,
-    effectivePhase,
-    uiSortKey,
-    uiSortDir,
-    filterProps.assetNameKey,
-    (filterProps as any).approvalStatuses,
-    filterProps.applovalStatues,
-    (filterProps as any).workStatuses,
-    filterProps.workStatues,
-  ]);
+  // ✅ No extra client-side filter; trust backend result
+  const filteredAssets = assets || [];
 
   /* Studio timezone */
   useEffect(() => {
@@ -463,7 +339,7 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
     setUiSortKey(newUiKey);
     setUiSortDir(nextServerDir);
 
-    // Also reset page when sorting changes
+    // Also reset page when sorting changes, if you want:
     // setPageProps(p => ({ ...p, page: 0 }));
   };
 
