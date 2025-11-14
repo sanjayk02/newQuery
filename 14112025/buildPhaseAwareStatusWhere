@@ -1,10 +1,18 @@
-func buildPhaseAwareStatusWhere(preferredPhase string, approvalStatuses, workStatuses []string) (string, []any) {
-    buildIn := func(col string, vals []string) (string, []any) { /* ... */ }
+func buildPhaseAwareStatusWhere(
+    statusPhase string,
+    approvalStatuses, workStatuses []string,
+) (string, []any) {
+    buildIn := func(col string, vals []string) (string, []any) { /* same as before */ }
 
     clauses := []string{}
     args := []any{}
 
-    // 🚫 DO NOT add any phase clause here
+    // If a specific statusPhase is provided (mdl/rig/bld/dsn/ldv),
+    // limit filters to that phase
+    if statusPhase != "" && strings.ToLower(statusPhase) != "none" {
+        clauses = append(clauses, "LOWER(phase) = ?")
+        args = append(args, strings.ToLower(statusPhase))
+    }
 
     if c, a := buildIn("approval_status", approvalStatuses); c != "" {
         clauses = append(clauses, "("+c+")")
