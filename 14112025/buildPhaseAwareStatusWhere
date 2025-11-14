@@ -1,30 +1,50 @@
+// statusPhase:
+//   "" or "none"  => approval/work filters apply across ANY phase
+//   "mdl"/"rig"/"bld"/"dsn"/"ldv" => filters apply ONLY to that phase
 func buildPhaseAwareStatusWhere(
-    statusPhase string,
-    approvalStatuses, workStatuses []string,
+	statusPhase string,
+	approvalStatuses, workStatuses []string,
 ) (string, []any) {
-    buildIn := func(col string, vals []string) (string, []any) { /* same as before */ }
+	// Helper to build "LOWER(col) IN (?, ?, ...)" fragments
+	buildIn := func(col string, vals []string) (string, []any) {
+		if len(vals) == 0 {
+			return "", nil
+		}
+		ph := strings.Repeat("?,", len(vals))
+		ph = ph[:len(ph)-1]
 
-    clauses := []string{}
-    args := []any{}
+		args := make([]any, len(vals))
+		for i, v := range vals {
+			args[i] = strings.ToLower(strings.TrimSpace(v))
+		}
+		return fmt.Sprintf("LOWER(%s) IN (%s)", col, ph), args
+	}
 
-    // If a specific statusPhase is provided (mdl/rig/bld/dsn/ldv),
-    // limit filters to that phase
-    if statusPhase != "" && strings.ToLower(statusPhase) != "none" {
-        clauses = append(clauses, "LOWER(phase) = ?")
-        args = append(args, strings.ToLower(statusPhase))
-    }
+	clauses := []string{}
+	args := []any{}
 
-    if c, a := buildIn("approval_status", approvalStatuses); c != "" {
-        clauses = append(clauses, "("+c+")")
-        args = append(args, a...)
-    }
-    if c, a := buildIn("work_status", workStatuses); c != "" {
-        clauses = append(clauses, "("+c+")")
-        args = append(args, a...)
-    }
+	// If a specific phase is requested for status filtering, add it here.
+	// This is *only* for filtering, not for sort priority.
+	if statusPhase != "" && !strings.EqualFold(statusPhase, "none") {
+		clauses = append(clauses, "LOWER(phase) = ?")
+		args = append(args, strings.ToLower(strings.TrimSpace(statusPhase)))
+	}
 
-    if len(clauses) == 0 {
-        return "", nil
-    }
-    return " AND " + strings.Join(clauses, " AND "), args
+	// Apply approval_status IN (...)
+	if c, a := buildIn("approval_status", approvalStatuses); c != "" {
+		clauses = append(clauses, "("+c+")")
+		args = append(args, a...)
+	}
+
+	// Apply work_status IN (...)
+	if c, a := buildIn("work_status", workStatuses); c != "" {
+		clauses = append(clauses, "("+c+")")
+		args = append(args, a...)
+	}
+
+	if len(clauses) == 0 {
+		return "", nil
+	}
+
+	return " AND " + strings.Join(clauses, " AND "), args
 }
