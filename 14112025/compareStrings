@@ -1,0 +1,75 @@
+const compareStrings = (a: string | null, b: string | null, dir: SortDir) => {
+  const isAsc = dir === 'asc';
+  const aa = (a || '').toString().trim();
+  const bb = (b || '').toString().trim();
+
+  const aEmpty = aa === '';
+  const bEmpty = bb === '';
+
+  // Both empty
+  if (aEmpty && bEmpty) return 0;
+  // One empty: put empty LAST in ASC, FIRST in DESC
+  if (aEmpty) return isAsc ? 1 : -1;
+  if (bEmpty) return isAsc ? -1 : 1;
+
+  const la = aa.toLowerCase();
+  const lb = bb.toLowerCase();
+  if (la < lb) return isAsc ? -1 : 1;
+  if (la > lb) return isAsc ? 1 : -1;
+  return 0;
+};
+
+
+const compareDates = (a: any, b: any, dir: SortDir) => {
+  const isAsc = dir === 'asc';
+  const aNull = !a;
+  const bNull = !b;
+
+  // Both NULL
+  if (aNull && bNull) return 0;
+  // One NULL: put NULL LAST in ASC, FIRST in DESC
+  if (aNull) return isAsc ? 1 : -1;
+  if (bNull) return isAsc ? -1 : 1;
+
+  const ta = new Date(a as any).getTime();
+  const tb = new Date(b as any).getTime();
+  if (ta < tb) return isAsc ? -1 : 1;
+  if (ta > tb) return isAsc ? 1 : -1;
+  return 0;
+};
+
+
+const comparator = (a: any, b: any): number => {
+  if (!uiSortKey || uiSortDir === 'none') return 0;
+
+  // Name / relation
+  if (uiSortKey === 'group_1') {
+    return compareStrings(a.group_1, b.group_1, uiSortDir);
+  }
+  if (uiSortKey === 'relation') {
+    return compareStrings(a.relation, b.relation, uiSortDir);
+  }
+
+  const m = uiSortKey.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
+  if (m) {
+    const phase = m[1].toLowerCase();
+    const field = m[2].toLowerCase();
+
+    if (field === 'submitted') {
+      const colKey = `${phase}_submitted_at_utc`; // adjust if your field is just `_at`
+      return compareDates(a[colKey], b[colKey], uiSortDir);
+    }
+
+    let colKey: string;
+    if (field === 'appr') colKey = `${phase}_approval_status`;
+    else colKey = `${phase}_work_status`;
+
+    return compareStrings(
+      (a[colKey] || '').toString(),
+      (b[colKey] || '').toString(),
+      uiSortDir,
+    );
+  }
+
+  return 0;
+};
