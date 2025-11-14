@@ -1,0 +1,37 @@
+// AND across types; OR within a type.
+// NOTE: preferredPhase is *ignored* here so that changing phase preference
+// (e.g. for sorting by MDL columns) does NOT change which assets are counted.
+func buildPhaseAwareStatusWhere(preferredPhase string, approvalStatuses, workStatuses []string) (string, []any) {
+	buildIn := func(col string, vals []string) (string, []any) {
+		if len(vals) == 0 {
+			return "", nil
+		}
+		ph := strings.Repeat("?,", len(vals))
+		ph = ph[:len(ph)-1]
+		args := make([]any, len(vals))
+		for i, v := range vals {
+			args[i] = strings.ToLower(strings.TrimSpace(v))
+		}
+		return fmt.Sprintf("LOWER(%s) IN (%s)", col, ph), args
+	}
+
+	clauses := []string{}
+	args := []any{}
+
+	// ⚠️ No phase guard here – phase is only used for SORT priority,
+	// not for filtering which assets exist.
+
+	if c, a := buildIn("approval_status", approvalStatuses); c != "" {
+		clauses = append(clauses, "("+c+")")
+		args = append(args, a...)
+	}
+	if c, a := buildIn("work_status", workStatuses); c != "" {
+		clauses = append(clauses, "("+c+")")
+		args = append(args, a...)
+	}
+
+	if len(clauses) == 0 {
+		return "", nil
+	}
+	return " AND " + strings.Join(clauses, " AND "), args
+}
