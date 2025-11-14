@@ -48,3 +48,7 @@ func buildPhaseAwareStatusWhere(
 
 	return " AND " + strings.Join(clauses, " AND "), args
 }
+
+
+statusPhase := strings.ToLower(r.URL.Query().Get("status_phase")) // e.g. "bld", "mdl", "none"
+where, args := buildPhaseAwareStatusWhere(statusPhase, approvalStatuses, workStatuses)
