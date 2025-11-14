@@ -1,28 +1,29 @@
-/* Resolve UI key -> server sort + phase */
 const resolveServerSort = (key: string): { sort: string; phase: string } => {
-  // filter flags (now unused, just informational)
-  const nameFilterActive = !!(filterProps.assetNameKey || '').trim();
-  const approvalSelected =
-    (((filterProps as any).approvalStatuses || filterProps.applovalStatues) || []).length > 0;
-  const workSelected =
-    (((filterProps as any).workStatuses || filterProps.workStatues) || []).length > 0;
-  const isFilterActive = nameFilterActive || approvalSelected || workSelected;
+    const nameFilterActive = !!(filterProps.assetNameKey || '').trim();
 
-  // fixed keys
-  if (key === 'group_1') return { sort: 'group_1', phase: 'none' };
-  if (key === 'relation') return { sort: 'relation', phase: 'none' };
+    const approvalSelected =
+        (((filterProps as any).approvalStatuses || filterProps.applovalStatues) || []).length > 0;
 
-  // phase-specific keys
-  const m = key.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
-  if (!m) return { sort: 'group_1', phase: 'none' };
+    const workSelected =
+        (((filterProps as any).workStatuses || filterProps.workStatues) || []).length > 0;
 
-  const phase = m[1].toLowerCase();
-  const field = m[2].toLowerCase();
+    const isFilterActive = nameFilterActive || approvalSelected || workSelected;
 
-  // ✅ always use the column’s phase for sorting priority
-  const resolvedPhase = phase;
+    if (key === 'group_1') return { sort: 'group_1', phase: 'none' };
+    if (key === 'relation') return { sort: 'relation', phase: 'none' };
 
-  if (field === 'submitted') return { sort: `${phase}_submitted`, phase: resolvedPhase };
-  if (field === 'appr')      return { sort: `${phase}_appr`,      phase: resolvedPhase };
-  return { sort: `${phase}_work`, phase: resolvedPhase };
+    const m = key.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
+    if (!m) return { sort: 'group_1', phase: 'none' };
+
+    const phase = m[1].toLowerCase();
+    const field = m[2].toLowerCase();
+
+    // ⭐ Correct behavior:
+    // If filters are active → ALWAYS phase=none
+    // If no filters → use the phase for sorting priority
+    const resolvedPhase = isFilterActive ? "none" : phase;
+
+    if (field === 'submitted') return { sort: `${phase}_submitted`, phase: resolvedPhase };
+    if (field === 'appr')      return { sort: `${phase}_appr`,      phase: resolvedPhase };
+    return { sort: `${phase}_work`, phase: resolvedPhase };
 };
