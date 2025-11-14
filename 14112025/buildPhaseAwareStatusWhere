@@ -1,54 +1,68 @@
-// statusPhase:
-//   "" or "none"  => approval/work filters apply across ANY phase
-//   "mdl"/"rig"/"bld"/"dsn"/"ldv" => filters apply ONLY to that phase
 func buildPhaseAwareStatusWhere(
-	statusPhase string,
-	approvalStatuses, workStatuses []string,
+    _ string, // statusPhase ignored
+    approvalStatuses, workStatuses []string,
 ) (string, []any) {
-	// Helper to build "LOWER(col) IN (?, ?, ...)" fragments
-	buildIn := func(col string, vals []string) (string, []any) {
-		if len(vals) == 0 {
-			return "", nil
-		}
-		ph := strings.Repeat("?,", len(vals))
-		ph = ph[:len(ph)-1]
 
-		args := make([]any, len(vals))
-		for i, v := range vals {
-			args[i] = strings.ToLower(strings.TrimSpace(v))
-		}
-		return fmt.Sprintf("LOWER(%s) IN (%s)", col, ph), args
-	}
+    buildIn := func(vals []string) (string, []any) {
+        if len(vals) == 0 {
+            return "", nil
+        }
+        ph := strings.Repeat("?,", len(vals))
+        ph = ph[:len(ph)-1]
 
-	clauses := []string{}
-	args := []any{}
+        args := make([]any, len(vals))
+        for i, v := range vals {
+            args[i] = strings.ToLower(strings.TrimSpace(v))
+        }
+        return ph, args
+    }
 
-	// If a specific phase is requested for status filtering, add it here.
-	// This is *only* for filtering, not for sort priority.
-	if statusPhase != "" && !strings.EqualFold(statusPhase, "none") {
-		clauses = append(clauses, "LOWER(phase) = ?")
-		args = append(args, strings.ToLower(strings.TrimSpace(statusPhase)))
-	}
+    clauses := []string{}
+    args := []any{}
 
-	// Apply approval_status IN (...)
-	if c, a := buildIn("approval_status", approvalStatuses); c != "" {
-		clauses = append(clauses, "("+c+")")
-		args = append(args, a...)
-	}
+    // Approval filter across ALL phases
+    if ph, a := buildIn(approvalStatuses); ph != "" {
+        clauses = append(clauses,
+            fmt.Sprintf(`
+                (
+                    LOWER(mdl_appr) IN (%s)
+                    OR LOWER(rig_appr) IN (%s)
+                    OR LOWER(bld_appr) IN (%s)
+                    OR LOWER(dsn_appr) IN (%s)
+                    OR LOWER(ldv_appr) IN (%s)
+                )
+            `, ph, ph, ph, ph, ph),
+        )
+        args = append(args, a...)
+        args = append(args, a...)
+        args = append(args, a...)
+        args = append(args, a...)
+        args = append(args, a...)
+    }
 
-	// Apply work_status IN (...)
-	if c, a := buildIn("work_status", workStatuses); c != "" {
-		clauses = append(clauses, "("+c+")")
-		args = append(args, a...)
-	}
+    // Work filter across ALL phases
+    if ph, a := buildIn(workStatuses); ph != "" {
+        clauses = append(clauses,
+            fmt.Sprintf(`
+                (
+                    LOWER(mdl_work) IN (%s)
+                    OR LOWER(rig_work) IN (%s)
+                    OR LOWER(bld_work) IN (%s)
+                    OR LOWER(dsn_work) IN (%s)
+                    OR LOWER(ldv_work) IN (%s)
+                )
+            `, ph, ph, ph, ph, ph),
+        )
+        args = append(args, a...)
+        args = append(args, a...)
+        args = append(args, a...)
+        args = append(args, a...)
+        args = append(args, a...)
+    }
 
-	if len(clauses) == 0 {
-		return "", nil
-	}
+    if len(clauses) == 0 {
+        return "", nil
+    }
 
-	return " AND " + strings.Join(clauses, " AND "), args
+    return " AND (" + strings.Join(clauses, " AND ") + ")", args
 }
-
-
-statusPhase := strings.ToLower(r.URL.Query().Get("status_phase")) // e.g. "bld", "mdl", "none"
-where, args := buildPhaseAwareStatusWhere(statusPhase, approvalStatuses, workStatuses)
