@@ -1,29 +1,21 @@
+// Resolve UI sort key -> backend sort key + phase
 const resolveServerSort = (key: string): { sort: string; phase: string } => {
-    const nameFilterActive = !!(filterProps.assetNameKey || '').trim();
+  // Non-phase columns
+  if (key === "group_1") return { sort: "group_1", phase: "none" };
+  if (key === "relation") return { sort: "relation", phase: "none" };
 
-    const approvalSelected =
-        (((filterProps as any).approvalStatuses || filterProps.applovalStatues) || []).length > 0;
+  // Phase-specific columns: mdl_*, rig_*, bld_*, dsn_*, ldv_*
+  const m = key.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
+  if (!m) return { sort: "group_1", phase: "none" };
 
-    const workSelected =
-        (((filterProps as any).workStatuses || filterProps.workStatues) || []).length > 0;
+  const phase = m[1].toLowerCase();   // mdl | rig | bld | dsn | ldv
+  const field = m[2].toLowerCase();   // work | appr | submitted
 
-    const isFilterActive = nameFilterActive || approvalSelected || workSelected;
+  let sort: string;
+  if (field === "submitted") sort = `${phase}_submitted`;
+  else if (field === "appr") sort = `${phase}_appr`;
+  else sort = `${phase}_work`;
 
-    if (key === 'group_1') return { sort: 'group_1', phase: 'none' };
-    if (key === 'relation') return { sort: 'relation', phase: 'none' };
-
-    const m = key.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
-    if (!m) return { sort: 'group_1', phase: 'none' };
-
-    const phase = m[1].toLowerCase();
-    const field = m[2].toLowerCase();
-
-    // ⭐ Correct behavior:
-    // If filters are active → ALWAYS phase=none
-    // If no filters → use the phase for sorting priority
-    const resolvedPhase = isFilterActive ? "none" : phase;
-
-    if (field === 'submitted') return { sort: `${phase}_submitted`, phase: resolvedPhase };
-    if (field === 'appr')      return { sort: `${phase}_appr`,      phase: resolvedPhase };
-    return { sort: `${phase}_work`, phase: resolvedPhase };
+  // ✅ Always tell backend the phase whose column we’re sorting by
+  return { sort, phase };
 };
