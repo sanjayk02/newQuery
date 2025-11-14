@@ -1,99 +1,79 @@
-const filteredAssets = useMemo(() => {
-  if (!assets) return [];
+const compareDates = (a: any, b: any, dir: SortDir) => {
+  const isAsc = dir === 'asc';
 
-  // -------------- COMPARATORS ----------------
+  const aNull = !a || a === '-' ;
+  const bNull = !b || b === '-' ;
 
-  // String comparator (approval, work, name, relation)
-  const compareStrings = (a: any, b: any, dir: SortDir) => {
-    const isAsc = dir === 'asc';
+  // NULL / empty handling – ALWAYS last
+  if (aNull && bNull) return 0;
+  if (aNull) return 1;   // a goes after b (ASC or DESC)
+  if (bNull) return -1;  // b goes after a
 
-    const aa = (a || '').toString().trim();
-    const bb = (b || '').toString().trim();
+  const ta = new Date(a as any).getTime();
+  const tb = new Date(b as any).getTime();
 
-    const aEmpty = aa === '' || aa === '-';
-    const bEmpty = bb === '' || bb === '-';
+  if (ta === tb) return 0;
 
-    // ALWAYS push empty values to bottom
-    if (aEmpty && bEmpty) return 0;
-    if (aEmpty) return 1;
-    if (bEmpty) return -1;
-
-    const la = aa.toLowerCase();
-    const lb = bb.toLowerCase();
-
-    if (la === lb) return 0;
-
-    if (isAsc) return la < lb ? -1 : 1;
-    return la > lb ? -1 : 1;
-  };
-
-  // Date comparator (submitted_at)
-  const compareDates = (a: any, b: any, dir: SortDir) => {
-    const isAsc = dir === 'asc';
-
-    const aNull = !a || a === '-';
-    const bNull = !b || b === '-';
-
-    // ALWAYS push empty/null to bottom
-    if (aNull && bNull) return 0;
-    if (aNull) return 1;
-    if (bNull) return -1;
-
-    const ta = new Date(a).getTime();
-    const tb = new Date(b).getTime();
-
-    if (ta === tb) return 0;
-
-    if (isAsc) return ta < tb ? -1 : 1;
+  if (isAsc) {
+    return ta < tb ? -1 : 1;
+  } else {
     return ta > tb ? -1 : 1;
-  };
+  }
+};
 
-  // -------------- SORTING LOGIC ----------------
+const compareStrings = (a: any, b: any, dir: SortDir) => {
+  const isAsc = dir === 'asc';
 
-  const comparator = (a: any, b: any): number => {
-    if (!uiSortKey || uiSortDir === 'none') return 0;
+  const aa = (a || '').toString().trim();
+  const bb = (b || '').toString().trim();
 
-    // Direct column sorts
-    if (uiSortKey === 'group_1') {
-      return compareStrings(a.group_1, b.group_1, uiSortDir);
+  const aEmpty = aa === '' || aa === '-';
+  const bEmpty = bb === '' || bb === '-';
+
+  // EMPTY handling – ALWAYS last
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return 1;   // a after b
+  if (bEmpty) return -1;  // b after a
+
+  const la = aa.toLowerCase();
+  const lb = bb.toLowerCase();
+
+  if (la === lb) return 0;
+
+  if (isAsc) {
+    return la < lb ? -1 : 1;
+  } else {
+    return la > lb ? -1 : 1;
+  }
+};
+
+const comparator = (a: any, b: any): number => {
+  if (!uiSortKey || uiSortDir === 'none') return 0;
+
+  if (uiSortKey === 'group_1') {
+    return compareStrings(a.group_1, b.group_1, uiSortDir);
+  }
+  if (uiSortKey === 'relation') {
+    return compareStrings(a.relation, b.relation, uiSortDir);
+  }
+
+  const m = uiSortKey.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
+  if (m) {
+    const phase = m[1].toLowerCase();
+    const field = m[2].toLowerCase();
+
+    if (field === 'submitted') {
+      const key = `${phase}_submitted_at_utc`; // or _submitted_at if that’s your field
+      return compareDates(a[key], b[key], uiSortDir);
     }
 
-    if (uiSortKey === 'relation') {
-      return compareStrings(a.relation, b.relation, uiSortDir);
-    }
+    const key =
+      field === 'appr'
+        ? `${phase}_approval_status`
+        : `${phase}_work_status`;
 
-    // Phase-based columns mdl_*, rig_*, bld_*, dsn_*, ldv_*
-    const m = uiSortKey.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
-    if (m) {
-      const phase = m[1].toLowerCase();
-      const field = m[2].toLowerCase();
+    return compareStrings(a[key], b[key], uiSortDir);
+  }
 
-      // Submitted date
-      if (field === "submitted") {
-        const key = `${phase}_submitted_at_utc`; // or _submitted_at
-        return compareDates(a[key], b[key], uiSortDir);
-      }
-
-      // Approval / Work statuses
-      let key = '';
-      if (field === "appr") key = `${phase}_approval_status`;
-      else key = `${phase}_work_status`;
-
-      return compareStrings(a[key], b[key], uiSortDir);
-    }
-
-    return 0;
-  };
-
-  // -------------- APPLY SORT ONLY ----------------
-
-  const base = [...assets];   // No filtering — backend does that
-  base.sort(comparator);
-
-  return base;
-
-}, [
-  assets,
-  uiSortKey,
-  uiSortDir,
-]);
+  return 0;
+};
