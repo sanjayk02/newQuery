@@ -1,6 +1,5 @@
 // AND across types; OR within a type.
-// NOTE: preferredPhase is *ignored* here – phase is only for sort priority,
-// NOT for filtering which assets pass the approval/work filters.
+// NOTE: preferredPhase is *ignored* now – phase is only for sort priority.
 func buildPhaseAwareStatusWhere(preferredPhase string, approvalStatuses, workStatuses []string) (string, []any) {
     buildIn := func(col string, vals []string) (string, []any) {
         if len(vals) == 0 {
@@ -18,7 +17,7 @@ func buildPhaseAwareStatusWhere(preferredPhase string, approvalStatuses, workSta
     clauses := []string{}
     args := []any{}
 
-    // 🚫 NO phase clause here
+    // 🚫 DO NOT add any phase clause here
 
     if c, a := buildIn("approval_status", approvalStatuses); c != "" {
         clauses = append(clauses, "("+c+")")
