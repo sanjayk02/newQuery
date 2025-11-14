@@ -1,0 +1,18 @@
+const effectivePhase = useMemo(() => {
+  const nameFilterActive = !!(filterProps.assetNameKey || '').trim();
+  const approvalSelected =
+    (((filterProps as any).approvalStatuses || filterProps.applovalStatues) || []).length > 0;
+  const workSelected =
+    (((filterProps as any).workStatuses || filterProps.workStatues) || []).length > 0;
+
+  const isStatusFilterActive = nameFilterActive || approvalSelected || workSelected;
+
+  // If any filter is active → treat phase as 'none' (any phase can match).
+  if (isStatusFilterActive) return 'none';
+
+  // Otherwise, allow phasePriority to narrow which phase we care about (optional feature).
+  if (phasePriority && phasePriority !== 'none') return phasePriority;
+  return 'none';
+}, [phasePriority, filterProps.assetNameKey,
+    (filterProps as any).approvalStatuses, filterProps.applovalStatues,
+    (filterProps as any).workStatuses, filterProps.workStatues]);
