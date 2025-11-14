@@ -1,0 +1,58 @@
+// ---------- Count (for pagination total) ----------
+func (r *ReviewInfo) CountLatestSubmissions(
+	ctx context.Context,
+	project, root, assetNameKey string,
+	preferredPhase string, // kept for API compatibility; ignored in filtering
+	approvalStatuses []string,
+	workStatuses []string,
+) (int64, error) {
+	if project == "" {
+		return 0, fmt.Errorf("project is required")
+	}
+	if root == "" {
+		root = "assets"
+	}
+
+	db := r.db.WithContext(ctx)
+
+	// Name: case-insensitive PREFIX
+	nameCond := ""
+	var nameArg any
+	if strings.TrimSpace(assetNameKey) != "" {
+		nameCond = " AND LOWER(group_1) LIKE ?"
+		nameArg = strings.ToLower(strings.TrimSpace(assetNameKey)) + "%"
+	}
+
+	// Status filter (no phase restriction)
+	statusWhere, statusArgs := buildPhaseAwareStatusWhere(preferredPhase, approvalStatuses, workStatuses)
+
+	sql := `
+WITH latest_phase AS (
+  SELECT project, root, group_1, relation, phase,
+         work_status, approval_status, submitted_at_utc, modified_at_utc,
+         ROW_NUMBER() OVER (
+           PARTITION BY project, root, group_1, relation, phase
+           ORDER BY modified_at_utc DESC
+         ) rn
+  FROM t_review_info
+  WHERE project = ? AND root = ? AND deleted = 0` + nameCond + `
+)
+SELECT COUNT(*) FROM (
+  SELECT project, root, group_1, relation
+  FROM latest_phase
+  WHERE rn = 1` + statusWhere + `
+  GROUP BY project, root, group_1, relation
+) x;`
+
+	args := []any{project, root}
+	if nameArg != nil {
+		args = append(args, nameArg)
+	}
+	args = append(args, statusArgs...)
+
+	var total int64
+	if err := db.Raw(sql, args...).Scan(&total).Error; err != nil {
+		return 0, fmt.Errorf("CountLatestSubmissions: %w", err)
+	}
+	return total, nil
+}
