@@ -1,91 +1,73 @@
-// hooks.ts
-import { useQuery } from "react-query";
-import { fetchAssetsPivot, AssetPivot, AssetsPivotResponse } from "./api";
-
 export function useFetchAssetsPivot(
-  project: { key_name: string } | null | undefined,
+  project: Project | null | undefined,
   page: number,
   rowsPerPage: number,
   sortKey: string,
-  sortDir: "asc" | "desc",
-  phase: string,
-  assetNameKey: string,
-  approvalStatuses: string[],
-  workStatuses: string[],
-) {
-  // ✋ NO optional chaining here:
-  let projectKeyName: string | undefined;
-  if (project && project.key_name) {
-    projectKeyName = project.key_name;
-  }
+  sortDir: SortDir,      // 'asc' | 'desc' | 'none'
+  phase: string,         // 'mdl' | 'rig' | 'bld' | 'dsn' | 'ldv' | 'none'
+  assetNameKey: string,       // name filter
+  approvalStatuses: string[], // approval filters
+  workStatuses: string[],     // work filters
+): { assets: AssetPhaseSummary[]; total: number } {
+  const [assets, setAssets] = useState<AssetPhaseSummary[]>([]);
+  const [total, setTotal] = useState(0);
 
-  const queryKey = [
-    "assetsPivot",
-    projectKeyName || "",
+  useEffect(() => {
+    if (project == null) return;
+    if (sortDir === 'none') return;
+
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const res = await fetchAssetsPivot(
+          project.key_name,
+          page,
+          rowsPerPage,
+          sortKey,
+          sortDir,
+          phase,
+          assetNameKey,
+          approvalStatuses,
+          workStatuses,
+          controller.signal,
+        );
+
+        // Accept both shapes: {assets} (new) or {data} (legacy)
+        const list =
+          res && (res as any).assets ? (res as any).assets :
+          res && (res as any).data   ? (res as any).data   : [];
+        const count = res && (res as any).total ? (res as any).total : 0;
+
+        setAssets(list);
+        setTotal(count);
+
+        // debug logs (optional)
+        // eslint-disable-next-line no-console
+        console.log('[HOOK][pivot] list:', list.length, list);
+        // eslint-disable-next-line no-console
+        console.log('[HOOK][pivot] total:', count);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        const errName = err && (err as any).name ? (err as any).name : '';
+        if (errName === 'AbortError') return;
+        // eslint-disable-next-line no-console
+        console.error(err);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [
+    project,
     page,
     rowsPerPage,
     sortKey,
     sortDir,
     phase,
     assetNameKey,
-    approvalStatuses.join(","),
-    workStatuses.join(","),
-  ];
+    approvalStatuses,
+    workStatuses,
+  ]);
 
-  const queryFn = function () {
-    // guard in case projectKeyName is undefined
-    if (!projectKeyName) {
-      // match the shape of real API response so callers are safe
-      const empty: AssetsPivotResponse = {
-        assets: [],
-        total: 0,
-        page: page + 1,
-        per_page: rowsPerPage,
-        sort: sortKey,
-        dir: sortDir,
-        phase: phase,
-      };
-      return Promise.resolve(empty);
-    }
-
-    return fetchAssetsPivot(
-      projectKeyName,
-      page,
-      rowsPerPage,
-      sortKey,
-      sortDir,
-      phase,
-      assetNameKey,
-      approvalStatuses,
-      workStatuses,
-    );
-  };
-
-  const { data, isLoading, isError, error } = useQuery(
-    queryKey,
-    queryFn,
-    {
-      enabled: !!projectKeyName,
-      keepPreviousData: true,
-    },
-  );
-
-  // ✋ NO data?.assets etc – use plain checks
-  let assets: AssetPivot[] = [];
-  let total = 0;
-  if (data) {
-    if (data.assets) {
-      assets = data.assets;
-    }
-    if (typeof data.total === "number") {
-      total = data.total;
-    }
-  }
-
-  return {
-    assets: assets,
-    total: total,
-    loading: isLoading,
-    error: isError ? error : null,
-  };
+  return { assets, total };
 }
