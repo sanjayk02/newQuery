@@ -1,4 +1,4 @@
-// ---------- ListAssetsPivot (pivot fill with filtered total) ----------
+// ---------- ListAssetsPivot (pivot fill with filters) ----------
 func (r *ReviewInfo) ListAssetsPivot(
 	ctx context.Context,
 	project, root, preferredPhase, orderKey, direction string,
@@ -20,7 +20,7 @@ func (r *ReviewInfo) ListAssetsPivot(
 		offset = 0
 	}
 
-	// 🔢 total COUNT that respects name + status filters
+	// 🔢 total that respects filters (name + approval + work)
 	total, err := r.CountLatestSubmissionsFiltered(
 		ctx,
 		project,
@@ -33,9 +33,7 @@ func (r *ReviewInfo) ListAssetsPivot(
 		return nil, 0, err
 	}
 
-	// 🗝  get the page of "keys" (latest submission per asset + phase)
-	// NOTE: ListLatestSubmissionsDynamic can stay phase/sort-only for now;
-	// filters are enforced by the total + frontend row filter.
+	// 🗝 page of latest submissions (already phase/sort + filters aware)
 	keys, err := r.ListLatestSubmissionsDynamic(
 		ctx,
 		project,
@@ -45,6 +43,9 @@ func (r *ReviewInfo) ListAssetsPivot(
 		direction,
 		limit,
 		offset,
+		assetNameKey,
+		approvalStatuses,
+		workStatuses,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -53,7 +54,7 @@ func (r *ReviewInfo) ListAssetsPivot(
 		return []AssetPivot{}, total, nil
 	}
 
-	// 📦 batch fetch latest-by-phase rows for just this page of assets
+	// 📦 batch fetch latest-by-phase for the current page of assets
 	var sb strings.Builder
 	var params []any
 
@@ -143,7 +144,7 @@ WHERE rn = 1;`)
 		}
 	}
 
-	// copy back filled structs in the same order as 'keys'
+	// keep output order in the same order as 'keys'
 	for i := range ordered {
 		id := key{
 			ordered[i].Project,
@@ -151,8 +152,8 @@ WHERE rn = 1;`)
 			ordered[i].Group1,
 			ordered[i].Relation,
 		}
-		if filledAp, ok := m[id]; ok {
-			ordered[i] = *filledAp
+		if filled, ok := m[id]; ok {
+			ordered[i] = *filled
 		}
 	}
 
