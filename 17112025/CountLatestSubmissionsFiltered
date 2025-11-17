@@ -1,5 +1,4 @@
-// CountLatestSubmissionsFiltered returns how many distinct assets
-// (project, root, group_1, relation) match the given filters.
+// ---------- Count (for pagination total, WITH filters) ----------
 func (r *ReviewInfo) CountLatestSubmissionsFiltered(
 	ctx context.Context,
 	project, root string,
@@ -13,7 +12,7 @@ func (r *ReviewInfo) CountLatestSubmissionsFiltered(
 		root = "assets"
 	}
 
-	// Base WHERE parts
+	// base WHERE
 	whereParts := []string{
 		"project = ?",
 		"root = ?",
@@ -21,37 +20,53 @@ func (r *ReviewInfo) CountLatestSubmissionsFiltered(
 	}
 	args := []any{project, root}
 
-	// Name filter: match group_1 or relation
-	nameKey := strings.TrimSpace(strings.ToLower(assetNameKey))
-	if nameKey != "" {
+	// ---- name filter (group_1 or relation contains text) ----
+	assetNameKey = strings.TrimSpace(strings.ToLower(assetNameKey))
+	if assetNameKey != "" {
 		whereParts = append(whereParts,
 			"(LOWER(group_1) LIKE ? OR LOWER(relation) LIKE ?)",
 		)
-		like := "%" + nameKey + "%"
+		like := "%" + assetNameKey + "%"
 		args = append(args, like, like)
 	}
 
-	// Status filters (approval / work) — phase-agnostic
-	// reuse your helper if you already have buildPhaseAwareStatusWhere(...)
-	// with preferredPhase = "none" so that it doesn't inject a phase condition.
-	statusClause, statusArgs := buildPhaseAwareStatusWhere("none", approvalStatuses, workStatuses)
-	if statusClause != "" {
-		// buildPhaseAwareStatusWhere returns something like
-		// "LOWER(approval_status) IN (...) AND LOWER(work_status) IN (...)"
-		whereParts = append(whereParts, "("+statusClause+")")
-		args = append(args, statusArgs...)
+	// helper for IN (...) with LOWER()
+	buildIn := func(col string, vals []string) (string, []any) {
+		if len(vals) == 0 {
+			return "", nil
+		}
+		ph := strings.Repeat("?,", len(vals))
+		ph = ph[:len(ph)-1]
+		a := make([]any, len(vals))
+		for i, v := range vals {
+			a[i] = strings.ToLower(strings.TrimSpace(v))
+		}
+		return fmt.Sprintf("LOWER(%s) IN (%s)", col, ph), a
+	}
+
+	// ---- approval filter (any phase) ----
+	if c, a := buildIn("approval_status", approvalStatuses); c != "" {
+		whereParts = append(whereParts, c)
+		args = append(args, a...)
+	}
+
+	// ---- work filter (any phase) ----
+	if c, a := buildIn("work_status", workStatuses); c != "" {
+		whereParts = append(whereParts, c)
+		args = append(args, a...)
 	}
 
 	whereSQL := strings.Join(whereParts, " AND ")
 
-	q := fmt.Sprintf(`
+	const tmpl = `
 SELECT COUNT(*) FROM (
 	SELECT project, root, group_1, relation
 	FROM t_review_info
 	WHERE %s
 	GROUP BY project, root, group_1, relation
-) AS x;
-`, whereSQL)
+) AS x;`
+
+	q := fmt.Sprintf(tmpl, whereSQL)
 
 	var total int64
 	if err := r.db.WithContext(ctx).Raw(q, args...).Scan(&total).Error; err != nil {
