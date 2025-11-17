@@ -1,0 +1,61 @@
+// CountLatestSubmissionsFiltered returns how many distinct assets
+// (project, root, group_1, relation) match the given filters.
+func (r *ReviewInfo) CountLatestSubmissionsFiltered(
+	ctx context.Context,
+	project, root string,
+	assetNameKey string,
+	approvalStatuses, workStatuses []string,
+) (int64, error) {
+	if project == "" {
+		return 0, fmt.Errorf("project is required")
+	}
+	if root == "" {
+		root = "assets"
+	}
+
+	// Base WHERE parts
+	whereParts := []string{
+		"project = ?",
+		"root = ?",
+		"deleted = 0",
+	}
+	args := []any{project, root}
+
+	// Name filter: match group_1 or relation
+	nameKey := strings.TrimSpace(strings.ToLower(assetNameKey))
+	if nameKey != "" {
+		whereParts = append(whereParts,
+			"(LOWER(group_1) LIKE ? OR LOWER(relation) LIKE ?)",
+		)
+		like := "%" + nameKey + "%"
+		args = append(args, like, like)
+	}
+
+	// Status filters (approval / work) — phase-agnostic
+	// reuse your helper if you already have buildPhaseAwareStatusWhere(...)
+	// with preferredPhase = "none" so that it doesn't inject a phase condition.
+	statusClause, statusArgs := buildPhaseAwareStatusWhere("none", approvalStatuses, workStatuses)
+	if statusClause != "" {
+		// buildPhaseAwareStatusWhere returns something like
+		// "LOWER(approval_status) IN (...) AND LOWER(work_status) IN (...)"
+		whereParts = append(whereParts, "("+statusClause+")")
+		args = append(args, statusArgs...)
+	}
+
+	whereSQL := strings.Join(whereParts, " AND ")
+
+	q := fmt.Sprintf(`
+SELECT COUNT(*) FROM (
+	SELECT project, root, group_1, relation
+	FROM t_review_info
+	WHERE %s
+	GROUP BY project, root, group_1, relation
+) AS x;
+`, whereSQL)
+
+	var total int64
+	if err := r.db.WithContext(ctx).Raw(q, args...).Scan(&total).Error; err != nil {
+		return 0, fmt.Errorf("CountLatestSubmissionsFiltered: %w", err)
+	}
+	return total, nil
+}
