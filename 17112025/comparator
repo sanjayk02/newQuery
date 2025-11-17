@@ -1,0 +1,37 @@
+const comparator = (a: any, b: any): number => {
+  if (!uiSortKey) return 0;
+
+  // Treat "none" as ascending so we always get a deterministic order
+  const dir: SortDir = uiSortDir === 'none' ? 'asc' : uiSortDir;
+
+  if (uiSortKey === 'group_1') {
+    return compareStrings(a.group_1, b.group_1, dir);
+  }
+  if (uiSortKey === 'relation') {
+    return compareStrings(a.relation, b.relation, dir);
+  }
+
+  const m = uiSortKey.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
+  if (m) {
+    const phase = m[1].toLowerCase();
+    const field = m[2].toLowerCase();
+
+    if (field === 'submitted') {
+      const key = `${phase}_submitted_at_utc`; // mdl_submitted_at_utc, etc.
+      return compareDates(a[key], b[key], dir);
+    }
+
+    const key =
+      field === 'appr'
+        ? `${phase}_approval_status`
+        : `${phase}_work_status`;
+
+    return compareStrings(a[key], b[key], dir);
+  }
+
+  // default fallback: group_1 asc, then relation asc
+  return (
+    compareStrings(a.group_1, b.group_1, 'asc') ||
+    compareStrings(a.relation, b.relation, 'asc')
+  );
+};
