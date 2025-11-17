@@ -1,10 +1,12 @@
 // ---------- Dynamic Sorting Function ----------
 func buildOrderClause(alias, key, dir string) string {
+	// normalise direction
 	dir = strings.ToUpper(strings.TrimSpace(dir))
 	if dir != "ASC" && dir != "DESC" {
 		dir = "ASC"
 	}
 
+	// alias helper
 	col := func(c string) string {
 		if alias != "" {
 			return alias + "." + c
@@ -12,13 +14,15 @@ func buildOrderClause(alias, key, dir string) string {
 		return c
 	}
 
-	switch key {
+	lkey := strings.ToLower(strings.TrimSpace(key))
 
-	// Generic sorts
+	// -----------------------------------------------------------------
+	// 1) Explicit generic sorts
+	// -----------------------------------------------------------------
+	switch lkey {
 	case "submitted_at_utc", "modified_at_utc", "phase":
-		return col(key) + " " + dir
+		return col(lkey) + " " + dir
 
-	// Name-only sorts
 	case "group1_only":
 		return fmt.Sprintf(
 			"LOWER(%s) %s, LOWER(%s) ASC, "+
@@ -39,7 +43,6 @@ func buildOrderClause(alias, key, dir string) string {
 			col("submitted_at_utc"), dir,
 		)
 
-	// group+relation+submitted sort (generic)
 	case "group_rel_submitted":
 		return fmt.Sprintf(
 			"LOWER(%s) ASC, LOWER(%s) ASC, "+
@@ -49,9 +52,14 @@ func buildOrderClause(alias, key, dir string) string {
 			col("submitted_at_utc"),
 			col("submitted_at_utc"), dir,
 		)
+	}
 
-	// Phase-specific submitted-at sorts
-	case "mdl_submitted", "rig_submitted", "bld_submitted", "dsn_submitted", "ldv_submitted":
+	// -----------------------------------------------------------------
+	// 2) Dynamic phase-aware patterns
+	// -----------------------------------------------------------------
+	// Anything *Submitted*  → submitted_at_utc
+	if strings.HasSuffix(lkey, "_submitted") ||
+		strings.HasSuffix(lkey, "_submitted_at") {
 		return fmt.Sprintf(
 			"CASE WHEN %s IS NULL THEN 1 ELSE 0 END ASC, "+
 				"%s %s, LOWER(%s) ASC, LOWER(%s) ASC",
@@ -59,42 +67,52 @@ func buildOrderClause(alias, key, dir string) string {
 			col("submitted_at_utc"), dir,
 			col("group_1"), col("relation"),
 		)
+	}
 
-	// Phase-specific work / appr sorts (and generic work_status)
-	// Non-empty / non-dash first, then status text, then name, then submitted_at_utc.
-	case "mdl_work_status", "rig_work_status", "bld_work_status", "dsn_work_status", "ldv_work_status", "work_status":
+	// Anything *Work*       → work_status
+	if strings.HasSuffix(lkey, "_work_status") ||
+		strings.HasSuffix(lkey, "_work") ||
+		lkey == "work_status" {
 		return fmt.Sprintf(
+			// 1) non-empty / non-dash first
 			"CASE WHEN %s IS NULL OR TRIM(%s) = '' OR %s = '-' THEN 1 ELSE 0 END ASC, "+
+				// 2) status text A↔Z
 				"LOWER(%s) %s, "+
+				// 3) tie-break by name
 				"LOWER(%s) ASC, LOWER(%s) ASC, "+
+				// 4) then submitted_at_utc (empties last)
 				"CASE WHEN %s IS NULL THEN 1 ELSE 0 END ASC, %s %s",
 			col("work_status"), col("work_status"), col("work_status"),
 			col("work_status"), dir,
 			col("group_1"), col("relation"),
 			col("submitted_at_utc"), col("submitted_at_utc"), dir,
 		)
+	}
 
-	case "mdl_approval_status", "rig_approval_status", "bld_approval_status", "dsn_approval_status", "ldv_approval_status":
-	    return fmt.Sprintf(
-	        "CASE WHEN %s IS NULL OR TRIM(%s) = '' OR %s = '-' THEN 1 ELSE 0 END ASC, "+
-	            "LOWER(%s) %s, "+
-	            "LOWER(%s) ASC, LOWER(%s) ASC, "+
-	            "CASE WHEN %s IS NULL THEN 1 ELSE 0 END ASC, %s %s",
-	        col("approval_status"), col("approval_status"), col("approval_status"),
-	        col("approval_status"), dir,
-	        col("group_1"), col("relation"),
-	        col("submitted_at_utc"), col("submitted_at_utc"), dir,
-	    )
-
-	// Default: name + submitted_at_utc
-	default:
+	// Anything *Approval*   → approval_status
+	if strings.HasSuffix(lkey, "_approval_status") ||
+		strings.HasSuffix(lkey, "_appr") {
 		return fmt.Sprintf(
-			"LOWER(%s) %s, LOWER(%s) ASC, "+
+			"CASE WHEN %s IS NULL OR TRIM(%s) = '' OR %s = '-' THEN 1 ELSE 0 END ASC, "+
+				"LOWER(%s) %s, "+
+				"LOWER(%s) ASC, LOWER(%s) ASC, "+
 				"CASE WHEN %s IS NULL THEN 1 ELSE 0 END ASC, %s %s",
-			col("group_1"), dir,
-			col("relation"),
-			col("submitted_at_utc"),
-			col("submitted_at_utc"), dir,
+			col("approval_status"), col("approval_status"), col("approval_status"),
+			col("approval_status"), dir,
+			col("group_1"), col("relation"),
+			col("submitted_at_utc"), col("submitted_at_utc"), dir,
 		)
 	}
+
+	// -----------------------------------------------------------------
+	// 3) Fallback – default name + submitted sort
+	// -----------------------------------------------------------------
+	return fmt.Sprintf(
+		"LOWER(%s) %s, LOWER(%s) ASC, "+
+			"CASE WHEN %s IS NULL THEN 1 ELSE 0 END ASC, %s %s",
+		col("group_1"), dir,
+		col("relation"),
+		col("submitted_at_utc"),
+		col("submitted_at_utc"), dir,
+	)
 }
