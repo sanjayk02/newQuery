@@ -1,0 +1,43 @@
+WITH ranked AS (
+    SELECT
+        project,
+        root,
+        group_1,
+        relation,
+        phase,
+        work_status,
+        approval_status,
+        submitted_at_utc,
+        modified_at_utc,
+        ROW_NUMBER() OVER (
+            PARTITION BY project, root, group_1, relation
+            ORDER BY
+                CASE
+                    WHEN 0 = 1 THEN 0          -- phaseGuard = 0 (phase preference ON)
+                    WHEN phase = 'mdl' THEN 0
+                    ELSE 1
+                END,
+                modified_at_utc DESC
+        ) AS rn
+    FROM t_review_info
+    WHERE
+        project = 'projA'
+        AND root    = 'assets'
+        AND deleted = 0
+        AND (LOWER(group_1) LIKE '%hero%' OR LOWER(relation) LIKE '%hero%')
+)
+SELECT
+    x.root,
+    x.project,
+    x.group_1,
+    x.relation,
+    x.phase,
+    x.submitted_at_utc
+FROM ranked AS x
+WHERE x.rn = 1
+ORDER BY
+    LOWER(x.group_1) ASC,
+    LOWER(x.relation) ASC,
+    (x.submitted_at_utc IS NULL) ASC,
+    x.submitted_at_utc ASC
+LIMIT 50 OFFSET 0;
