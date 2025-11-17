@@ -74,6 +74,18 @@ func buildOrderClause(alias, key, dir string) string {
 			col("submitted_at_utc"), col("submitted_at_utc"), dir,
 		)
 
+	case "mdl_approval_status", "rig_approval_status", "bld_approval_status", "dsn_approval_status", "ldv_approval_status":
+	    return fmt.Sprintf(
+	        "CASE WHEN %s IS NULL OR TRIM(%s) = '' OR %s = '-' THEN 1 ELSE 0 END ASC, "+
+	            "LOWER(%s) %s, "+
+	            "LOWER(%s) ASC, LOWER(%s) ASC, "+
+	            "CASE WHEN %s IS NULL THEN 1 ELSE 0 END ASC, %s %s",
+	        col("approval_status"), col("approval_status"), col("approval_status"),
+	        col("approval_status"), dir,
+	        col("group_1"), col("relation"),
+	        col("submitted_at_utc"), col("submitted_at_utc"), dir,
+	    )
+
 	// Default: name + submitted_at_utc
 	default:
 		return fmt.Sprintf(
