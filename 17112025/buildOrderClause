@@ -1,0 +1,88 @@
+// ---------- Dynamic Sorting Function ----------
+func buildOrderClause(alias, key, dir string) string {
+	dir = strings.ToUpper(strings.TrimSpace(dir))
+	if dir != "ASC" && dir != "DESC" {
+		dir = "ASC"
+	}
+
+	col := func(c string) string {
+		if alias != "" {
+			return alias + "." + c
+		}
+		return c
+	}
+
+	switch key {
+
+	// Generic sorts
+	case "submitted_at_utc", "modified_at_utc", "phase":
+		return col(key) + " " + dir
+
+	// Name-only sorts
+	case "group1_only":
+		return fmt.Sprintf(
+			"LOWER(%s) %s, LOWER(%s) ASC, "+
+				"CASE WHEN %s IS NULL THEN 1 ELSE 0 END ASC, %s %s",
+			col("group_1"), dir,
+			col("relation"),
+			col("submitted_at_utc"),
+			col("submitted_at_utc"), dir,
+		)
+
+	case "relation_only":
+		return fmt.Sprintf(
+			"LOWER(%s) %s, LOWER(%s) ASC, "+
+				"CASE WHEN %s IS NULL THEN 1 ELSE 0 END ASC, %s %s",
+			col("relation"), dir,
+			col("group_1"),
+			col("submitted_at_utc"),
+			col("submitted_at_utc"), dir,
+		)
+
+	// group+relation+submitted sort (generic)
+	case "group_rel_submitted":
+		return fmt.Sprintf(
+			"LOWER(%s) ASC, LOWER(%s) ASC, "+
+				"CASE WHEN %s IS NULL THEN 1 ELSE 0 END ASC, %s %s",
+			col("group_1"),
+			col("relation"),
+			col("submitted_at_utc"),
+			col("submitted_at_utc"), dir,
+		)
+
+	// Phase-specific submitted-at sorts
+	case "mdl_submitted", "rig_submitted", "bld_submitted", "dsn_submitted", "ldv_submitted":
+		return fmt.Sprintf(
+			"CASE WHEN %s IS NULL THEN 1 ELSE 0 END ASC, "+
+				"%s %s, LOWER(%s) ASC, LOWER(%s) ASC",
+			col("submitted_at_utc"),
+			col("submitted_at_utc"), dir,
+			col("group_1"), col("relation"),
+		)
+
+	// Phase-specific work / appr sorts (and generic work_status)
+	// Non-empty / non-dash first, then status text, then name, then submitted_at_utc.
+	case "mdl_work_status", "rig_work_status", "bld_work_status", "dsn_work_status", "ldv_work_status", "work_status":
+		return fmt.Sprintf(
+			"CASE WHEN %s IS NULL OR TRIM(%s) = '' OR %s = '-' THEN 1 ELSE 0 END ASC, "+
+				"LOWER(%s) %s, "+
+				"LOWER(%s) ASC, LOWER(%s) ASC, "+
+				"CASE WHEN %s IS NULL THEN 1 ELSE 0 END ASC, %s %s",
+			col("work_status"), col("work_status"), col("work_status"),
+			col("work_status"), dir,
+			col("group_1"), col("relation"),
+			col("submitted_at_utc"), col("submitted_at_utc"), dir,
+		)
+
+	// Default: name + submitted_at_utc
+	default:
+		return fmt.Sprintf(
+			"LOWER(%s) %s, LOWER(%s) ASC, "+
+				"CASE WHEN %s IS NULL THEN 1 ELSE 0 END ASC, %s %s",
+			col("group_1"), dir,
+			col("relation"),
+			col("submitted_at_utc"),
+			col("submitted_at_utc"), dir,
+		)
+	}
+}
