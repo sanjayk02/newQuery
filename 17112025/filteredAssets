@@ -1,0 +1,158 @@
+  // Client-side row filter + sort so that changing filters or sort actually
+  // affects what you see even when backend uses phase=none.
+  const filteredAssets = useMemo<AssetPhaseSummary[]>(() => {
+    if (!assets) return [];
+
+    // Treat assets from the hook as AssetPhaseSummary – shapes are identical.
+    const pivotAssets = assets as unknown as AssetPhaseSummary[];
+
+    const nameFilter = (filterProps.assetNameKey || '').trim().toLowerCase();
+    const approvalFilters = (
+      ((filterProps as any).approvalStatuses || filterProps.applovalStatues) || []
+    ).map((s: string) => s.toLowerCase());
+    const workFilters = (
+      ((filterProps as any).workStatuses || filterProps.workStatues) || []
+    ).map((s: string) => s.toLowerCase());
+
+    const phases = ['mdl', 'rig', 'bld', 'dsn', 'ldv'] as const;
+
+    const compareDates = (a: any, b: any, dir: SortDir) => {
+      const isAsc = dir === 'asc';
+      const ta = a ? new Date(a).getTime() : 0;
+      const tb = b ? new Date(b).getTime() : 0;
+
+      const aEmpty = !a;
+      const bEmpty = !b;
+
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+
+      if (ta === tb) return 0;
+      if (isAsc) {
+        return ta < tb ? -1 : 1;
+      }
+      return ta > tb ? -1 : 1;
+    };
+
+    const compareStrings = (a: any, b: any, dir: SortDir) => {
+      const isAsc = dir === 'asc';
+
+      const aa = (a || '').toString().trim();
+      const bb = (b || '').toString().trim();
+
+      const aEmpty = aa === '' || aa === '-';
+      const bEmpty = bb === '' || bb === '-';
+
+      // EMPTY handling – ALWAYS last
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+
+      const cmp = aa.localeCompare(bb);
+      return isAsc ? cmp : -cmp;
+    };
+
+    const comparator = (a: AssetPhaseSummary, b: AssetPhaseSummary): number => {
+      const key = uiSortKey;
+
+      const dir: SortDir = uiSortDir === 'none' ? 'asc' : uiSortDir;
+
+      if (key === 'group_1') {
+        return compareStrings(a.group_1, b.group_1, dir) ||
+          compareStrings(a.relation, b.relation, 'asc');
+      }
+
+      if (key === 'relation') {
+        return compareStrings(a.relation, b.relation, dir) ||
+          compareStrings(a.group_1, b.group_1, 'asc');
+      }
+
+      const m = key.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
+      if (m) {
+        const phase = m[1].toLowerCase();
+        const field = m[2].toLowerCase();
+
+        if (field === 'submitted') {
+          return compareDates(
+            (a as any)[`${phase}_submitted_at_utc`],
+            (b as any)[`${phase}_submitted_at_utc`],
+            dir,
+          );
+        }
+        if (field === 'appr') {
+          return compareStrings(
+            (a as any)[`${phase}_approval_status`],
+            (b as any)[`${phase}_approval_status`],
+            dir,
+          );
+        }
+        return compareStrings(
+          (a as any)[`${phase}_work_status`],
+          (b as any)[`${phase}_work_status`],
+          dir,
+        );
+      }
+
+      // default: group_1 asc
+      return compareStrings(a.group_1, b.group_1, 'asc') ||
+        compareStrings(a.relation, b.relation, 'asc');
+    };
+
+    // --- filter first ---
+    const base = pivotAssets.filter((asset) => {
+      const nameMatch =
+        !nameFilter ||
+        (asset.group_1 || '').toLowerCase().includes(nameFilter) ||
+        (asset.relation || '').toLowerCase().includes(nameFilter);
+
+      if (!nameMatch) return false;
+
+      const phase =
+        effectivePhase && effectivePhase !== 'none'
+          ? effectivePhase.toLowerCase()
+          : null;
+
+      const matchesPhase = (p: string) => {
+        if (approvalFilters.length > 0) {
+          const rawAppr = ((asset as any)[`${p}_approval_status`] || '')
+            .toString()
+            .toLowerCase();
+          if (!approvalFilters.includes(rawAppr)) return false;
+        }
+        if (workFilters.length > 0) {
+          const rawWork = ((asset as any)[`${p}_work_status`] || '')
+            .toString()
+            .toLowerCase();
+          if (!workFilters.includes(rawWork)) return false;
+        }
+        return true;
+      };
+
+      // No filters at all → keep row
+      if (!nameFilter && approvalFilters.length === 0 && workFilters.length === 0) {
+        return true;
+      }
+
+      if (phase) {
+        return matchesPhase(phase);
+      }
+
+      // No fixed phase → row passes if *any* phase matches filters
+      return phases.some((p) => matchesPhase(p));
+    });
+
+    // --- then sort according to current UI sort key/dir ---
+    base.sort(comparator);
+    return base;
+  }, [
+    assets,
+    effectivePhase,
+    uiSortKey,
+    uiSortDir,
+    filterProps.assetNameKey,
+    (filterProps as any).approvalStatuses,
+    (filterProps as any).workStatuses,
+    filterProps.applovalStatues,
+    filterProps.workStatues,
+  ]);
