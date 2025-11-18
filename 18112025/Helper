@@ -1,0 +1,117 @@
+// ---------- Helper: asset-name filter ----------
+// Matches text against group_1 OR relation (case-insensitive).
+func buildAssetNameWhere(assetNameKey string) (string, []any) {
+	assetNameKey = strings.TrimSpace(strings.ToLower(assetNameKey))
+	if assetNameKey == "" {
+		return "", nil
+	}
+	like := "%" + assetNameKey + "%"
+	return "(LOWER(group_1) LIKE ? OR LOWER(relation) LIKE ?)", []any{like, like}
+}
+
+// ---------- Helper: approval/work status filter (phase-agnostic) ----------
+// preferredPhase is currently ignored; phase bias is handled in ORDER BY.
+func buildPhaseAwareStatusWhere(
+	preferredPhase string,
+	approvalStatuses, workStatuses []string,
+) (string, []any) {
+	clauses := []string{}
+	args := []any{}
+
+	buildIn := func(col string, vals []string) {
+		if len(vals) == 0 {
+			return
+		}
+		ph := strings.Repeat("?,", len(vals))
+		ph = ph[:len(ph)-1]
+
+		clauses = append(clauses, fmt.Sprintf("LOWER(%s) IN (%s)", col, ph))
+		for _, v := range vals {
+			args = append(args, strings.ToLower(strings.TrimSpace(v)))
+		}
+	}
+
+	buildIn("approval_status", approvalStatuses)
+	buildIn("work_status", workStatuses)
+
+	if len(clauses) == 0 {
+		return "", nil
+	}
+	return strings.Join(clauses, " AND "), args
+}
+
+// ---------- Helper: dynamic ORDER BY for submissions ----------
+// alias is usually "" (no alias) or a table alias like "x".
+func buildOrderClause(alias, key, dir string) string {
+	dir = strings.ToUpper(strings.TrimSpace(dir))
+	if dir != "ASC" && dir != "DESC" {
+		dir = "ASC"
+	}
+	col := func(c string) string {
+		if alias != "" {
+			return alias + "." + c
+		}
+		return c
+	}
+
+	switch key {
+	// Generic Sorts (use column directly)
+	case "submitted_at_utc", "modified_at_utc", "phase":
+		return col(key) + " " + dir
+
+	// Asset Name/Relation Sorts (compound)
+	case "group1_only":
+		return fmt.Sprintf(
+			"LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			col("group_1"), dir,
+			col("relation"),
+			col("submitted_at_utc"),
+			col("submitted_at_utc"), dir,
+		)
+	case "relation_only":
+		return fmt.Sprintf(
+			"LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			col("relation"), dir,
+			col("group_1"),
+			col("submitted_at_utc"),
+			col("submitted_at_utc"), dir,
+		)
+	case "group_rel_submitted":
+		return fmt.Sprintf(
+			"LOWER(%s) ASC, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			col("group_1"),
+			col("relation"),
+			col("submitted_at_utc"),
+			col("submitted_at_utc"), dir,
+		)
+
+	// Phase-specific sorts (we still sort by generic cols; phase bias is separate)
+	case "mdl_submitted", "rig_submitted", "bld_submitted", "dsn_submitted", "ldv_submitted":
+		return fmt.Sprintf(
+			"(%s IS NULL) ASC, %s %s, LOWER(%s) ASC, LOWER(%s) ASC",
+			col("submitted_at_utc"),
+			col("submitted_at_utc"), dir,
+			col("group_1"), col("relation"),
+		)
+
+	case "mdl_work_status", "rig_work_status", "bld_work_status", "dsn_work_status", "ldv_work_status":
+		return fmt.Sprintf(
+			"(%s IS NULL) ASC, %s %s, LOWER(%s) ASC, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			col("work_status"),
+			col("work_status"), dir,
+			col("group_1"), col("relation"),
+			col("submitted_at_utc"),
+			col("submitted_at_utc"), dir,
+		)
+
+	// Default = name sort
+	default:
+		return fmt.Sprintf(
+			"LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			col("group_1"), dir,
+			col("relation"),
+			col("submitted_at_utc"),
+			col("submitted_at_utc"), dir,
+		)
+	}
+}
