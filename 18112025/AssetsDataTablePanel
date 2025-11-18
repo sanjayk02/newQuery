@@ -1,0 +1,503 @@
+import React, { FC, useEffect, useRef, useState, useMemo } from 'react';
+import { RouteComponentProps } from 'react-router-dom';
+import {
+  Button,
+  Container,
+  Paper,
+  styled,
+} from '@material-ui/core';
+import { ButtonProps } from '@material-ui/core/Button';
+import { SelectProps } from '@material-ui/core/Select';
+import { TablePaginationProps } from '@material-ui/core/TablePagination';
+import { TextFieldProps } from '@material-ui/core/TextField';
+
+import { useFetchAssetsPivot } from './hooks';
+import { FilterProps as _FilterProps, PageProps, SortDir } from './types';
+import AssetsDataTable from './AssetsDataTable';
+import AssetsDataTableFooter from './AssetsDataTableFooter';
+import AssetDataTableFilter from './AssetDataTableFilter';
+import {
+  getHiddenColumnsFromLocalStorage,
+  persistHiddenColumns,
+} from './assetsTableLocalStorage';
+import { useSaveHiddenColumnsToPipelineSetting } from './api';
+import { queryConfig } from '../api';
+
+type Props = RouteComponentProps<{ project: string }>;
+
+type FilterProps = _FilterProps & {
+  onPhasePriorityChange?: (phase: string) => void;
+  selectApprovalStatus?: string;
+  onApprovalStatusChange?: (status: string) => void;
+  selectWorkStatus?: string;
+  onWorkStatusChange?: (status: string) => void;
+};
+
+type ColumnDrawerProps = {
+  hiddenColumns: Set<string>;
+  columnMeta: { id: string; label: string }[];
+  fixedVisible: Set<string>;
+  onToggleColumn: (id: string) => void;
+  onSaveColumns: () => void;
+  visibleCount: number;
+};
+
+const StyledContainer = styled(Container)({
+  display: 'flex',
+  flexDirection: 'column',
+  paddingTop: 16,
+  paddingBottom: 16,
+});
+
+const StyledTableDiv = styled('div')({
+  paddingBottom: 8,
+});
+
+const StyledPaper = styled(Paper)({
+  display: 'flex',
+  flexDirection: 'column',
+  overflow: 'visible',
+});
+
+const StyledContentDiv = styled('div')(({ theme }) => ({
+  backgroundColor: theme.palette.background.paper,
+  display: 'flex',
+  flexDirection: 'column',
+  width: '100%',
+  overflow: 'visible',
+}));
+
+const columnDrawerStyles = {
+  paper: {
+    width: 260,
+  },
+};
+
+const StyledButton = styled(Button)({
+  textTransform: 'none',
+});
+
+const StyledFilterContainer = styled('div')({
+  padding: '8px 16px 0',
+});
+
+const StyledHeaderRow = styled('div')({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+});
+
+const StyledColumnsButton = styled(StyledButton)({
+  marginLeft: 8,
+});
+
+const StyledColumnsBadge = styled('span')(({ theme }) => ({
+  display: 'inline-block',
+  minWidth: 20,
+  padding: '0 6px',
+  borderRadius: 10,
+  backgroundColor: theme.palette.secondary.main,
+  color: theme.palette.secondary.contrastText,
+  fontSize: 12,
+  textAlign: 'center',
+  marginLeft: 8,
+}));
+
+const StyledFilterRow = styled('div')({
+  display: 'flex',
+  alignItems: 'center',
+  marginTop: 8,
+});
+
+const StyledTableWrapper = styled('div')({
+  flex: 1,
+  display: 'flex',
+  flexDirection: 'column',
+  overflow: 'visible',
+});
+
+const StyledFilterGrow = styled('div')({
+  flexGrow: 1,
+});
+
+const DEFAULT_FILTER: FilterProps = {
+  assetNameKey: '',
+  phasePriority: 'none',
+  applovalStatues: [],
+  workStatues: [],
+  selectApprovalStatus: '',
+  selectWorkStatus: '',
+  onPhasePriorityChange: undefined,
+  onApprovalStatusChange: undefined,
+  onWorkStatusChange: undefined,
+};
+
+const COLUMN_META: { id: string; label: string }[] = [
+  { id: 'thumbnail', label: 'Thumbnail' },
+  { id: 'group_1_name', label: 'Name' },
+
+  { id: 'mdl_work_status', label: 'MDL WORK' },
+  { id: 'mdl_approval_status', label: 'MDL APPR' },
+  { id: 'mdl_submitted_at', label: 'MDL SUBMITTED AT' },
+
+  { id: 'rig_work_status', label: 'RIG WORK' },
+  { id: 'rig_approval_status', label: 'RIG APPR' },
+  { id: 'rig_submitted_at', label: 'RIG Submitted At' },
+
+  { id: 'bld_work_status', label: 'BLD WORK' },
+  { id: 'bld_approval_status', label: 'BLD APPR' },
+  { id: 'bld_submitted_at', label: 'BLD Submitted At' },
+
+  { id: 'dsn_work_status', label: 'DSN WORK' },
+  { id: 'dsn_approval_status', label: 'DSN APPR' },
+  { id: 'dsn_submitted_at', label: 'DSN Submitted At' },
+
+  { id: 'ldv_work_status', label: 'LDV WORK' },
+  { id: 'ldv_approval_status', label: 'LDV APPR' },
+  { id: 'ldv_submitted_at', label: 'LDV Submitted At' },
+
+  { id: 'relation', label: 'Relation' },
+];
+
+const FIXED_VISIBLE = new Set<string>(['thumbnail', 'group_1_name']);
+const PIPE_KEY = '/ppiTracker/assets/hideColumns';
+const lsKeyForProject = (project: string) => `${PIPE_KEY}/${project}`;
+
+const loadHiddenColumnsFromLocalStorage = (project: string): Set<string> => {
+  return getHiddenColumnsFromLocalStorage(lsKeyForProject(project));
+};
+
+const AssetsDataTablePanel: FC<Props> = ({ match }) => {
+  const project = match.params.project;
+
+  const [pageProps, setPageProps] = useState<PageProps>({
+    page: 0,
+    rowsPerPage: 15,
+  });
+
+  const [filterProps, setFilterProps] = useState<FilterProps>(DEFAULT_FILTER);
+  const [uiSortKey, setUiSortKey] = useState<string | null>(null);
+  const [uiSortDir, setUiSortDir] = useState<SortDir>('none');
+
+  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(
+    () => loadHiddenColumnsFromLocalStorage(project),
+  );
+
+  const [selectApprovalStatus, setSelectApprovalStatus] = useState<string>('');
+  const [selectWorkStatus, setSelectWorkStatus] = useState<string>('');
+  const [phasePriority, setPhasePriority] = useState<string>('none');
+
+  const [currentStudio, setCurrentStudio] = useState<any | null>(null);
+  const [timeZone, setTimeZone] = useState<string | undefined>(undefined);
+
+  const { assets, total } = useFetchAssetsPivot(project, pageProps, {
+    assetNameKey: filterProps.assetNameKey,
+    phasePriority: filterProps.phasePriority,
+    approvalStatuses: filterProps.applovalStatues,
+    workStatuses: filterProps.workStatues,
+    sortKey: uiSortKey,
+    sortDir: uiSortDir,
+  });
+
+  const { saveHiddenColumnsToPipelineSetting } =
+    useSaveHiddenColumnsToPipelineSetting(project, PIPE_KEY, hiddenColumns);
+
+  const handleFilterChange = (next: Partial<FilterProps>) => {
+    setPageProps((prev) => ({ ...prev, page: 0 }));
+    setFilterProps((prev) => ({ ...prev, ...next }));
+  };
+
+  const handlePageChange: TablePaginationProps['onChangePage'] = (_e, newPage) => {
+    setPageProps((prev) => ({ ...prev, page: newPage }));
+  };
+
+  const handleRowsPerPageChange: TablePaginationProps['onChangeRowsPerPage'] = (
+    e,
+  ) => {
+    const rowsPerPage = parseInt(e.target.value, 10);
+    setPageProps({ page: 0, rowsPerPage });
+  };
+
+  const handleSortChange = (key: string, dir: SortDir) => {
+    setUiSortKey(key);
+    setUiSortDir(dir);
+  };
+
+  const pivotContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const persistHiddenColumns = (next: Set<string>) => {
+    persistHiddenColumns(next, lsKeyForProject(project));
+  };
+
+  const handleToggleColumn = (id: string) => {
+    setHiddenColumns((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      persistHiddenColumns(next);
+      return next;
+    });
+  };
+
+  const handleSaveColumns = async () => {
+    await saveHiddenColumnsToPipelineSetting(hiddenColumns);
+  };
+
+  const effectivePhase = filterProps.phasePriority;
+
+  const filteredAssets = useMemo(() => {
+    if (!assets) return [];
+
+    const nameFilter = (filterProps.assetNameKey || '').trim().toLowerCase();
+    const approvalFilters = (
+      ((filterProps as any).approvalStatuses || filterProps.applovalStatues) || []
+    ).map((s: string) => s.toLowerCase());
+    const workFilters = (
+      ((filterProps as any).workStatuses || filterProps.workStatues) || []
+    ).map((s: string) => s.toLowerCase());
+
+    const phases = ['mdl', 'rig', 'bld', 'dsn', 'ldv'] as const;
+
+    const compareDates = (a: any, b: any, dir: SortDir) => {
+      const isAsc = dir === 'asc';
+
+      const aNull = !a || a === '-';
+      const bNull = !b || b === '-';
+
+      if (aNull && bNull) return 0;
+      if (aNull) return 1;
+      if (bNull) return -1;
+
+      const ta = new Date(a as any).getTime();
+      const tb = new Date(b as any).getTime();
+
+      if (ta === tb) return 0;
+      if (isAsc) return ta < tb ? -1 : 1;
+      return ta > tb ? -1 : 1;
+    };
+
+    const compareStrings = (a: any, b: any, dir: SortDir) => {
+      const isAsc = dir === 'asc';
+
+      const aa = (a || '').toString().trim();
+      const bb = (b || '').toString().trim();
+
+      const aEmpty = aa === '' || aa === '-';
+      const bEmpty = bb === '' || bb === '-';
+
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+
+      const la = aa.toLowerCase();
+      const lb = bb.toLowerCase();
+
+      if (la === lb) return 0;
+      if (isAsc) return la < lb ? -1 : 1;
+      return la > lb ? -1 : 1;
+    };
+
+    const comparator = (a: any, b: any): number => {
+      if (!uiSortKey || uiSortDir === 'none') return 0;
+
+      if (uiSortKey === 'group_1') {
+        return compareStrings(a.group_1, b.group_1, uiSortDir);
+      }
+      if (uiSortKey === 'relation') {
+        return compareStrings(a.relation, b.relation, uiSortDir);
+      }
+
+      const m = uiSortKey.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
+      if (m) {
+        const phase = m[1].toLowerCase();
+        const field = m[2].toLowerCase();
+
+        if (field === 'submitted') {
+          const key = `${phase}_submitted_at_utc`;
+          return compareDates(a[key], b[key], uiSortDir);
+        }
+
+        const key =
+          field === 'appr'
+            ? `${phase}_approval_status`
+            : `${phase}_work_status`;
+
+        return compareStrings(a[key], b[key], uiSortDir);
+      }
+
+      return 0;
+    };
+
+    const base = assets.filter((asset: any) => {
+      if (nameFilter) {
+        const name = (asset.group_1 || '').toString().toLowerCase();
+        if (!name.includes(nameFilter)) return false;
+      }
+
+      const phase =
+        effectivePhase && effectivePhase !== 'none'
+          ? effectivePhase.toLowerCase()
+          : null;
+
+      const matchesPhase = (p: string) => {
+        if (approvalFilters.length > 0) {
+          const rawAppr = (asset[`${p}_approval_status`] || '')
+            .toString()
+            .toLowerCase();
+          if (!approvalFilters.includes(rawAppr)) return false;
+        }
+        if (workFilters.length > 0) {
+          const rawWork = (asset[`${p}_work_status`] || '')
+            .toString()
+            .toLowerCase();
+          if (!workFilters.includes(rawWork)) return false;
+        }
+        return true;
+      };
+
+      if (!nameFilter && approvalFilters.length === 0 && workFilters.length === 0) {
+        return true;
+      }
+
+      if (phase) {
+        return matchesPhase(phase);
+      }
+
+      return phases.some((p) => matchesPhase(p));
+    });
+
+    base.sort(comparator);
+    return base;
+  }, [
+    assets,
+    effectivePhase,
+    uiSortKey,
+    uiSortDir,
+    filterProps.assetNameKey,
+    (filterProps as any).approvalStatuses,
+    filterProps.applovalStatues,
+    (filterProps as any).workStatuses,
+    filterProps.workStatues,
+  ]);
+
+  // 🔹 NEW: determine if any filter is active
+  const filtersActive =
+    !!(filterProps.assetNameKey && filterProps.assetNameKey.trim()) ||
+    ((((filterProps as any).approvalStatuses || filterProps.applovalStatues) || []).length > 0) ||
+    ((((filterProps as any).workStatuses || filterProps.workStatues) || []).length > 0);
+
+  // 🔹 NEW: effective count for pagination
+  const effectiveCount = filtersActive ? filteredAssets.length : total;
+
+  /* Studio timezone */
+  useEffect(() => {
+    if (currentStudio == null) return;
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res: string | null = await queryConfig(
+          'studio',
+          currentStudio.key_name,
+          'timezone',
+        ).catch((e: any) => {
+          if (e?.name === 'AbortError') return null;
+          throw e;
+        });
+        if (res) setTimeZone(res);
+      } catch (e) {
+        console.error('Failed to fetch studio timezone', e);
+      }
+    })();
+    return () => controller.abort();
+  }, [currentStudio]);
+
+  const dateTimeFormat = new Intl.DateTimeFormat(undefined, {
+    timeZone,
+    dateStyle: 'medium',
+    timeStyle: 'medium',
+  });
+
+  /* Footer – uses effectiveCount */
+  const tableFooter = (
+    <AssetsDataTableFooter
+      count={effectiveCount}
+      page={pageProps.page}
+      rowsPerPage={pageProps.rowsPerPage}
+      onChangePage={handlePageChange}
+      onChangeRowsPerPage={handleRowsPerPageChange}
+    />
+  );
+
+  const visibleCount = useMemo(() => {
+    const togglable = COLUMN_META.map((c) => c.id).filter(
+      (id) => !FIXED_VISIBLE.has(id),
+    );
+    let c = 0;
+    togglable.forEach((id) => {
+      if (!hiddenColumns.has(id)) c += 1;
+    });
+    return c;
+  }, [hiddenColumns]);
+
+  return (
+    <StyledContainer maxWidth={false}>
+      <StyledTableDiv>
+        <StyledPaper>
+          <StyledContentDiv>
+            <StyledFilterContainer>
+              <StyledHeaderRow>
+                <div />
+                <StyledColumnsButton
+                  variant="outlined"
+                  color="default"
+                  size="small"
+                  onClick={handleSaveColumns}
+                >
+                  Columns
+                  <StyledColumnsBadge>{visibleCount}</StyledColumnsBadge>
+                </StyledColumnsButton>
+              </StyledHeaderRow>
+
+              <StyledFilterRow>
+                <StyledFilterGrow>
+                  <AssetDataTableFilter
+                    filterProps={filterProps}
+                    onChange={handleFilterChange}
+                    onSortChange={handleSortChange}
+                    selectApprovalStatus={selectApprovalStatus}
+                    setSelectApprovalStatus={setSelectApprovalStatus}
+                    selectWorkStatus={selectWorkStatus}
+                    setSelectWorkStatus={setSelectWorkStatus}
+                    phasePriority={phasePriority}
+                    setPhasePriority={setPhasePriority}
+                  />
+                </StyledFilterGrow>
+              </StyledFilterRow>
+            </StyledFilterContainer>
+
+            <div ref={pivotContainerRef}>
+              <AssetsDataTable
+                project={project}
+                assets={filteredAssets}
+                dateTimeFormat={dateTimeFormat}
+                footer={tableFooter}
+                sortKey={uiSortKey}
+                sortDir={uiSortDir}
+                onSortChange={handleSortChange}
+                hiddenColumns={hiddenColumns}
+                assetNameKey={filterProps.assetNameKey}
+                approvalStatuses={filterProps.applovalStatues}
+                workStatuses={filterProps.workStatues}
+              />
+            </div>
+          </StyledContentDiv>
+        </StyledPaper>
+      </StyledTableDiv>
+    </StyledContainer>
+  );
+};
+
+export default AssetsDataTablePanel;
