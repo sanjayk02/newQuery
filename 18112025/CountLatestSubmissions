@@ -4,7 +4,6 @@ func (r *ReviewInfo) CountLatestSubmissions(
 	assetNameKey string,
 	approvalStatuses, workStatuses []string,
 ) (int64, error) {
-
 	if project == "" {
 		return 0, fmt.Errorf("project is required")
 	}
@@ -12,20 +11,22 @@ func (r *ReviewInfo) CountLatestSubmissions(
 		root = "assets"
 	}
 
-	nameWhere, nameArgs := buildAssetNameWhere(assetNameKey)
-	statusWhere, statusArgs := buildPhaseAwareStatusWhere("", approvalStatuses, workStatuses)
+	// Name & status filters (frontend-compatible)
+	nameWhere, nameArgs := buildAssetNameWhere(assetNameKey, "")
+	statusWhere, statusArgs := buildStatusFilterClause("", approvalStatuses, workStatuses)
 
 	nameClause := ""
 	if nameWhere != "" {
 		nameClause = " AND " + nameWhere
 	}
-
 	statusClause := ""
 	if statusWhere != "" {
 		statusClause = " AND " + statusWhere
 	}
 
-	// FINAL SQL - matches UI exactly
+	// latest_rows = latest row per (asset, phase)
+	// filtered    = apply name + status filters at phase-row level
+	// then count distinct assets from filtered
 	q := fmt.Sprintf(`
 WITH latest_rows AS (
 	SELECT
@@ -48,18 +49,17 @@ WITH latest_rows AS (
 filtered AS (
 	SELECT *
 	FROM latest_rows
-	WHERE rn = 1
-	%s
-	%s
+	WHERE rn = 1%s%s
 )
 SELECT COUNT(*)
 FROM (
 	SELECT DISTINCT project, root, group_1, relation
 	FROM filtered
-) AS assets;
-`, nameClause, statusClause)
+) AS a;`, nameClause, statusClause)
 
-	args := []any{project, root}
+	args := []any{
+		project, root, // latest_rows WHERE
+	}
 	args = append(args, nameArgs...)
 	args = append(args, statusArgs...)
 
