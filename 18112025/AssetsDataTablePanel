@@ -12,50 +12,47 @@ import { TablePaginationProps } from '@material-ui/core/TablePagination';
 import { TextFieldProps } from '@material-ui/core/TextField';
 
 import { useFetchAssetsPivot } from './hooks';
-import { FilterProps as _FilterProps, PageProps, SortDir } from './types';
-import AssetsDataTable from './AssetsDataTable';
-import AssetsDataTableFooter from './AssetsDataTableFooter';
-import AssetDataTableFilter from './AssetDataTableFilter';
 import {
-  getHiddenColumnsFromLocalStorage,
-  persistHiddenColumns,
-} from './assetsTableLocalStorage';
-import { useSaveHiddenColumnsToPipelineSetting } from './api';
-import { queryConfig } from '../api';
+  FilterProps as _FilterProps,
+  PageProps,
+  SortDir,
+  AssetPhaseSummary,
+} from './types';
+import AssetsDataTable from './AssetsDataTable';
+import AssetTableFilter from './AssetDataTableFilter';
+import AssetsDataTableFooter from './AssetsDataTableFooter';
 
-type Props = RouteComponentProps<{ project: string }>;
+import { useCurrentProject } from '../hooks';
+import { useCurrentStudio } from '../../studio/hooks';
+import { queryConfig } from '../../new-pipeline-setting/api';
 
-type FilterProps = _FilterProps & {
-  onPhasePriorityChange?: (phase: string) => void;
-  selectApprovalStatus?: string;
-  onApprovalStatusChange?: (status: string) => void;
-  selectWorkStatus?: string;
-  onWorkStatusChange?: (status: string) => void;
-};
-
-type ColumnDrawerProps = {
-  hiddenColumns: Set<string>;
-  columnMeta: { id: string; label: string }[];
-  fixedVisible: Set<string>;
-  onToggleColumn: (id: string) => void;
-  onSaveColumns: () => void;
-  visibleCount: number;
-};
-
-const StyledContainer = styled(Container)({
+/* ──────────────────────────────────────────────────────────────────────────
+ * Styling  (overflow fixes applied)
+ * ────────────────────────────────────────────────────────────────────────── */
+const StyledContainer = styled(Container)(({ theme }) => ({
+  position: 'relative',
   display: 'flex',
   flexDirection: 'column',
-  paddingTop: 16,
-  paddingBottom: 16,
-});
-
-const StyledTableDiv = styled('div')({
-  paddingBottom: 8,
-});
+  padding: 10,
+  // allow horizontal scroll to appear from the inner wrapper
+  overflowX: 'auto',
+  '& > *': {
+    display: 'flex',
+    // IMPORTANT: do NOT clip overflow on children; let the inner div handle it
+    overflow: 'visible',
+    padding: theme.spacing(1),
+    paddingBottom: 0,
+  },
+  '& > *:last-child': {
+    paddingBottom: theme.spacing(1),
+  },
+}));
 
 const StyledPaper = styled(Paper)({
+  width: '100%',
   display: 'flex',
   flexDirection: 'column',
+  // was 'hidden' — changed to 'visible' so the inner scroll container works
   overflow: 'visible',
 });
 
@@ -64,67 +61,23 @@ const StyledContentDiv = styled('div')(({ theme }) => ({
   display: 'flex',
   flexDirection: 'column',
   width: '100%',
+  // ensure no clipping here either
   overflow: 'visible',
 }));
 
-const columnDrawerStyles = {
-  paper: {
-    width: 260,
-  },
-};
-
-const StyledButton = styled(Button)({
-  textTransform: 'none',
+const StyledTableDiv = styled('div')({
+  paddingBottom: 8,
 });
 
-const StyledFilterContainer = styled('div')({
-  padding: '8px 16px 0',
-});
-
-const StyledHeaderRow = styled('div')({
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-});
-
-const StyledColumnsButton = styled(StyledButton)({
-  marginLeft: 8,
-});
-
-const StyledColumnsBadge = styled('span')(({ theme }) => ({
-  display: 'inline-block',
-  minWidth: 20,
-  padding: '0 6px',
-  borderRadius: 10,
-  backgroundColor: theme.palette.secondary.main,
-  color: theme.palette.secondary.contrastText,
-  fontSize: 12,
-  textAlign: 'center',
-  marginLeft: 8,
-}));
-
-const StyledFilterRow = styled('div')({
-  display: 'flex',
-  alignItems: 'center',
-  marginTop: 8,
-});
-
-const StyledTableWrapper = styled('div')({
-  flex: 1,
-  display: 'flex',
-  flexDirection: 'column',
-  overflow: 'visible',
-});
-
-const StyledFilterGrow = styled('div')({
-  flexGrow: 1,
-});
-
-const DEFAULT_FILTER: FilterProps = {
+/* ──────────────────────────────────────────────────────────────────────────
+ * Initial state
+ * ────────────────────────────────────────────────────────────────────────── */
+const initPageProps: PageProps = { page: 0, rowsPerPage: 15 };
+const initFilterProps: _FilterProps = {
   assetNameKey: '',
-  phasePriority: 'none',
   applovalStatues: [],
   workStatues: [],
+  selectPhasePriority: '',
   selectApprovalStatus: '',
   selectWorkStatus: '',
   onPhasePriorityChange: undefined,
@@ -132,13 +85,16 @@ const DEFAULT_FILTER: FilterProps = {
   onWorkStatusChange: undefined,
 };
 
+/* ──────────────────────────────────────────────────────────────────────────
+ * Column metadata (ids must match table columns)
+ * ────────────────────────────────────────────────────────────────────────── */
 const COLUMN_META: { id: string; label: string }[] = [
   { id: 'thumbnail', label: 'Thumbnail' },
   { id: 'group_1_name', label: 'Name' },
 
   { id: 'mdl_work_status', label: 'MDL WORK' },
   { id: 'mdl_approval_status', label: 'MDL APPR' },
-  { id: 'mdl_submitted_at', label: 'MDL SUBMITTED AT' },
+  { id: 'mdl_submitted_at', label: 'MDL Submitted At' },
 
   { id: 'rig_work_status', label: 'RIG WORK' },
   { id: 'rig_approval_status', label: 'RIG APPR' },
@@ -159,97 +115,136 @@ const COLUMN_META: { id: string; label: string }[] = [
   { id: 'relation', label: 'Relation' },
 ];
 
+// Always-visible columns
 const FIXED_VISIBLE = new Set<string>(['thumbnail', 'group_1_name']);
-const PIPE_KEY = '/ppiTracker/assets/hideColumns';
-const lsKeyForProject = (project: string) => `${PIPE_KEY}/${project}`;
 
-const loadHiddenColumnsFromLocalStorage = (project: string): Set<string> => {
-  return getHiddenColumnsFromLocalStorage(lsKeyForProject(project));
+// Settings keys
+const PIPE_KEY = '/ppiTracker/assets/hideColumns';
+const lsKeyForProject = (projectKeyName?: string) => {
+  return `ppi:assets:hideColumns:${projectKeyName || 'unknown'}`;
 };
 
-const AssetsDataTablePanel: FC<Props> = ({ match }) => {
-  const project = match.params.project;
+/* ──────────────────────────────────────────────────────────────────────────
+ * Component
+ * ────────────────────────────────────────────────────────────────────────── */
+const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
+  const [pageProps, setPageProps] = useState<PageProps>(initPageProps);
+  const [filterProps, setFilterProps] = useState<_FilterProps>(initFilterProps);
 
-  const [pageProps, setPageProps] = useState<PageProps>({
-    page: 0,
-    rowsPerPage: 15,
-  });
+  // Server-side sorting (drives fetch)
+  const [sortKey, setSortKey] = useState<string>('group_1');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [phasePriority, setPhasePriority] = useState<string>('none'); // mdl|rig|bld|dsn|ldv|none
 
-  const [filterProps, setFilterProps] = useState<FilterProps>(DEFAULT_FILTER);
-  const [uiSortKey, setUiSortKey] = useState<string | null>(null);
-  const [uiSortDir, setUiSortDir] = useState<SortDir>('none');
+  // UI sort (instant arrow feedback)
+  const [uiSortKey, setUiSortKey] = useState<string>('group_1');
+  const [uiSortDir, setUiSortDir] = useState<SortDir>('asc');
 
-  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(
-    () => loadHiddenColumnsFromLocalStorage(project),
+  // Debounce ref is unused now but kept for history
+  const commitTimerRef = useRef<number | null>(null);
+
+  // Column visibility
+  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+
+  const { currentProject } = useCurrentProject();
+  const { currentStudio } = useCurrentStudio();
+  const [timeZone, setTimeZone] = useState<string | undefined>();
+
+  /* Resolve UI key -> server sort + phase */
+  const resolveServerSort = (key: string): { sort: string; phase: string } => {
+    // Fixed keys: map directly
+    if (key === 'group_1') return { sort: 'group_1', phase: 'none' };
+    if (key === 'relation') return { sort: 'relation', phase: 'none' };
+
+    // Phase-specific keys: map to the specific column ID for correct backend resolution
+    const m = key.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
+    if (!m) return { sort: 'group_1', phase: 'none' };
+
+    const phase = m[1].toLowerCase();
+    const field = m[2].toLowerCase();
+
+    if (field === 'submitted') return { sort: `${phase}_submitted`, phase };
+    if (field === 'appr') return { sort: `${phase}_appr`, phase };
+    return { sort: `${phase}_work`, phase };
+  };
+
+  /* Persist hidden columns (localStorage mirror) */
+  const persistHiddenColumnsLocal = (next: Set<string>) => {
+    const key = lsKeyForProject(
+      currentProject && currentProject.key_name ? currentProject.key_name : undefined,
+    );
+    try {
+      localStorage.setItem(key, JSON.stringify(Array.from(next)));
+    } catch (e) {
+      console.error('localStorage save failed', e);
+    }
+  };
+
+  /** Save to PipelineSetting (explicit “Save” from drawer) */
+  const saveHiddenColumnsToPipelineSetting = async (cols: Set<string>) => {
+    try {
+      if (!currentProject || !currentProject.key_name) return;
+      await (queryConfig as any)(
+        'project',
+        currentProject.key_name,
+        PIPE_KEY,
+        JSON.stringify(Array.from(cols)),
+      );
+    } catch (e) {
+      console.warn('PipelineSetting save failed; using local only', e);
+    }
+  };
+
+  // Wrapper used by toggle/showAll/hideAll to keep local mirror up-to-date
+  const persistHiddenColumns = (next: Set<string>) => {
+    persistHiddenColumnsLocal(next);
+  };
+
+  // Decide which phase to send to backend:
+  // If any filter is active, keep phase='none' (no bias). Otherwise allow phasePriority.
+  const effectivePhase = useMemo(() => {
+    const nameFilterActive = !!(filterProps.assetNameKey || '').trim();
+    const approvalSelected =
+      (((filterProps as any).approvalStatuses || filterProps.applovalStatues) || []).length > 0;
+    const workSelected =
+      (((filterProps as any).workStatuses || filterProps.workStatues) || []).length > 0;
+
+    const isFilterActive = nameFilterActive || approvalSelected || workSelected;
+    if (isFilterActive) return 'none';
+
+    if (phasePriority && phasePriority !== 'none') return phasePriority;
+    return 'none';
+  }, [
+    phasePriority,
+    filterProps.assetNameKey,
+    (filterProps as any).approvalStatuses,
+    filterProps.applovalStatues,
+    (filterProps as any).workStatuses,
+    filterProps.workStatues,
+  ]);
+
+  const serverSortDir: 'asc' | 'desc' = sortDir === 'none' ? 'asc' : sortDir;
+
+  /* Fetch data */
+  const { assets, total } = useFetchAssetsPivot(
+    currentProject,
+    pageProps.page,
+    pageProps.rowsPerPage,
+    sortKey,
+    serverSortDir,
+    effectivePhase,
+    filterProps.assetNameKey,
+    (filterProps as any).approvalStatuses || filterProps.applovalStatues,
+    (filterProps as any).workStatuses || filterProps.workStatues,
   );
 
-  const [selectApprovalStatus, setSelectApprovalStatus] = useState<string>('');
-  const [selectWorkStatus, setSelectWorkStatus] = useState<string>('');
-  const [phasePriority, setPhasePriority] = useState<string>('none');
-
-  const [currentStudio, setCurrentStudio] = useState<any | null>(null);
-  const [timeZone, setTimeZone] = useState<string | undefined>(undefined);
-
-  const { assets, total } = useFetchAssetsPivot(project, pageProps, {
-    assetNameKey: filterProps.assetNameKey,
-    phasePriority: filterProps.phasePriority,
-    approvalStatuses: filterProps.applovalStatues,
-    workStatuses: filterProps.workStatues,
-    sortKey: uiSortKey,
-    sortDir: uiSortDir,
-  });
-
-  const { saveHiddenColumnsToPipelineSetting } =
-    useSaveHiddenColumnsToPipelineSetting(project, PIPE_KEY, hiddenColumns);
-
-  const handleFilterChange = (next: Partial<FilterProps>) => {
-    setPageProps((prev) => ({ ...prev, page: 0 }));
-    setFilterProps((prev) => ({ ...prev, ...next }));
-  };
-
-  const handlePageChange: TablePaginationProps['onChangePage'] = (_e, newPage) => {
-    setPageProps((prev) => ({ ...prev, page: newPage }));
-  };
-
-  const handleRowsPerPageChange: TablePaginationProps['onChangeRowsPerPage'] = (
-    e,
-  ) => {
-    const rowsPerPage = parseInt(e.target.value, 10);
-    setPageProps({ page: 0, rowsPerPage });
-  };
-
-  const handleSortChange = (key: string, dir: SortDir) => {
-    setUiSortKey(key);
-    setUiSortDir(dir);
-  };
-
-  const pivotContainerRef = useRef<HTMLDivElement | null>(null);
-
-  const persistHiddenColumns = (next: Set<string>) => {
-    persistHiddenColumns(next, lsKeyForProject(project));
-  };
-
-  const handleToggleColumn = (id: string) => {
-    setHiddenColumns((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      persistHiddenColumns(next);
-      return next;
-    });
-  };
-
-  const handleSaveColumns = async () => {
-    await saveHiddenColumnsToPipelineSetting(hiddenColumns);
-  };
-
-  const effectivePhase = filterProps.phasePriority;
-
-  const filteredAssets = useMemo(() => {
+  // Client-side row filter + sort so that changing filters or sort actually
+  // affects what you see even when backend uses phase=none.
+  const filteredAssets = useMemo<AssetPhaseSummary[]>(() => {
     if (!assets) return [];
+
+    // Treat assets from the hook as AssetPhaseSummary – shapes are identical.
+    const pivotAssets = assets as unknown as AssetPhaseSummary[];
 
     const nameFilter = (filterProps.assetNameKey || '').trim().toLowerCase();
     const approvalFilters = (
@@ -263,19 +258,20 @@ const AssetsDataTablePanel: FC<Props> = ({ match }) => {
 
     const compareDates = (a: any, b: any, dir: SortDir) => {
       const isAsc = dir === 'asc';
+      const ta = a ? new Date(a).getTime() : 0;
+      const tb = b ? new Date(b).getTime() : 0;
 
-      const aNull = !a || a === '-';
-      const bNull = !b || b === '-';
+      const aEmpty = !a;
+      const bEmpty = !b;
 
-      if (aNull && bNull) return 0;
-      if (aNull) return 1;
-      if (bNull) return -1;
-
-      const ta = new Date(a as any).getTime();
-      const tb = new Date(b as any).getTime();
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
 
       if (ta === tb) return 0;
-      if (isAsc) return ta < tb ? -1 : 1;
+      if (isAsc) {
+        return ta < tb ? -1 : 1;
+      }
       return ta > tb ? -1 : 1;
     };
 
@@ -288,54 +284,74 @@ const AssetsDataTablePanel: FC<Props> = ({ match }) => {
       const aEmpty = aa === '' || aa === '-';
       const bEmpty = bb === '' || bb === '-';
 
+      // EMPTY handling – ALWAYS last
       if (aEmpty && bEmpty) return 0;
       if (aEmpty) return 1;
       if (bEmpty) return -1;
 
-      const la = aa.toLowerCase();
-      const lb = bb.toLowerCase();
-
-      if (la === lb) return 0;
-      if (isAsc) return la < lb ? -1 : 1;
-      return la > lb ? -1 : 1;
+      const cmp = aa.localeCompare(bb);
+      return isAsc ? cmp : -cmp;
     };
 
-    const comparator = (a: any, b: any): number => {
-      if (!uiSortKey || uiSortDir === 'none') return 0;
+    const comparator = (a: AssetPhaseSummary, b: AssetPhaseSummary): number => {
+      const key = uiSortKey;
+      const dir: SortDir = uiSortDir === 'none' ? 'asc' : uiSortDir;
 
-      if (uiSortKey === 'group_1') {
-        return compareStrings(a.group_1, b.group_1, uiSortDir);
-      }
-      if (uiSortKey === 'relation') {
-        return compareStrings(a.relation, b.relation, uiSortDir);
+      if (key === 'group_1') {
+        return (
+          compareStrings(a.group_1, b.group_1, dir) ||
+          compareStrings(a.relation, b.relation, 'asc')
+        );
       }
 
-      const m = uiSortKey.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
+      if (key === 'relation') {
+        return (
+          compareStrings(a.relation, b.relation, dir) ||
+          compareStrings(a.group_1, b.group_1, 'asc')
+        );
+      }
+
+      const m = key.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
       if (m) {
         const phase = m[1].toLowerCase();
         const field = m[2].toLowerCase();
 
         if (field === 'submitted') {
-          const key = `${phase}_submitted_at_utc`;
-          return compareDates(a[key], b[key], uiSortDir);
+          return compareDates(
+            (a as any)[`${phase}_submitted_at_utc`],
+            (b as any)[`${phase}_submitted_at_utc`],
+            dir,
+          );
         }
-
-        const key =
-          field === 'appr'
-            ? `${phase}_approval_status`
-            : `${phase}_work_status`;
-
-        return compareStrings(a[key], b[key], uiSortDir);
+        if (field === 'appr') {
+          return compareStrings(
+            (a as any)[`${phase}_approval_status`],
+            (b as any)[`${phase}_approval_status`],
+            dir,
+          );
+        }
+        return compareStrings(
+          (a as any)[`${phase}_work_status`],
+          (b as any)[`${phase}_work_status`],
+          dir,
+        );
       }
 
-      return 0;
+      // default: group_1 asc
+      return (
+        compareStrings(a.group_1, b.group_1, 'asc') ||
+        compareStrings(a.relation, b.relation, 'asc')
+      );
     };
 
-    const base = assets.filter((asset: any) => {
-      if (nameFilter) {
-        const name = (asset.group_1 || '').toString().toLowerCase();
-        if (!name.includes(nameFilter)) return false;
-      }
+    // --- filter first ---
+    const base = pivotAssets.filter((asset) => {
+      const nameMatch =
+        !nameFilter ||
+        (asset.group_1 || '').toLowerCase().includes(nameFilter) ||
+        (asset.relation || '').toLowerCase().includes(nameFilter);
+
+      if (!nameMatch) return false;
 
       const phase =
         effectivePhase && effectivePhase !== 'none'
@@ -344,13 +360,13 @@ const AssetsDataTablePanel: FC<Props> = ({ match }) => {
 
       const matchesPhase = (p: string) => {
         if (approvalFilters.length > 0) {
-          const rawAppr = (asset[`${p}_approval_status`] || '')
+          const rawAppr = ((asset as any)[`${p}_approval_status`] || '')
             .toString()
             .toLowerCase();
           if (!approvalFilters.includes(rawAppr)) return false;
         }
         if (workFilters.length > 0) {
-          const rawWork = (asset[`${p}_work_status`] || '')
+          const rawWork = ((asset as any)[`${p}_work_status`] || '')
             .toString()
             .toLowerCase();
           if (!workFilters.includes(rawWork)) return false;
@@ -358,6 +374,7 @@ const AssetsDataTablePanel: FC<Props> = ({ match }) => {
         return true;
       };
 
+      // No filters at all → keep row
       if (!nameFilter && approvalFilters.length === 0 && workFilters.length === 0) {
         return true;
       }
@@ -366,9 +383,11 @@ const AssetsDataTablePanel: FC<Props> = ({ match }) => {
         return matchesPhase(phase);
       }
 
+      // No fixed phase → row passes if *any* phase matches filters
       return phases.some((p) => matchesPhase(p));
     });
 
+    // --- then sort according to current UI sort key/dir ---
     base.sort(comparator);
     return base;
   }, [
@@ -378,18 +397,38 @@ const AssetsDataTablePanel: FC<Props> = ({ match }) => {
     uiSortDir,
     filterProps.assetNameKey,
     (filterProps as any).approvalStatuses,
+    (filterProps as any).workStatuses,
+    filterProps.applovalStatues,
+    filterProps.workStatues,
+  ]);
+
+  // Detect if ANY filters are active (name / approval / work)
+  const filtersActive = useMemo(() => {
+    const nameActive = !!(filterProps.assetNameKey || '').trim();
+
+    const approval = (
+      (filterProps as any).approvalStatuses ||
+      filterProps.applovalStatues ||
+      []
+    ) as string[];
+
+    const work = (
+      (filterProps as any).workStatuses ||
+      filterProps.workStatues ||
+      []
+    ) as string[];
+
+    return nameActive || approval.length > 0 || work.length > 0;
+  }, [
+    filterProps.assetNameKey,
+    (filterProps as any).approvalStatuses,
     filterProps.applovalStatues,
     (filterProps as any).workStatuses,
     filterProps.workStatues,
   ]);
 
-  // 🔹 NEW: determine if any filter is active
-  const filtersActive =
-    !!(filterProps.assetNameKey && filterProps.assetNameKey.trim()) ||
-    ((((filterProps as any).approvalStatuses || filterProps.applovalStatues) || []).length > 0) ||
-    ((((filterProps as any).workStatuses || filterProps.workStatues) || []).length > 0);
-
-  // 🔹 NEW: effective count for pagination
+  // When filters are active, use client-side filtered length.
+  // When no filters, trust backend total (for real pagination).
   const effectiveCount = filtersActive ? filteredAssets.length : total;
 
   /* Studio timezone */
@@ -403,24 +442,184 @@ const AssetsDataTablePanel: FC<Props> = ({ match }) => {
           currentStudio.key_name,
           'timezone',
         ).catch((e: any) => {
-          if (e?.name === 'AbortError') return null;
+          if (e && e.name === 'AbortError') return null;
           throw e;
         });
-        if (res) setTimeZone(res);
+        if (res != null) setTimeZone(res);
       } catch (e) {
-        console.error('Failed to fetch studio timezone', e);
+        console.error(e);
+        setTimeZone(undefined);
       }
     })();
     return () => controller.abort();
   }, [currentStudio]);
 
+  /* Load hidden columns: PipelineSetting -> localStorage fallback */
+  useEffect(() => {
+    let aborted = false;
+    (async () => {
+      if (!currentProject) return;
+      try {
+        const val = await queryConfig('project', currentProject.key_name, PIPE_KEY);
+        if (aborted) return;
+
+        let arr: string[] | null = null;
+        if (Array.isArray(val)) arr = val as string[];
+        else if (typeof val === 'string' && val.trim() !== '') {
+          try {
+            arr = JSON.parse(val);
+          } catch {
+            arr = val.split(',').map((s) => s.trim());
+          }
+        }
+
+        if (!arr) {
+          try {
+            const raw = localStorage.getItem(lsKeyForProject(currentProject.key_name));
+            if (raw) arr = JSON.parse(raw);
+          } catch {
+            /* ignore */
+          }
+        }
+
+        const sanitized = (arr || []).filter((id) => !FIXED_VISIBLE.has(id));
+        setHiddenColumns(new Set(sanitized));
+      } catch (e) {
+        console.error('Load hideColumns failed; falling back to localStorage', e);
+        try {
+          const raw = localStorage.getItem(lsKeyForProject(currentProject.key_name));
+          const arr: string[] = raw ? JSON.parse(raw) : [];
+          const sanitized = arr.filter((id) => !FIXED_VISIBLE.has(id));
+          setHiddenColumns(new Set(sanitized));
+        } catch {
+          setHiddenColumns(new Set());
+        }
+      }
+    })();
+    return () => {
+      aborted = true;
+    };
+  }, [currentProject]);
+
+  /* Cleanup pending debounce on unmount */
+  useEffect(() => {
+    return () => {
+      if (commitTimerRef.current != null) {
+        window.clearTimeout(commitTimerRef.current);
+        commitTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  /* Pagination */
+  const handleRowsPerPageChange: TablePaginationProps['onChangeRowsPerPage'] = (
+    event,
+  ) => {
+    setPageProps({ page: 0, rowsPerPage: parseInt(event.target.value, 10) });
+  };
+  const handlePageChange: TablePaginationProps['onChangePage'] = (
+    _event,
+    newPage,
+  ) => {
+    setPageProps((p) => ({ ...p, page: newPage }));
+  };
+
+  /* Immediate sort commit */
+  const handleSortChange = (newUiKey: string) => {
+    const { sort: newServerSortKey, phase } = resolveServerSort(newUiKey);
+
+    // Determine the next direction: Flip only if clicking the currently active server key.
+    const nextServerDir: SortDir =
+      sortKey === newServerSortKey ? (sortDir === 'asc' ? 'desc' : 'asc') : 'asc';
+
+    // 1. Update the server state immediately. This triggers useFetchAssetsPivot.
+    setPhasePriority(phase);
+    setSortKey(newServerSortKey);
+    setSortDir(nextServerDir);
+
+    // 2. Update the UI sort state immediately to reflect the arrow.
+    setUiSortKey(newUiKey);
+    setUiSortDir(nextServerDir);
+
+    // Also reset page when sorting changes (optional)
+    // setPageProps(p => ({ ...p, page: 0 }));
+  };
+
+  /* Filters */
+  const handleFilterAssetNameChange: TextFieldProps['onChange'] = (event) => {
+    setFilterProps((p) => ({ ...p, assetNameKey: event.target.value }));
+    setPageProps((p) => ({ ...p, page: 0 }));
+  };
+  const handleApprovalStatusesChange: SelectProps['onChange'] = (
+    event: React.ChangeEvent<{ value: unknown }>,
+  ) => {
+    setFilterProps((p) => ({ ...p, applovalStatues: event.target.value as string[] }));
+    setPageProps((p) => ({ ...p, page: 0 }));
+  };
+  const handleWorkStatusesChange: SelectProps['onChange'] = (
+    event: React.ChangeEvent<{ value: unknown }>,
+  ) => {
+    setFilterProps((p) => ({ ...p, workStatues: event.target.value as string[] }));
+    setPageProps((p) => ({ ...p, page: 0 }));
+  };
+  const handleApprovalStatusesChipDelete = (name: string) => {
+    setFilterProps((p) => ({
+      ...p,
+      applovalStatues: p.applovalStatues.filter((v) => v !== name),
+    }));
+    setPageProps((p) => ({ ...p, page: 0 }));
+  };
+  const handleWorkStatusesChipDelete = (name: string) => {
+    setFilterProps((p) => ({
+      ...p,
+      workStatues: p.workStatues.filter((v) => v !== name),
+    }));
+    setPageProps((p) => ({ ...p, page: 0 }));
+  };
+  const handleFilterResetClick: ButtonProps['onClick'] = () => {
+    setFilterProps(initFilterProps);
+    setPageProps((p) => ({ ...p, page: 0 }));
+  };
+
+  /* Column actions for Drawer */
+  const toggleColumn = (id: string) => {
+    if (FIXED_VISIBLE.has(id)) return;
+    setHiddenColumns((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      persistHiddenColumns(next);
+      return next;
+    });
+  };
+
+  const showAll = () => {
+    const next = new Set<string>();
+    setHiddenColumns(next);
+    persistHiddenColumns(next);
+  };
+
+  const hideAllNonFixed = () => {
+    const next = new Set<string>(
+      COLUMN_META.map((c) => c.id).filter((id) => !FIXED_VISIBLE.has(id)),
+    );
+    setHiddenColumns(next);
+    persistHiddenColumns(next);
+  };
+
+  // Explicit save (invoked from drawer)
+  const handleSaveColumns = async () => {
+    await saveHiddenColumnsToPipelineSetting(hiddenColumns);
+  };
+
+  /* Date/Time format */
   const dateTimeFormat = new Intl.DateTimeFormat(undefined, {
     timeZone,
     dateStyle: 'medium',
     timeStyle: 'medium',
   });
 
-  /* Footer – uses effectiveCount */
+  /* Footer – use effectiveCount instead of raw total */
   const tableFooter = (
     <AssetsDataTableFooter
       count={effectiveCount}
@@ -431,6 +630,7 @@ const AssetsDataTablePanel: FC<Props> = ({ match }) => {
     />
   );
 
+  /* Drawer badge count (visible columns among togglable ones) */
   const visibleCount = useMemo(() => {
     const togglable = COLUMN_META.map((c) => c.id).filter(
       (id) => !FIXED_VISIBLE.has(id),
@@ -442,52 +642,57 @@ const AssetsDataTablePanel: FC<Props> = ({ match }) => {
     return c;
   }, [hiddenColumns]);
 
+  /* Render */
   return (
-    <StyledContainer maxWidth={false}>
+    <StyledContainer maxWidth="xl">
+      {/* Filter bar with Reset + COLUMNS (COLUMNS opens Drawer inside AssetTableFilter) */}
+      <AssetTableFilter
+        filterAssetName={filterProps.assetNameKey}
+        selectApprovalStatuses={
+          (filterProps as any).approvalStatuses || filterProps.applovalStatues
+        }
+        selectWorkStatuses={
+          (filterProps as any).workStatuses || filterProps.workStatues
+        }
+        onAssetNameChange={handleFilterAssetNameChange}
+        onApprovalStatusesChange={handleApprovalStatusesChange}
+        onWorkStatusesChange={handleWorkStatusesChange}
+        onApprovalStatusChipDelete={handleApprovalStatusesChipDelete}
+        onWorkStatusChipDelete={handleWorkStatusesChipDelete}
+        onResetClick={handleFilterResetClick}
+        /* Drawer-based column visibility */
+        hiddenColumns={hiddenColumns}
+        onHiddenColumnsChange={setHiddenColumns}
+        onToggleColumn={toggleColumn}
+        onShowAll={showAll}
+        onHideAll={hideAllNonFixed}
+        visibleCount={visibleCount}
+        onSaveColumns={handleSaveColumns}
+      />
+
+      {/* Table inside horizontal scroll container */}
       <StyledTableDiv>
         <StyledPaper>
           <StyledContentDiv>
-            <StyledFilterContainer>
-              <StyledHeaderRow>
-                <div />
-                <StyledColumnsButton
-                  variant="outlined"
-                  color="default"
-                  size="small"
-                  onClick={handleSaveColumns}
-                >
-                  Columns
-                  <StyledColumnsBadge>{visibleCount}</StyledColumnsBadge>
-                </StyledColumnsButton>
-              </StyledHeaderRow>
-
-              <StyledFilterRow>
-                <StyledFilterGrow>
-                  <AssetDataTableFilter
-                    filterProps={filterProps}
-                    onChange={handleFilterChange}
-                    onSortChange={handleSortChange}
-                    selectApprovalStatus={selectApprovalStatus}
-                    setSelectApprovalStatus={setSelectApprovalStatus}
-                    selectWorkStatus={selectWorkStatus}
-                    setSelectWorkStatus={setSelectWorkStatus}
-                    phasePriority={phasePriority}
-                    setPhasePriority={setPhasePriority}
-                  />
-                </StyledFilterGrow>
-              </StyledFilterRow>
-            </StyledFilterContainer>
-
-            <div ref={pivotContainerRef}>
+            <div
+              style={{
+                // The actual scroll container
+                overflowX: 'auto',
+                overflowY: 'hidden',
+                width: '100%',
+                paddingBottom: 4,
+              }}
+            >
               <AssetsDataTable
-                project={project}
-                assets={filteredAssets}
+                project={currentProject}
+                assets={filteredAssets as AssetPhaseSummary[]}
+                tableFooter={tableFooter}
                 dateTimeFormat={dateTimeFormat}
-                footer={tableFooter}
-                sortKey={uiSortKey}
-                sortDir={uiSortDir}
                 onSortChange={handleSortChange}
+                currentSortKey={uiSortKey}
+                currentSortDir={uiSortDir}
                 hiddenColumns={hiddenColumns}
+                // Pass filter props to table (optional)
                 assetNameKey={filterProps.assetNameKey}
                 approvalStatuses={filterProps.applovalStatues}
                 workStatuses={filterProps.workStatues}
