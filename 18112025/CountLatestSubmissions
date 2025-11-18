@@ -1,10 +1,10 @@
-// ---------- CountLatestSubmissions (with latest-per-phase + filters) ----------
 func (r *ReviewInfo) CountLatestSubmissions(
 	ctx context.Context,
 	project, root string,
 	assetNameKey string,
 	approvalStatuses, workStatuses []string,
 ) (int64, error) {
+
 	if project == "" {
 		return 0, fmt.Errorf("project is required")
 	}
@@ -12,7 +12,6 @@ func (r *ReviewInfo) CountLatestSubmissions(
 		root = "assets"
 	}
 
-	// Build filters (same helpers you already have)
 	nameWhere, nameArgs := buildAssetNameWhere(assetNameKey)
 	statusWhere, statusArgs := buildPhaseAwareStatusWhere("", approvalStatuses, workStatuses)
 
@@ -20,11 +19,13 @@ func (r *ReviewInfo) CountLatestSubmissions(
 	if nameWhere != "" {
 		nameClause = " AND " + nameWhere
 	}
+
 	statusClause := ""
 	if statusWhere != "" {
 		statusClause = " AND " + statusWhere
 	}
 
+	// FINAL SQL - matches UI exactly
 	q := fmt.Sprintf(`
 WITH latest_rows AS (
 	SELECT
@@ -50,18 +51,15 @@ filtered AS (
 	WHERE rn = 1
 	%s
 	%s
-),
-assets AS (
-	SELECT project, root, group_1, relation
-	FROM filtered
-	GROUP BY project, root, group_1, relation
 )
-SELECT COUNT(*) FROM assets;
+SELECT COUNT(*)
+FROM (
+	SELECT DISTINCT project, root, group_1, relation
+	FROM filtered
+) AS assets;
 `, nameClause, statusClause)
 
-	args := []any{
-		project, root,
-	}
+	args := []any{project, root}
 	args = append(args, nameArgs...)
 	args = append(args, statusArgs...)
 
