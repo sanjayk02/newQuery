@@ -1,16 +1,10 @@
-// ---------- Dynamic Listing Function (latest-per-phase + filters) ----------
 func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 	ctx context.Context,
-	project string,
-	root string,
-	preferredPhase string, // e.g. "mdl" or "none"
-	orderKey string,
-	direction string,
+	project, root, preferredPhase, orderKey, direction string,
 	limit, offset int,
 	assetNameKey string,
 	approvalStatuses, workStatuses []string,
 ) ([]LatestSubmissionRow, error) {
-
 	if project == "" {
 		return nil, fmt.Errorf("project is required")
 	}
@@ -24,14 +18,15 @@ func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 		offset = 0
 	}
 
-	// Disable phase bias when preferredPhase is empty/none
+	// phaseGuard = 1 → no phase bias
 	phaseGuard := 0
 	if preferredPhase == "" || strings.EqualFold(preferredPhase, "none") {
 		phaseGuard = 1
 	}
 
-	nameWhere, nameArgs := buildAssetNameWhere(assetNameKey)
-	statusWhere, statusArgs := buildPhaseAwareStatusWhere(preferredPhase, approvalStatuses, workStatuses)
+	// Same filters as CountLatestSubmissions
+	nameWhere, nameArgs := buildAssetNameWhere(assetNameKey, "")
+	statusWhere, statusArgs := buildStatusFilterClause("", approvalStatuses, workStatuses)
 
 	nameClause := ""
 	if nameWhere != "" {
@@ -42,6 +37,7 @@ func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 		statusClause = " AND " + statusWhere
 	}
 
+	// Sort the final collapsed rows using alias "x"
 	orderClause := buildOrderClause("x", orderKey, direction)
 
 	q := fmt.Sprintf(`
@@ -66,9 +62,7 @@ WITH latest_rows AS (
 filtered AS (
 	SELECT *
 	FROM latest_rows
-	WHERE rn = 1
-	%s
-	%s
+	WHERE rn = 1%s%s
 ),
 ranked AS (
 	SELECT
@@ -94,15 +88,17 @@ SELECT
 FROM ranked AS x
 WHERE x.rk = 1
 ORDER BY %s
-LIMIT ? OFFSET ?;
-`, nameClause, statusClause, orderClause)
+LIMIT ? OFFSET ?;`, nameClause, statusClause, orderClause)
 
 	args := []any{
-		project, root,
+		project, root, // latest_rows WHERE
 	}
 	args = append(args, nameArgs...)
 	args = append(args, statusArgs...)
-	args = append(args, phaseGuard, preferredPhase)
+	args = append(args,
+		phaseGuard,
+		strings.ToLower(preferredPhase),
+	)
 	args = append(args, limit, offset)
 
 	var rows []LatestSubmissionRow
