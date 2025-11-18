@@ -1,0 +1,476 @@
+// ========================================================================
+// ========= Asset Review Pivot Listing (helpers + main funcs) ============
+// ========================================================================
+
+/*
+   Assumes these structs already exist above:
+
+   type LatestSubmissionRow struct { ... }
+   type AssetPivot struct { ... }
+   type phaseRow struct { ... }
+*/
+
+// ---------- Helper: asset-name filter ----------
+// Matches text against group_1 OR relation (case-insensitive).
+func buildAssetNameWhere(assetNameKey string) (string, []any) {
+	assetNameKey = strings.TrimSpace(strings.ToLower(assetNameKey))
+	if assetNameKey == "" {
+		return "", nil
+	}
+	like := "%" + assetNameKey + "%"
+	return "(LOWER(group_1) LIKE ? OR LOWER(relation) LIKE ?)", []any{like, like}
+}
+
+// ---------- Helper: approval/work status filter (phase-agnostic) ----------
+// preferredPhase is kept for compatibility; currently not used inside this helper.
+// Phase preference is handled in ORDER BY logic.
+func buildPhaseAwareStatusWhere(
+	preferredPhase string,
+	approvalStatuses, workStatuses []string,
+) (string, []any) {
+	clauses := []string{}
+	args := []any{}
+
+	buildIn := func(col string, vals []string) {
+		if len(vals) == 0 {
+			return
+		}
+		ph := strings.Repeat("?,", len(vals))
+		ph = ph[:len(ph)-1]
+
+		clauses = append(clauses, fmt.Sprintf("LOWER(%s) IN (%s)", col, ph))
+		for _, v := range vals {
+			args = append(args, strings.ToLower(strings.TrimSpace(v)))
+		}
+	}
+
+	buildIn("approval_status", approvalStatuses)
+	buildIn("work_status", workStatuses)
+
+	if len(clauses) == 0 {
+		return "", nil
+	}
+	return strings.Join(clauses, " AND "), args
+}
+
+// ---------- Helper: dynamic ORDER BY for submissions ----------
+// alias is usually "" (no alias) or a table alias like "x".
+func buildOrderClause(alias, key, dir string) string {
+	dir = strings.ToUpper(strings.TrimSpace(dir))
+	if dir != "ASC" && dir != "DESC" {
+		dir = "ASC"
+	}
+	col := func(c string) string {
+		if alias != "" {
+			return alias + "." + c
+		}
+		return c
+	}
+
+	switch key {
+	// Generic Sorts (use column directly)
+	case "submitted_at_utc", "modified_at_utc", "phase":
+		return col(key) + " " + dir
+
+	// Asset Name/Relation Sorts (compound)
+	case "group1_only":
+		return fmt.Sprintf(
+			"LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			col("group_1"), dir,
+			col("relation"),
+			col("submitted_at_utc"),
+			col("submitted_at_utc"), dir,
+		)
+	case "relation_only":
+		return fmt.Sprintf(
+			"LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			col("relation"), dir,
+			col("group_1"),
+			col("submitted_at_utc"),
+			col("submitted_at_utc"), dir,
+		)
+	case "group_rel_submitted":
+		return fmt.Sprintf(
+			"LOWER(%s) ASC, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			col("group_1"),
+			col("relation"),
+			col("submitted_at_utc"),
+			col("submitted_at_utc"), dir,
+		)
+
+	// Phase-specific sorts (we still sort by generic cols; phase bias is separate)
+	case "mdl_submitted", "rig_submitted", "bld_submitted", "dsn_submitted", "ldv_submitted":
+		return fmt.Sprintf(
+			"(%s IS NULL) ASC, %s %s, LOWER(%s) ASC, LOWER(%s) ASC",
+			col("submitted_at_utc"),
+			col("submitted_at_utc"), dir,
+			col("group_1"), col("relation"),
+		)
+
+	case "mdl_work_status", "rig_work_status", "bld_work_status", "dsn_work_status", "ldv_work_status":
+		return fmt.Sprintf(
+			"(%s IS NULL) ASC, %s %s, LOWER(%s) ASC, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			col("work_status"),
+			col("work_status"), dir,
+			col("group_1"), col("relation"),
+			col("submitted_at_utc"),
+			col("submitted_at_utc"), dir,
+		)
+
+	// Default = name sort
+	default:
+		return fmt.Sprintf(
+			"LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			col("group_1"), dir,
+			col("relation"),
+			col("submitted_at_utc"),
+			col("submitted_at_utc"), dir,
+		)
+	}
+}
+
+// ---------- CountLatestSubmissions (latest-per-phase + filters) ----------
+func (r *ReviewInfo) CountLatestSubmissions(
+	ctx context.Context,
+	project, root string,
+	assetNameKey string,
+	approvalStatuses, workStatuses []string,
+) (int64, error) {
+
+	if project == "" {
+		return 0, fmt.Errorf("project is required")
+	}
+	if root == "" {
+		root = "assets"
+	}
+
+	nameWhere, nameArgs := buildAssetNameWhere(assetNameKey)
+	statusWhere, statusArgs := buildPhaseAwareStatusWhere("", approvalStatuses, workStatuses)
+
+	nameClause := ""
+	if nameWhere != "" {
+		nameClause = " AND " + nameWhere
+	}
+	statusClause := ""
+	if statusWhere != "" {
+		statusClause = " AND " + statusWhere
+	}
+
+	q := fmt.Sprintf(`
+WITH latest_rows AS (
+	SELECT
+		project,
+		root,
+		group_1,
+		relation,
+		phase,
+		work_status,
+		approval_status,
+		submitted_at_utc,
+		modified_at_utc,
+		ROW_NUMBER() OVER (
+			PARTITION BY project, root, group_1, relation, phase
+			ORDER BY modified_at_utc DESC
+		) AS rn
+	FROM t_review_info
+	WHERE project = ? AND root = ? AND deleted = 0
+),
+filtered AS (
+	SELECT *
+	FROM latest_rows
+	WHERE rn = 1
+	%s
+	%s
+)
+SELECT COUNT(*)
+FROM (
+	SELECT DISTINCT project, root, group_1, relation
+	FROM filtered
+) AS assets;
+`, nameClause, statusClause)
+
+	args := []any{project, root}
+	args = append(args, nameArgs...)
+	args = append(args, statusArgs...)
+
+	var total int64
+	if err := r.db.WithContext(ctx).Raw(q, args...).Scan(&total).Error; err != nil {
+		return 0, fmt.Errorf("CountLatestSubmissions: %w", err)
+	}
+	return total, nil
+}
+
+// ---------- Dynamic Listing Function (latest-per-phase + filters) ----------
+func (r *ReviewInfo) ListLatestSubmissionsDynamic(
+	ctx context.Context,
+	project string,
+	root string,
+	preferredPhase string, // e.g. "mdl" or "none"
+	orderKey string,
+	direction string,
+	limit, offset int,
+	assetNameKey string,
+	approvalStatuses, workStatuses []string,
+) ([]LatestSubmissionRow, error) {
+
+	if project == "" {
+		return nil, fmt.Errorf("project is required")
+	}
+	if root == "" {
+		root = "assets"
+	}
+	if limit <= 0 {
+		limit = 60
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Disable phase bias when preferredPhase is empty/none
+	phaseGuard := 0
+	if preferredPhase == "" || strings.EqualFold(preferredPhase, "none") {
+		phaseGuard = 1
+	}
+
+	nameWhere, nameArgs := buildAssetNameWhere(assetNameKey)
+	statusWhere, statusArgs := buildPhaseAwareStatusWhere(preferredPhase, approvalStatuses, workStatuses)
+
+	nameClause := ""
+	if nameWhere != "" {
+		nameClause = " AND " + nameWhere
+	}
+	statusClause := ""
+	if statusWhere != "" {
+		statusClause = " AND " + statusWhere
+	}
+
+	orderClause := buildOrderClause("x", orderKey, direction)
+
+	q := fmt.Sprintf(`
+WITH latest_rows AS (
+	SELECT
+		project,
+		root,
+		group_1,
+		relation,
+		phase,
+		work_status,
+		approval_status,
+		submitted_at_utc,
+		modified_at_utc,
+		ROW_NUMBER() OVER (
+			PARTITION BY project, root, group_1, relation, phase
+			ORDER BY modified_at_utc DESC
+		) AS rn
+	FROM t_review_info
+	WHERE project = ? AND root = ? AND deleted = 0
+),
+filtered AS (
+	SELECT *
+	FROM latest_rows
+	WHERE rn = 1
+	%s
+	%s
+),
+ranked AS (
+	SELECT
+		*,
+		ROW_NUMBER() OVER (
+			PARTITION BY project, root, group_1, relation
+			ORDER BY
+				CASE
+					WHEN ? = 1 THEN 0
+					WHEN phase = ? THEN 0 ELSE 1
+				END,
+				modified_at_utc DESC
+		) AS rk
+	FROM filtered
+)
+SELECT
+	x.root,
+	x.project,
+	x.group_1,
+	x.relation,
+	x.phase,
+	x.submitted_at_utc
+FROM ranked AS x
+WHERE x.rk = 1
+ORDER BY %s
+LIMIT ? OFFSET ?;
+`, nameClause, statusClause, orderClause)
+
+	args := []any{
+		project, root,
+	}
+	args = append(args, nameArgs...)
+	args = append(args, statusArgs...)
+	args = append(args, phaseGuard, preferredPhase)
+	args = append(args, limit, offset)
+
+	var rows []LatestSubmissionRow
+	if err := r.db.WithContext(ctx).Raw(q, args...).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("ListLatestSubmissionsDynamic: %w", err)
+	}
+	return rows, nil
+}
+
+// ---------- ListAssetsPivot (pivot fill with filters) ----------
+func (r *ReviewInfo) ListAssetsPivot(
+	ctx context.Context,
+	project, root, preferredPhase, orderKey, direction string,
+	limit, offset int,
+	assetNameKey string,
+	approvalStatuses, workStatuses []string,
+) ([]AssetPivot, int64, error) {
+
+	if project == "" {
+		return nil, 0, fmt.Errorf("project is required")
+	}
+	if root == "" {
+		root = "assets"
+	}
+	if limit <= 0 {
+		limit = 60
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	// total matches filters
+	total, err := r.CountLatestSubmissions(
+		ctx,
+		project,
+		root,
+		assetNameKey,
+		approvalStatuses,
+		workStatuses,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// keys are also filtered
+	keys, err := r.ListLatestSubmissionsDynamic(
+		ctx,
+		project,
+		root,
+		preferredPhase,
+		orderKey,
+		direction,
+		limit,
+		offset,
+		assetNameKey,
+		approvalStatuses,
+		workStatuses,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(keys) == 0 {
+		return []AssetPivot{}, total, nil
+	}
+
+	// batch fetch latest-by-phase rows for these assets
+	var sb strings.Builder
+	var params []any
+
+	sb.WriteString(`
+WITH latest_phase AS (
+	SELECT
+		project, root, group_1, relation, phase,
+		work_status, approval_status, submitted_at_utc, modified_at_utc,
+		ROW_NUMBER() OVER (
+			PARTITION BY project, root, group_1, relation, phase
+			ORDER BY modified_at_utc DESC
+		) AS rn
+	FROM t_review_info
+	WHERE project = ? AND root = ? AND deleted = 0
+	  AND (
+`)
+	params = append(params, project, root)
+
+	for i, k := range keys {
+		if i > 0 {
+			sb.WriteString("       OR ")
+		}
+		sb.WriteString("(group_1 = ? AND relation = ?)\n")
+		params = append(params, k.Group1, k.Relation)
+	}
+
+	sb.WriteString(`	  )
+)
+SELECT project, root, group_1, relation, phase,
+       work_status, approval_status, submitted_at_utc
+FROM latest_phase
+WHERE rn = 1;`)
+
+	var phases []phaseRow
+	if err := r.db.WithContext(ctx).Raw(sb.String(), params...).Scan(&phases).Error; err != nil {
+		return nil, 0, fmt.Errorf("ListAssetsPivot.phaseFetch: %w", err)
+	}
+
+	// pivot in Go
+	type key struct {
+		p, r, g, rel string
+	}
+
+	m := make(map[key]*AssetPivot, len(keys))
+	ordered := make([]AssetPivot, 0, len(keys))
+
+	for _, k := range keys {
+		id := key{k.Project, k.Root, k.Group1, k.Relation}
+		ap := &AssetPivot{
+			Root:     k.Root,
+			Project:  k.Project,
+			Group1:   k.Group1,
+			Relation: k.Relation,
+		}
+		m[id] = ap
+		ordered = append(ordered, *ap)
+	}
+
+	for _, pr := range phases {
+		id := key{pr.Project, pr.Root, pr.Group1, pr.Relation}
+		ap, ok := m[id]
+		if !ok {
+			continue
+		}
+
+		switch strings.ToLower(pr.Phase) {
+		case "mdl":
+			ap.MDLWorkStatus = pr.WorkStatus
+			ap.MDLApprovalStatus = pr.ApprovalStatus
+			ap.MDLSubmittedAtUTC = pr.SubmittedAtUTC
+		case "rig":
+			ap.RIGWorkStatus = pr.WorkStatus
+			ap.RIGApprovalStatus = pr.ApprovalStatus
+			ap.RIGSubmittedAtUTC = pr.SubmittedAtUTC
+		case "bld":
+			ap.BLDWorkStatus = pr.WorkStatus
+			ap.BLDApprovalStatus = pr.ApprovalStatus
+			ap.BLDSubmittedAtUTC = pr.SubmittedAtUTC
+		case "dsn":
+			ap.DSNWorkStatus = pr.WorkStatus
+			ap.DSNApprovalStatus = pr.ApprovalStatus
+			ap.DSNSubmittedAtUTC = pr.SubmittedAtUTC
+		case "ldv":
+			ap.LDVWorkStatus = pr.WorkStatus
+			ap.LDVApprovalStatus = pr.ApprovalStatus
+			ap.LDVSubmittedAtUTC = pr.SubmittedAtUTC
+		}
+	}
+
+	for i := range ordered {
+		id := key{
+			ordered[i].Project,
+			ordered[i].Root,
+			ordered[i].Group1,
+			ordered[i].Relation,
+		}
+		if filled, ok := m[id]; ok {
+			ordered[i] = *filled
+		}
+	}
+
+	return ordered, total, nil
+}
