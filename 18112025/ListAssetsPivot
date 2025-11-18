@@ -1,4 +1,3 @@
-// ---------- ListAssetsPivot (pivot fill with filters) ----------
 func (r *ReviewInfo) ListAssetsPivot(
 	ctx context.Context,
 	project, root, preferredPhase, orderKey, direction string,
@@ -7,45 +6,26 @@ func (r *ReviewInfo) ListAssetsPivot(
 	approvalStatuses, workStatuses []string,
 ) ([]AssetPivot, int64, error) {
 
-	if project == "" {
-		return nil, 0, fmt.Errorf("project is required")
-	}
-	if root == "" {
-		root = "assets"
-	}
-	if limit <= 0 {
-		limit = 60
-	}
-	if offset < 0 {
-		offset = 0
-	}
-
-	// total matches filters
+	// 1) Total count using same filters as list
 	total, err := r.CountLatestSubmissions(
 		ctx,
-		project,
-		root,
+		project, root,
 		assetNameKey,
-		approvalStatuses,
-		workStatuses,
+		approvalStatuses, workStatuses,
 	)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	// keys are also filtered
+	// 2) Page keys (one row per asset)
 	keys, err := r.ListLatestSubmissionsDynamic(
 		ctx,
-		project,
-		root,
+		project, root,
 		preferredPhase,
-		orderKey,
-		direction,
-		limit,
-		offset,
+		orderKey, direction,
+		limit, offset,
 		assetNameKey,
-		approvalStatuses,
-		workStatuses,
+		approvalStatuses, workStatuses,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -54,7 +34,7 @@ func (r *ReviewInfo) ListAssetsPivot(
 		return []AssetPivot{}, total, nil
 	}
 
-	// batch fetch latest-by-phase rows for these assets
+	// 3) For this page of assets, fetch latest row per phase (no extra filters here)
 	var sb strings.Builder
 	var params []any
 
@@ -75,16 +55,16 @@ WITH latest_phase AS (
 
 	for i, k := range keys {
 		if i > 0 {
-			sb.WriteString("       OR ")
+			sb.WriteString("	    OR ")
 		}
 		sb.WriteString("(group_1 = ? AND relation = ?)\n")
 		params = append(params, k.Group1, k.Relation)
 	}
 
-	sb.WriteString(`	  )
+	sb.WriteString(`
+	  )
 )
-SELECT project, root, group_1, relation, phase,
-       work_status, approval_status, submitted_at_utc
+SELECT project, root, group_1, relation, phase, work_status, approval_status, submitted_at_utc
 FROM latest_phase
 WHERE rn = 1;`)
 
@@ -93,7 +73,7 @@ WHERE rn = 1;`)
 		return nil, 0, fmt.Errorf("ListAssetsPivot.phaseFetch: %w", err)
 	}
 
-	// pivot in Go
+	// 4) Pivot in Go
 	type key struct {
 		p, r, g, rel string
 	}
@@ -144,13 +124,9 @@ WHERE rn = 1;`)
 		}
 	}
 
+	// Preserve ordering from `keys`
 	for i := range ordered {
-		id := key{
-			ordered[i].Project,
-			ordered[i].Root,
-			ordered[i].Group1,
-			ordered[i].Relation,
-		}
+		id := key{ordered[i].Project, ordered[i].Root, ordered[i].Group1, ordered[i].Relation}
 		if filled, ok := m[id]; ok {
 			ordered[i] = *filled
 		}
