@@ -1,0 +1,86 @@
+  // Are ANY filters active? (name / approval / work)
+  const filtersActive = useMemo(() => {
+    const nameActive = !!(filterProps.assetNameKey || '').trim();
+
+    const approval = (
+      (filterProps as any).approvalStatuses ||
+      filterProps.applovalStatues ||
+      []
+    ) as string[];
+
+    const work = (
+      (filterProps as any).workStatuses ||
+      filterProps.workStatues ||
+      []
+    ) as string[];
+
+    return nameActive || approval.length > 0 || work.length > 0;
+  }, [filterProps]);
+
+  // When filters are active, base the count on the filtered assets
+  // in the current page. When no filters, trust backend total.
+  const effectiveCount = filtersActive ? filteredAssets.length : total;
+
+
+  const filteredAssets = useMemo<AssetPhaseSummary[]>(() => {
+    if (!assets) return [];
+
+    // ... your existing filtering + sorting logic ...
+  }, [
+    assets,
+    effectivePhase,
+    uiSortKey,
+    uiSortDir,
+    filterProps.assetNameKey,
+    (filterProps as any).approvalStatuses,
+    (filterProps as any).workStatuses,
+    filterProps.applovalStatues,
+    filterProps.workStatues,
+  ]);
+
+  // Are ANY filters active? (name / approval / work)
+  const filtersActive = useMemo(() => {
+    const nameActive = !!(filterProps.assetNameKey || '').trim();
+
+    const approval = (
+      (filterProps as any).approvalStatuses ||
+      filterProps.applovalStatues ||
+      []
+    ) as string[];
+
+    const work = (
+      (filterProps as any).workStatuses ||
+      filterProps.workStatues ||
+      []
+    ) as string[];
+
+    return nameActive || approval.length > 0 || work.length > 0;
+  }, [filterProps]);
+
+  // When filters are active, base the count on the filtered assets
+  // in the current page. When no filters, trust backend total.
+  const effectiveCount = filtersActive ? filteredAssets.length : total;
+
+
+  /* Footer */
+  const tableFooter = (
+    <AssetsDataTableFooter
+      count={total}
+      page={pageProps.page}
+      rowsPerPage={pageProps.rowsPerPage}
+      onChangePage={handlePageChange}
+      onChangeRowsPerPage={handleRowsPerPageChange}
+    />
+  );
+
+
+  /* Footer */
+  const tableFooter = (
+    <AssetsDataTableFooter
+      count={effectiveCount}
+      page={pageProps.page}
+      rowsPerPage={pageProps.rowsPerPage}
+      onChangePage={handlePageChange}
+      onChangeRowsPerPage={handleRowsPerPageChange}
+    />
+  );
