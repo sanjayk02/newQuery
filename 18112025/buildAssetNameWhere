@@ -1,0 +1,55 @@
+// Asset name filter: matches frontend behavior (group_1 only, contains, case-insensitive).
+func buildAssetNameWhere(assetNameKey string, alias string) (string, []any) {
+	key := strings.TrimSpace(strings.ToLower(assetNameKey))
+	if key == "" {
+		return "", nil
+	}
+
+	col := "group_1"
+	if alias != "" {
+		col = alias + "." + col
+	}
+
+	return fmt.Sprintf("LOWER(%s) LIKE ?", col), []any{"%" + key + "%"}
+}
+
+// Status filter: matchesPhase(p)
+//   - (approvalFilters empty OR LOWER(approval_status) IN (...))
+//   - AND
+//   - (workFilters empty OR LOWER(work_status) IN (...))
+func buildStatusFilterClause(alias string, approvalStatuses, workStatuses []string) (string, []any) {
+	prefix := ""
+	if alias != "" {
+		prefix = alias + "."
+	}
+
+	clauses := []string{}
+	args := []any{}
+
+	if len(approvalStatuses) > 0 {
+		ph := strings.Repeat("?,", len(approvalStatuses))
+		ph = ph[:len(ph)-1]
+		clauses = append(clauses,
+			fmt.Sprintf("LOWER(%sapproval_status) IN (%s)", prefix, ph),
+		)
+		for _, v := range approvalStatuses {
+			args = append(args, strings.ToLower(strings.TrimSpace(v)))
+		}
+	}
+
+	if len(workStatuses) > 0 {
+		ph := strings.Repeat("?,", len(workStatuses))
+		ph = ph[:len(ph)-1]
+		clauses = append(clauses,
+			fmt.Sprintf("LOWER(%swork_status) IN (%s)", prefix, ph),
+		)
+		for _, v := range workStatuses {
+			args = append(args, strings.ToLower(strings.TrimSpace(v)))
+		}
+	}
+
+	if len(clauses) == 0 {
+		return "", nil
+	}
+	return strings.Join(clauses, " AND "), args
+}
