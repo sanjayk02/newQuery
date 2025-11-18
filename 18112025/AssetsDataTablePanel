@@ -12,12 +12,7 @@ import { TablePaginationProps } from '@material-ui/core/TablePagination';
 import { TextFieldProps } from '@material-ui/core/TextField';
 
 import { useFetchAssetsPivot } from './hooks';
-import {
-  FilterProps as _FilterProps,
-  PageProps,
-  SortDir,
-  AssetPhaseSummary,
-} from './types';
+import { FilterProps as _FilterProps, PageProps, SortDir } from './types';
 import AssetsDataTable from './AssetsDataTable';
 import AssetTableFilter from './AssetDataTableFilter';
 import AssetsDataTableFooter from './AssetsDataTableFooter';
@@ -124,28 +119,6 @@ const lsKeyForProject = (projectKeyName?: string) => {
   return `ppi:assets:hideColumns:${projectKeyName || 'unknown'}`;
 };
 
-// Phase sort key helper: accepts both *_work / *_appr / *_submitted and
-// *_work_status / *_approval_status / *_submitted_at / *_submitted_at_utc.
-type PhaseField = 'work' | 'appr' | 'submitted';
-
-const parsePhaseSortKey = (
-  key: string,
-): { phase: string | null; field: PhaseField | null } => {
-  const lower = key.toLowerCase();
-  const m = lower.match(/^(mdl|rig|bld|dsn|ldv)_(.+)$/);
-  if (!m) return { phase: null, field: null };
-
-  const phase = m[1];
-  const rest = m[2];
-
-  let field: PhaseField | null = null;
-  if (rest.startsWith('work')) field = 'work';
-  else if (rest.startsWith('appr') || rest.startsWith('approval')) field = 'appr';
-  else if (rest.startsWith('submitted')) field = 'submitted';
-
-  return { phase, field };
-};
-
 /* ──────────────────────────────────────────────────────────────────────────
  * Component
  * ────────────────────────────────────────────────────────────────────────── */
@@ -158,11 +131,11 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [phasePriority, setPhasePriority] = useState<string>('none'); // mdl|rig|bld|dsn|ldv|none
 
-  // UI sort (instant arrow feedback)
+  // UI sort (instant arrow feedback; DEBOUNCE REMOVED)
   const [uiSortKey, setUiSortKey] = useState<string>('group_1');
   const [uiSortDir, setUiSortDir] = useState<SortDir>('asc');
 
-  // Debounce ref is unused now but kept for history
+  // Debounce ref is now unused but kept for history
   const commitTimerRef = useRef<number | null>(null);
 
   // Column visibility
@@ -178,8 +151,12 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
     if (key === 'group_1') return { sort: 'group_1', phase: 'none' };
     if (key === 'relation') return { sort: 'relation', phase: 'none' };
 
-    const { phase, field } = parsePhaseSortKey(key);
-    if (!phase || !field) return { sort: 'group_1', phase: 'none' };
+    // Phase-specific keys: map to the specific column ID for correct backend resolution
+    const m = key.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
+    if (!m) return { sort: 'group_1', phase: 'none' };
+
+    const phase = m[1].toLowerCase();
+    const field = m[2].toLowerCase();
 
     if (field === 'submitted') return { sort: `${phase}_submitted`, phase };
     if (field === 'appr') return { sort: `${phase}_appr`, phase };
@@ -218,14 +195,18 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
     persistHiddenColumnsLocal(next);
   };
 
+  // Pre-normalised filter arrays (to reuse in multiple places)
+  const approvalArray =
+    ((filterProps as any).approvalStatuses || filterProps.applovalStatues || []) as string[];
+  const workArray =
+    ((filterProps as any).workStatuses || filterProps.workStatues || []) as string[];
+
   // Decide which phase to send to backend:
   // If any filter is active, keep phase='none' (no bias). Otherwise allow phasePriority.
   const effectivePhase = useMemo(() => {
     const nameFilterActive = !!(filterProps.assetNameKey || '').trim();
-    const approvalSelected =
-      (((filterProps as any).approvalStatuses || filterProps.applovalStatues) || []).length > 0;
-    const workSelected =
-      (((filterProps as any).workStatuses || filterProps.workStatues) || []).length > 0;
+    const approvalSelected = approvalArray.length > 0;
+    const workSelected = workArray.length > 0;
 
     const isFilterActive = nameFilterActive || approvalSelected || workSelected;
     if (isFilterActive) return 'none';
@@ -235,62 +216,65 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
   }, [
     phasePriority,
     filterProps.assetNameKey,
-    (filterProps as any).approvalStatuses,
-    filterProps.applovalStatues,
-    (filterProps as any).workStatuses,
-    filterProps.workStatues,
+    approvalArray,
+    workArray,
   ]);
 
-  const serverSortDir: 'asc' | 'desc' = sortDir === 'none' ? 'asc' : sortDir;
+  // Detect if ANY filters are active (name / approval / work)
+  const filtersActive = useMemo(() => {
+    const nameActive = !!(filterProps.assetNameKey || '').trim();
+    return nameActive || approvalArray.length > 0 || workArray.length > 0;
+  }, [filterProps.assetNameKey, approvalArray, workArray]);
+
+  // When filters are active, fetch a large page once and paginate on the client
+  const backendPage = filtersActive ? 0 : pageProps.page;
+  const backendRowsPerPage = filtersActive ? 5000 : pageProps.rowsPerPage;
 
   /* Fetch data */
   const { assets, total } = useFetchAssetsPivot(
     currentProject,
-    pageProps.page,
-    pageProps.rowsPerPage,
+    backendPage,
+    backendRowsPerPage,
     sortKey,
-    serverSortDir,
+    sortDir,
     effectivePhase,
     filterProps.assetNameKey,
-    (filterProps as any).approvalStatuses || filterProps.applovalStatues,
-    (filterProps as any).workStatuses || filterProps.workStatues,
+    approvalArray,
+    workArray,
   );
 
-  // Client-side row filter + sort so that changing filters or sort actually
+  // 🔍 Client-side row filter + sort so that changing filters or sort actually
   // affects what you see even when backend uses phase=none.
-  const filteredAssets = useMemo<AssetPhaseSummary[]>(() => {
+  const filteredAssets = useMemo(() => {
     if (!assets) return [];
 
-    // Treat assets from the hook as AssetPhaseSummary – shapes are identical.
-    const pivotAssets = assets as unknown as AssetPhaseSummary[];
-
     const nameFilter = (filterProps.assetNameKey || '').trim().toLowerCase();
-    const approvalFilters = (
-      ((filterProps as any).approvalStatuses || filterProps.applovalStatues) || []
-    ).map((s: string) => s.toLowerCase());
-    const workFilters = (
-      ((filterProps as any).workStatuses || filterProps.workStatues) || []
-    ).map((s: string) => s.toLowerCase());
+    const approvalFilters = approvalArray.map((s) => s.toLowerCase());
+    const workFilters = workArray.map((s) => s.toLowerCase());
 
     const phases = ['mdl', 'rig', 'bld', 'dsn', 'ldv'] as const;
 
     const compareDates = (a: any, b: any, dir: SortDir) => {
       const isAsc = dir === 'asc';
-      const ta = a ? new Date(a).getTime() : 0;
-      const tb = b ? new Date(b).getTime() : 0;
 
-      const aEmpty = !a;
-      const bEmpty = !b;
+      const aNull = !a || a === '-';
+      const bNull = !b || b === '-';
 
-      if (aEmpty && bEmpty) return 0;
-      if (aEmpty) return 1;
-      if (bEmpty) return -1;
+      // NULL / empty handling – ALWAYS last
+      if (aNull && bNull) return 0;
+      if (aNull) return 1; // a goes after b (ASC or DESC)
+      if (bNull) return -1; // b goes after a
+
+      const ta = new Date(a as any).getTime();
+      const tb = new Date(b as any).getTime();
 
       if (ta === tb) return 0;
+
       if (isAsc) {
         return ta < tb ? -1 : 1;
+      } else {
+        return ta > tb ? -1 : 1;
       }
-      return ta > tb ? -1 : 1;
     };
 
     const compareStrings = (a: any, b: any, dir: SortDir) => {
@@ -304,71 +288,61 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
 
       // EMPTY handling – ALWAYS last
       if (aEmpty && bEmpty) return 0;
-      if (aEmpty) return 1;
-      if (bEmpty) return -1;
+      if (aEmpty) return 1; // a after b
+      if (bEmpty) return -1; // b after a
 
-      const cmp = aa.localeCompare(bb);
-      return isAsc ? cmp : -cmp;
+      const la = aa.toLowerCase();
+      const lb = bb.toLowerCase();
+
+      if (la === lb) return 0;
+
+      if (isAsc) {
+        return la < lb ? -1 : 1;
+      } else {
+        return la > lb ? -1 : 1;
+      }
     };
 
-    const comparator = (a: AssetPhaseSummary, b: AssetPhaseSummary): number => {
-      const key = uiSortKey;
-      const dir: SortDir = uiSortDir === 'none' ? 'asc' : uiSortDir;
+    const comparator = (a: any, b: any): number => {
+      if (!uiSortKey || uiSortDir === 'none') return 0;
 
-      if (key === 'group_1') {
-        return (
-          compareStrings(a.group_1, b.group_1, dir) ||
-          compareStrings(a.relation, b.relation, 'asc')
-        );
+      if (uiSortKey === 'group_1') {
+        return compareStrings(a.group_1, b.group_1, uiSortDir);
+      }
+      if (uiSortKey === 'relation') {
+        return compareStrings(a.relation, b.relation, uiSortDir);
       }
 
-      if (key === 'relation') {
-        return (
-          compareStrings(a.relation, b.relation, dir) ||
-          compareStrings(a.group_1, b.group_1, 'asc')
-        );
-      }
+      const m = uiSortKey.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
+      if (m) {
+        const phase = m[1].toLowerCase();
+        const field = m[2].toLowerCase();
 
-      const { phase, field } = parsePhaseSortKey(key);
-      if (phase && field) {
         if (field === 'submitted') {
-          return compareDates(
-            (a as any)[`${phase}_submitted_at_utc`],
-            (b as any)[`${phase}_submitted_at_utc`],
-            dir,
-          );
+          const key = `${phase}_submitted_at_utc`; // or _submitted_at if that’s your field
+          return compareDates(a[key], b[key], uiSortDir);
         }
-        if (field === 'appr') {
-          return compareStrings(
-            (a as any)[`${phase}_approval_status`],
-            (b as any)[`${phase}_approval_status`],
-            dir,
-          );
-        }
-        // work
-        return compareStrings(
-          (a as any)[`${phase}_work_status`],
-          (b as any)[`${phase}_work_status`],
-          dir,
-        );
+
+        const key =
+          field === 'appr'
+            ? `${phase}_approval_status`
+            : `${phase}_work_status`;
+
+        return compareStrings(a[key], b[key], uiSortDir);
       }
 
-      // default: group_1 asc
-      return (
-        compareStrings(a.group_1, b.group_1, 'asc') ||
-        compareStrings(a.relation, b.relation, 'asc')
-      );
+      return 0;
     };
 
     // --- filter first ---
-    const base = pivotAssets.filter((asset) => {
-      const nameMatch =
-        !nameFilter ||
-        (asset.group_1 || '').toLowerCase().includes(nameFilter) ||
-        (asset.relation || '').toLowerCase().includes(nameFilter);
+    const base = assets.filter((asset: any) => {
+      // 1) Asset Name filter (group_1)
+      if (nameFilter) {
+        const name = (asset.group_1 || '').toString().toLowerCase();
+        if (!name.includes(nameFilter)) return false;
+      }
 
-      if (!nameMatch) return false;
-
+      // 2) Phase-locked matching (for client view)
       const phase =
         effectivePhase && effectivePhase !== 'none'
           ? effectivePhase.toLowerCase()
@@ -376,13 +350,13 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
 
       const matchesPhase = (p: string) => {
         if (approvalFilters.length > 0) {
-          const rawAppr = ((asset as any)[`${p}_approval_status`] || '')
+          const rawAppr = (asset[`${p}_approval_status`] || '')
             .toString()
             .toLowerCase();
           if (!approvalFilters.includes(rawAppr)) return false;
         }
         if (workFilters.length > 0) {
-          const rawWork = ((asset as any)[`${p}_work_status`] || '')
+          const rawWork = (asset[`${p}_work_status`] || '')
             .toString()
             .toLowerCase();
           if (!workFilters.includes(rawWork)) return false;
@@ -395,11 +369,12 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
         return true;
       }
 
+      // If a specific phase is active (e.g. "rig"), only that phase decides.
       if (phase) {
         return matchesPhase(phase);
       }
 
-      // No fixed phase → row passes if *any* phase matches filters
+      // Otherwise, keep the row if ANY phase matches.
       return phases.some((p) => matchesPhase(p));
     });
 
@@ -412,39 +387,22 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
     uiSortKey,
     uiSortDir,
     filterProps.assetNameKey,
-    (filterProps as any).approvalStatuses,
-    (filterProps as any).workStatuses,
-    filterProps.applovalStatues,
-    filterProps.workStatues,
+    approvalArray,
+    workArray,
   ]);
 
-  // Detect if ANY filters are active (name / approval / work)
-  const filtersActive = useMemo(() => {
-    const nameActive = !!(filterProps.assetNameKey || '').trim();
+  // Client-side pagination when filters are active
+  const pagedAssets = useMemo(() => {
+    if (!filtersActive) return filteredAssets;
 
-    const approval = (
-      (filterProps as any).approvalStatuses ||
-      filterProps.applovalStatues ||
-      []
-    ) as string[];
+    const start = pageProps.page * pageProps.rowsPerPage;
+    const end = start + pageProps.rowsPerPage;
+    return filteredAssets.slice(start, end);
+  }, [filtersActive, filteredAssets, pageProps.page, pageProps.rowsPerPage]);
 
-    const work = (
-      (filterProps as any).workStatuses ||
-      filterProps.workStatues ||
-      []
-    ) as string[];
-
-    return nameActive || approval.length > 0 || work.length > 0;
-  }, [
-    filterProps.assetNameKey,
-    (filterProps as any).approvalStatuses,
-    filterProps.applovalStatues,
-    (filterProps as any).workStatuses,
-    filterProps.workStatues,
-  ]);
-
-  // When filters are active, use client-side filtered length.
-  // When no filters, trust backend total (for real pagination).
+  // Total count for footer:
+  // - With filters: all filtered rows (client-side pagination)
+  // - Without filters: backend total (server-side pagination)
   const effectiveCount = filtersActive ? filteredAssets.length : total;
 
   /* Studio timezone */
@@ -528,19 +486,14 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
   }, []);
 
   /* Pagination */
-  const handleRowsPerPageChange: TablePaginationProps['onChangeRowsPerPage'] = (
-    event,
-  ) => {
+  const handleRowsPerPageChange: TablePaginationProps['onChangeRowsPerPage'] = (event) => {
     setPageProps({ page: 0, rowsPerPage: parseInt(event.target.value, 10) });
   };
-  const handlePageChange: TablePaginationProps['onChangePage'] = (
-    _event,
-    newPage,
-  ) => {
+  const handlePageChange: TablePaginationProps['onChangePage'] = (_event, newPage) => {
     setPageProps((p) => ({ ...p, page: newPage }));
   };
 
-  /* Immediate sort commit */
+  /* Immediate sort commit (Replaced 2s debounce) */
   const handleSortChange = (newUiKey: string) => {
     const { sort: newServerSortKey, phase } = resolveServerSort(newUiKey);
 
@@ -557,7 +510,7 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
     setUiSortKey(newUiKey);
     setUiSortDir(nextServerDir);
 
-    // Also reset page when sorting changes (optional)
+    // Also reset page when sorting changes
     // setPageProps(p => ({ ...p, page: 0 }));
   };
 
@@ -635,7 +588,7 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
     timeStyle: 'medium',
   });
 
-  /* Footer – use effectiveCount instead of raw total */
+  /* Footer */
   const tableFooter = (
     <AssetsDataTableFooter
       count={effectiveCount}
@@ -648,9 +601,7 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
 
   /* Drawer badge count (visible columns among togglable ones) */
   const visibleCount = useMemo(() => {
-    const togglable = COLUMN_META.map((c) => c.id).filter(
-      (id) => !FIXED_VISIBLE.has(id),
-    );
+    const togglable = COLUMN_META.map((c) => c.id).filter((id) => !FIXED_VISIBLE.has(id));
     let c = 0;
     togglable.forEach((id) => {
       if (!hiddenColumns.has(id)) c += 1;
@@ -701,7 +652,7 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
             >
               <AssetsDataTable
                 project={currentProject}
-                assets={filteredAssets as AssetPhaseSummary[]}
+                assets={pagedAssets}
                 tableFooter={tableFooter}
                 dateTimeFormat={dateTimeFormat}
                 onSortChange={handleSortChange}
