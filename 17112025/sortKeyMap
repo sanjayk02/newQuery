@@ -1,0 +1,44 @@
+var sortKeyMap = map[string]string{
+    "group_1":             "group1_only",
+    "relation":            "relation_only",
+    "submitted_at_utc":    "submitted_at_utc",
+    "modified_at_utc":     "modified_at_utc",
+    "phase":               "phase",
+    "group_rel_submitted": "group_rel_submitted",
+
+    // submitted-time sorts
+    "mdl_submitted": "mdl_submitted",
+    "rig_submitted": "rig_submitted",
+    "bld_submitted": "bld_submitted",
+    "dsn_submitted": "dsn_submitted",
+    "ldv_submitted": "ldv_submitted",
+
+    // work-status sorts  -> match buildOrderClause
+    "mdl_work": "mdl_work_status",
+    "rig_work": "rig_work_status",
+    "bld_work": "bld_work_status",
+    "dsn_work": "dsn_work_status",
+    "ldv_work": "ldv_work_status",
+
+    // approval-status sorts (if you want to sort these too,
+    // you will also need cases in buildOrderClause)
+    "mdl_appr": "mdl_approval_status",
+    "rig_appr": "rig_approval_status",
+    "bld_appr": "bld_approval_status",
+    "dsn_appr": "dsn_approval_status",
+    "ldv_appr": "ldv_approval_status",
+
+    "work_status": "work_status", // legacy
+}
+
+
+case "mdl_approval_status", "rig_approval_status", "bld_approval_status",
+     "dsn_approval_status", "ldv_approval_status":
+    return fmt.Sprintf(
+        "(%s IS NULL) ASC, %s %s, LOWER(%s) ASC, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+        col("approval_status"),
+        col("approval_status"), dir,
+        col("group_1"), col("relation"),
+        col("submitted_at_utc"),
+        col("submitted_at_utc"), dir,
+    )
