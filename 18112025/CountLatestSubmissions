@@ -1,0 +1,72 @@
+// ---------- CountLatestSubmissions (with name + status filters) ----------
+func (r *ReviewInfo) CountLatestSubmissions(
+	ctx context.Context,
+	project, root string,
+	assetNameKey string,
+	approvalStatuses, workStatuses []string,
+) (int64, error) {
+	if project == "" {
+		return 0, fmt.Errorf("project is required")
+	}
+	if root == "" {
+		root = "assets"
+	}
+
+	nameWhere, nameArgs := buildAssetNameWhere(assetNameKey)
+	// phase parameter is unused in helper; pass "" for clarity
+	statusWhere, statusArgs := buildPhaseAwareStatusWhere("", approvalStatuses, workStatuses)
+
+	// Base set of distinct assets
+	const baseAssetsTpl = `
+	SELECT project, root, group_1, relation
+	FROM t_review_info
+	WHERE project = ? AND root = ? AND deleted = 0
+	%s
+	GROUP BY project, root, group_1, relation`
+
+	// Name filter inside baseAssetsTpl
+	nameConds := []string{}
+	if nameWhere != "" {
+		nameConds = append(nameConds, nameWhere)
+	}
+	nameWhereExtra := ""
+	if len(nameConds) > 0 {
+		nameWhereExtra = " AND " + strings.Join(nameConds, " AND ")
+	}
+
+	baseArgs := []any{project, root}
+	baseArgs = append(baseArgs, nameArgs...)
+
+	// Status filter as EXISTS over the base assets
+	statusFilterClause := ""
+	if statusWhere != "" {
+		statusFilterClause = fmt.Sprintf(`
+	WHERE EXISTS (
+		SELECT 1 FROM t_review_info
+		WHERE
+			t_review_info.project  = x.project
+			AND t_review_info.root = x.root
+			AND t_review_info.group_1 = x.group_1
+			AND t_review_info.relation = x.relation
+			AND t_review_info.deleted = 0
+			AND %s
+	)`, statusWhere)
+	}
+
+	const tpl = `
+SELECT COUNT(*) FROM (
+	` + baseAssetsTpl + `
+) AS x
+%s;`
+
+	sql := fmt.Sprintf(tpl, nameWhereExtra, statusFilterClause)
+
+	args := baseArgs
+	args = append(args, statusArgs...)
+
+	var total int64
+	if err := r.db.WithContext(ctx).Raw(sql, args...).Scan(&total).Error; err != nil {
+		return 0, fmt.Errorf("CountLatestSubmissions: %w", err)
+	}
+	return total, nil
+}
