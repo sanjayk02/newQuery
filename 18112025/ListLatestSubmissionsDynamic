@@ -1,10 +1,15 @@
 func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 	ctx context.Context,
-	project, root, preferredPhase, orderKey, direction string,
+	project string,
+	root string,
+	preferredPhase string, // e.g. "mdl" or "none"
+	orderKey string,
+	direction string,
 	limit, offset int,
 	assetNameKey string,
 	approvalStatuses, workStatuses []string,
 ) ([]LatestSubmissionRow, error) {
+
 	if project == "" {
 		return nil, fmt.Errorf("project is required")
 	}
@@ -18,15 +23,14 @@ func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 		offset = 0
 	}
 
-	// phaseGuard = 1 → no phase bias
+	// Disable phase bias when preferredPhase is empty/none
 	phaseGuard := 0
 	if preferredPhase == "" || strings.EqualFold(preferredPhase, "none") {
 		phaseGuard = 1
 	}
 
-	// Same filters as CountLatestSubmissions
-	nameWhere, nameArgs := buildAssetNameWhere(assetNameKey, "")
-	statusWhere, statusArgs := buildStatusFilterClause("", approvalStatuses, workStatuses)
+	nameWhere, nameArgs := buildAssetNameWhere(assetNameKey)
+	statusWhere, statusArgs := buildPhaseAwareStatusWhere(preferredPhase, approvalStatuses, workStatuses)
 
 	nameClause := ""
 	if nameWhere != "" {
@@ -37,9 +41,9 @@ func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 		statusClause = " AND " + statusWhere
 	}
 
-	// Sort the final collapsed rows using alias "x"
 	orderClause := buildOrderClause("x", orderKey, direction)
 
+	// NOTE: no LIMIT/OFFSET here – we sort the entire result set first.
 	q := fmt.Sprintf(`
 WITH latest_rows AS (
 	SELECT
@@ -62,7 +66,9 @@ WITH latest_rows AS (
 filtered AS (
 	SELECT *
 	FROM latest_rows
-	WHERE rn = 1%s%s
+	WHERE rn = 1
+	%s
+	%s
 ),
 ranked AS (
 	SELECT
@@ -87,23 +93,29 @@ SELECT
 	x.submitted_at_utc
 FROM ranked AS x
 WHERE x.rk = 1
-ORDER BY %s
-LIMIT ? OFFSET ?;`, nameClause, statusClause, orderClause)
+ORDER BY %s;
+`, nameClause, statusClause, orderClause)
 
 	args := []any{
-		project, root, // latest_rows WHERE
+		project, root,
 	}
 	args = append(args, nameArgs...)
 	args = append(args, statusArgs...)
-	args = append(args,
-		phaseGuard,
-		strings.ToLower(preferredPhase),
-	)
-	args = append(args, limit, offset)
+	args = append(args, phaseGuard, preferredPhase)
 
-	var rows []LatestSubmissionRow
-	if err := r.db.WithContext(ctx).Raw(q, args...).Scan(&rows).Error; err != nil {
+	// Fetch ALL sorted keys
+	var allRows []LatestSubmissionRow
+	if err := r.db.WithContext(ctx).Raw(q, args...).Scan(&allRows).Error; err != nil {
 		return nil, fmt.Errorf("ListLatestSubmissionsDynamic: %w", err)
 	}
-	return rows, nil
+
+	// Apply pagination in Go so sorting is global
+	if offset >= len(allRows) {
+		return []LatestSubmissionRow{}, nil
+	}
+	end := offset + limit
+	if end > len(allRows) {
+		end = len(allRows)
+	}
+	return allRows[offset:end], nil
 }
