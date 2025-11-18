@@ -1,4 +1,4 @@
-// ---------- Dynamic Listing Function (name + status aware) ----------
+// ---------- Dynamic Listing Function (latest-per-phase + filters) ----------
 func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 	ctx context.Context,
 	project string,
@@ -24,44 +24,28 @@ func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 		offset = 0
 	}
 
-	// phaseGuard controls whether phase preference is active
+	// Disable phase bias when preferredPhase is empty/none
 	phaseGuard := 0
 	if preferredPhase == "" || strings.EqualFold(preferredPhase, "none") {
 		phaseGuard = 1
 	}
 
-	// Filters
 	nameWhere, nameArgs := buildAssetNameWhere(assetNameKey)
 	statusWhere, statusArgs := buildPhaseAwareStatusWhere(preferredPhase, approvalStatuses, workStatuses)
 
-	nameConds := []string{}
+	nameClause := ""
 	if nameWhere != "" {
-		nameConds = append(nameConds, nameWhere)
+		nameClause = " AND " + nameWhere
 	}
-	whereExtra := ""
-	if len(nameConds) > 0 {
-		whereExtra = " AND " + strings.Join(nameConds, " AND ")
+	statusClause := ""
+	if statusWhere != "" {
+		statusClause = " AND " + statusWhere
 	}
 
 	orderClause := buildOrderClause("x", orderKey, direction)
 
-	statusFilterClause := ""
-	if statusWhere != "" {
-		statusFilterClause = fmt.Sprintf(`
-AND EXISTS (
-	SELECT 1 FROM t_review_info AS sub
-	WHERE
-		sub.project  = x.project
-		AND sub.root = x.root
-		AND sub.group_1 = x.group_1
-		AND sub.relation = x.relation
-		AND sub.deleted = 0
-		AND %s
-)`, statusWhere)
-	}
-
 	q := fmt.Sprintf(`
-WITH ranked AS (
+WITH latest_rows AS (
 	SELECT
 		project,
 		root,
@@ -73,6 +57,23 @@ WITH ranked AS (
 		submitted_at_utc,
 		modified_at_utc,
 		ROW_NUMBER() OVER (
+			PARTITION BY project, root, group_1, relation, phase
+			ORDER BY modified_at_utc DESC
+		) AS rn
+	FROM t_review_info
+	WHERE project = ? AND root = ? AND deleted = 0
+),
+filtered AS (
+	SELECT *
+	FROM latest_rows
+	WHERE rn = 1
+	%s
+	%s
+),
+ranked AS (
+	SELECT
+		*,
+		ROW_NUMBER() OVER (
 			PARTITION BY project, root, group_1, relation
 			ORDER BY
 				CASE
@@ -80,11 +81,8 @@ WITH ranked AS (
 					WHEN phase = ? THEN 0 ELSE 1
 				END,
 				modified_at_utc DESC
-		) AS rn
-	FROM t_review_info
-	WHERE
-		project = ? AND root = ? AND deleted = 0
-		%s
+		) AS rk
+	FROM filtered
 )
 SELECT
 	x.root,
@@ -94,18 +92,17 @@ SELECT
 	x.phase,
 	x.submitted_at_utc
 FROM ranked AS x
-WHERE x.rn = 1
-%s
+WHERE x.rk = 1
 ORDER BY %s
 LIMIT ? OFFSET ?;
-`, whereExtra, statusFilterClause, orderClause)
+`, nameClause, statusClause, orderClause)
 
 	args := []any{
-		phaseGuard, preferredPhase, // CASE in window
-		project, root,              // base WHERE
+		project, root,
 	}
-	args = append(args, nameArgs...)   // name filter
-	args = append(args, statusArgs...) // status filter
+	args = append(args, nameArgs...)
+	args = append(args, statusArgs...)
+	args = append(args, phaseGuard, preferredPhase)
 	args = append(args, limit, offset)
 
 	var rows []LatestSubmissionRow
