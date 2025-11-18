@@ -124,6 +124,28 @@ const lsKeyForProject = (projectKeyName?: string) => {
   return `ppi:assets:hideColumns:${projectKeyName || 'unknown'}`;
 };
 
+// Phase sort key helper: accepts both *_work / *_appr / *_submitted and
+// *_work_status / *_approval_status / *_submitted_at / *_submitted_at_utc.
+type PhaseField = 'work' | 'appr' | 'submitted';
+
+const parsePhaseSortKey = (
+  key: string,
+): { phase: string | null; field: PhaseField | null } => {
+  const lower = key.toLowerCase();
+  const m = lower.match(/^(mdl|rig|bld|dsn|ldv)_(.+)$/);
+  if (!m) return { phase: null, field: null };
+
+  const phase = m[1];
+  const rest = m[2];
+
+  let field: PhaseField | null = null;
+  if (rest.startsWith('work')) field = 'work';
+  else if (rest.startsWith('appr') || rest.startsWith('approval')) field = 'appr';
+  else if (rest.startsWith('submitted')) field = 'submitted';
+
+  return { phase, field };
+};
+
 /* ──────────────────────────────────────────────────────────────────────────
  * Component
  * ────────────────────────────────────────────────────────────────────────── */
@@ -156,12 +178,8 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
     if (key === 'group_1') return { sort: 'group_1', phase: 'none' };
     if (key === 'relation') return { sort: 'relation', phase: 'none' };
 
-    // Phase-specific keys: map to the specific column ID for correct backend resolution
-    const m = key.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
-    if (!m) return { sort: 'group_1', phase: 'none' };
-
-    const phase = m[1].toLowerCase();
-    const field = m[2].toLowerCase();
+    const { phase, field } = parsePhaseSortKey(key);
+    if (!phase || !field) return { sort: 'group_1', phase: 'none' };
 
     if (field === 'submitted') return { sort: `${phase}_submitted`, phase };
     if (field === 'appr') return { sort: `${phase}_appr`, phase };
@@ -311,11 +329,8 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
         );
       }
 
-      const m = key.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
-      if (m) {
-        const phase = m[1].toLowerCase();
-        const field = m[2].toLowerCase();
-
+      const { phase, field } = parsePhaseSortKey(key);
+      if (phase && field) {
         if (field === 'submitted') {
           return compareDates(
             (a as any)[`${phase}_submitted_at_utc`],
@@ -330,6 +345,7 @@ const AssetsDataTablePanel: FC<RouteComponentProps> = () => {
             dir,
           );
         }
+        // work
         return compareStrings(
           (a as any)[`${phase}_work_status`],
           (b as any)[`${phase}_work_status`],
