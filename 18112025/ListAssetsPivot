@@ -1,0 +1,160 @@
+// ---------- ListAssetsPivot (pivot fill with filters) ----------
+func (r *ReviewInfo) ListAssetsPivot(
+	ctx context.Context,
+	project, root, preferredPhase, orderKey, direction string,
+	limit, offset int,
+	assetNameKey string,
+	approvalStatuses, workStatuses []string,
+) ([]AssetPivot, int64, error) {
+
+	if project == "" {
+		return nil, 0, fmt.Errorf("project is required")
+	}
+	if root == "" {
+		root = "assets"
+	}
+	if limit <= 0 {
+		limit = 60
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	// total matches filters
+	total, err := r.CountLatestSubmissions(
+		ctx,
+		project,
+		root,
+		assetNameKey,
+		approvalStatuses,
+		workStatuses,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// keys are also filtered
+	keys, err := r.ListLatestSubmissionsDynamic(
+		ctx,
+		project,
+		root,
+		preferredPhase,
+		orderKey,
+		direction,
+		limit,
+		offset,
+		assetNameKey,
+		approvalStatuses,
+		workStatuses,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(keys) == 0 {
+		return []AssetPivot{}, total, nil
+	}
+
+	// batch fetch latest-by-phase rows for these assets
+	var sb strings.Builder
+	var params []any
+
+	sb.WriteString(`
+WITH latest_phase AS (
+	SELECT
+		project, root, group_1, relation, phase,
+		work_status, approval_status, submitted_at_utc, modified_at_utc,
+		ROW_NUMBER() OVER (
+			PARTITION BY project, root, group_1, relation, phase
+			ORDER BY modified_at_utc DESC
+		) AS rn
+	FROM t_review_info
+	WHERE project = ? AND root = ? AND deleted = 0
+	  AND (
+`)
+	params = append(params, project, root)
+
+	for i, k := range keys {
+		if i > 0 {
+			sb.WriteString("       OR ")
+		}
+		sb.WriteString("(group_1 = ? AND relation = ?)\n")
+		params = append(params, k.Group1, k.Relation)
+	}
+
+	sb.WriteString(`	  )
+)
+SELECT project, root, group_1, relation, phase,
+       work_status, approval_status, submitted_at_utc
+FROM latest_phase
+WHERE rn = 1;`)
+
+	var phases []phaseRow
+	if err := r.db.WithContext(ctx).Raw(sb.String(), params...).Scan(&phases).Error; err != nil {
+		return nil, 0, fmt.Errorf("ListAssetsPivot.phaseFetch: %w", err)
+	}
+
+	// pivot in Go
+	type key struct {
+		p, r, g, rel string
+	}
+
+	m := make(map[key]*AssetPivot, len(keys))
+	ordered := make([]AssetPivot, 0, len(keys))
+
+	for _, k := range keys {
+		id := key{k.Project, k.Root, k.Group1, k.Relation}
+		ap := &AssetPivot{
+			Root:     k.Root,
+			Project:  k.Project,
+			Group1:   k.Group1,
+			Relation: k.Relation,
+		}
+		m[id] = ap
+		ordered = append(ordered, *ap)
+	}
+
+	for _, pr := range phases {
+		id := key{pr.Project, pr.Root, pr.Group1, pr.Relation}
+		ap, ok := m[id]
+		if !ok {
+			continue
+		}
+
+		switch strings.ToLower(pr.Phase) {
+		case "mdl":
+			ap.MDLWorkStatus = pr.WorkStatus
+			ap.MDLApprovalStatus = pr.ApprovalStatus
+			ap.MDLSubmittedAtUTC = pr.SubmittedAtUTC
+		case "rig":
+			ap.RIGWorkStatus = pr.WorkStatus
+			ap.RIGApprovalStatus = pr.ApprovalStatus
+			ap.RIGSubmittedAtUTC = pr.SubmittedAtUTC
+		case "bld":
+			ap.BLDWorkStatus = pr.WorkStatus
+			ap.BLDApprovalStatus = pr.ApprovalStatus
+			ap.BLDSubmittedAtUTC = pr.SubmittedAtUTC
+		case "dsn":
+			ap.DSNWorkStatus = pr.WorkStatus
+			ap.DSNApprovalStatus = pr.ApprovalStatus
+			ap.DSNSubmittedAtUTC = pr.SubmittedAtUTC
+		case "ldv":
+			ap.LDVWorkStatus = pr.WorkStatus
+			ap.LDVApprovalStatus = pr.ApprovalStatus
+			ap.LDVSubmittedAtUTC = pr.SubmittedAtUTC
+		}
+	}
+
+	for i := range ordered {
+		id := key{
+			ordered[i].Project,
+			ordered[i].Root,
+			ordered[i].Group1,
+			ordered[i].Relation,
+		}
+		if filled, ok := m[id]; ok {
+			ordered[i] = *filled
+		}
+	}
+
+	return ordered, total, nil
+}
