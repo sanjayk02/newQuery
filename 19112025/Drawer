@@ -1,0 +1,39 @@
+{/* Drawer footer: Show all / Hide all + Save + Close */}
+<div
+  style={{
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '6px 8px',
+    borderTop: '1px solid rgba(255,255,255,0.12)',
+  }}
+>
+  {/* Left side: Show all / Hide all */}
+  <div>
+    <Button size="small" onClick={handleToggleAllColumns}>
+      {allNonFixedColumnIds ? 'Hide all' : 'Show all'}
+    </Button>
+  </div>
+
+  {/* Right side: SAVE + CLOSE */}
+  <div style={{ display: 'flex', gap: 8 }}>
+    <Button
+      size="small"
+      variant="contained"
+      color="primary"
+      onClick={async () => {
+        if (onSaveColumns) {
+          await onSaveColumns();   // 🔥 Save to Pipeline Setting
+        }
+        setDrawerOpen(false);      // Optional: close drawer after saving
+      }}
+      style={{ width: '80px' }}
+    >
+      SAVE
+    </Button>
+
+    <Button size="small" onClick={toggleDrawer(false)}>
+      CLOSE
+    </Button>
+  </div>
+</div>
