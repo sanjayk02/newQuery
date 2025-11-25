@@ -4,7 +4,6 @@ import {
   Chip,
   createStyles,
   FormControl,
-  IconButton,
   Input,
   ListItemIcon,
   makeStyles,
@@ -18,8 +17,9 @@ import {
   TableRow,
   TextField,
   Theme,
-  Tooltip,
   Typography,
+  IconButton,
+  Tooltip,
 } from '@material-ui/core';
 import { CheckBox, CheckBoxOutlineBlank } from '@material-ui/icons';
 import ListIcon from '@material-ui/icons/List';
@@ -166,9 +166,7 @@ type GroupCategoryTableProps = {
   filter: FilterState,
 };
 
-/**
- * Helper types / functions for tree view (add-only, does not affect list view)
- */
+// ---- Tree view helper types & functions (added) ----
 type GroupTreeNode = {
   name: string;
   fullPath: string;
@@ -205,6 +203,7 @@ const buildGroupTree = (paths: string[]): GroupTreeNode[] => {
 
   return toNodes(root);
 };
+// ----------------------------------------------------
 
 export const GroupCategoryTable: React.FC<GroupCategoryTableProps> = ({
   project,
@@ -217,7 +216,7 @@ export const GroupCategoryTable: React.FC<GroupCategoryTableProps> = ({
   const [publishDir, setPublishDir] = useState('');
   const [groupTitles, setGroupTitles] = useState<string[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
-  const [viewMode, setViewMode] = useState<'list' | 'tree'>('list'); // added
+  const [viewMode, setViewMode] = useState<'list' | 'tree'>('list'); // NEW
 
   const columns = useMemo<Column[]>(() => [
     { id: 'root', label: root => 'Groups' + (root ? ` ( ${root} )` : '')},
@@ -270,7 +269,7 @@ export const GroupCategoryTable: React.FC<GroupCategoryTableProps> = ({
     (async () => {
       // The studio of the logged-in user cannot be determined because the authentication
       // feature has not been implemented yet.
-      const studio = project.key_name == 'potoodev' ? 'ppidev' : 'ppi'
+      const studio = project.key_name == 'potoodev' ? 'ppidev' : 'ppi';
 
       const res: string[] | null = await queryPreference(
         'default',
@@ -304,7 +303,7 @@ export const GroupCategoryTable: React.FC<GroupCategoryTableProps> = ({
     const controller = new AbortController();
 
     (async () => {
-      const groupPath = `${publishDir}/${root}`
+      const groupPath = `${publishDir}/${root}`;
       const depth = groupPath.split('/').length + groupTitles.length;
 
       const res: Directory[] | void | null = await queryDirectories(
@@ -322,7 +321,7 @@ export const GroupCategoryTable: React.FC<GroupCategoryTableProps> = ({
       if (res != null) {
         const start = groupPath.length + 1;
         setGroups(res.map<Group>(dir => ({ path: dir.path.substring(start) })));
-      };
+      }
     })();
 
     return () => {
@@ -371,11 +370,11 @@ export const GroupCategoryTable: React.FC<GroupCategoryTableProps> = ({
       modifyGroupCategory(category.id, 'add', group.path);
     }
     for (const category of categoriesTo['remove']) {
-      modifyGroupCategory(category.id, 'remove', group.path)
+      modifyGroupCategory(category.id, 'remove', group.path);
     }
   };
 
-  // Build tree data from groups (add-only)
+  // build tree from groups for tree view
   const groupTree = useMemo<GroupTreeNode[]>(() => {
     if (!groups || groups.length === 0) {
       return [];
@@ -392,7 +391,7 @@ export const GroupCategoryTable: React.FC<GroupCategoryTableProps> = ({
               {node.name}
             </span>
           </TableCell>
-          {/* tree view is read-only; categories column left blank */}
+          {/* tree view is read-only; leave categories column empty */}
           <TableCell className={classes.categoryCell} />
         </TableRow>
         {renderTreeRows(node.children, depth + 1)}
@@ -404,123 +403,121 @@ export const GroupCategoryTable: React.FC<GroupCategoryTableProps> = ({
     <Paper className={classes.paper}>
       <div className={classes.paperContainer}>
         {project != null
-          ? <Table size="small" stickyHeader>
-            <TableHead>
-              <TableRow>
-                {columns.map(column => (
-                  <TableCell key={column.id}>
-                    {column.id !== 'root' ? (
-                      <>
-                        {typeof column.label === 'function'
-                          ? column.label(root)
-                          : column.label
-                        }
-                      </>
-                    ) : (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span>
+          ? (
+            <Table size="small" stickyHeader>
+              <TableHead>
+                <TableRow>
+                  {columns.map(column => (
+                    <TableCell key={column.id}>
+                      {column.id !== 'root' ? (
+                        <>
                           {typeof column.label === 'function'
                             ? column.label(root)
-                            : column.label
-                          }
-                        </span>
-                        <span>
-                          <Tooltip title="List View">
-                            <IconButton
-                              size="small"
-                              onClick={() => setViewMode('list')}
-                              style={{
-                                padding: 2,
-                                marginRight: 4,
-                                backgroundColor: viewMode === 'list' ? '#1976d2' : undefined,
-                              }}
-                            >
-                              <ListIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Tree View">
-                            <IconButton
-                              size="small"
-                              onClick={() => setViewMode('tree')}
-                              style={{
-                                padding: 2,
-                                backgroundColor: viewMode === 'tree' ? '#1976d2' : undefined,
-                              }}
-                            >
-                              <AccountTreeIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        </span>
-                      </div>
-                    )}
-                  </TableCell>
-                ))}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {viewMode === 'list' &&
-                groups
-                  .filter(group =>
-                    filter.group === ''
-                    || group.path.toLowerCase().indexOf(filter.group.toLowerCase()) > -1
-                  )
-                  .map(group => (
-                    <TableRow key={group.path}>
-                      <TableCell>
-                        {group.path}
-                      </TableCell>
-                      <TableCell className={classes.categoryCell}>
-                        {categories.length !== 0
-                          ? (
-                            <FormControl fullWidth className={classes.formControl}>
-                              <Select
-                                labelId="group-categories-label"
-                                id="group-categories"
-                                multiple
-                                value={categories.filter(category =>
-                                  category.groups.includes(group.path)
-                                ).map(category => category.path)}
-                                onChange={event => handleChange(event, group)}
-                                input={<Input id="select-group-categories" />}
-                                renderValue={(selected) => (
-                                  <div className={classes.chips}>
-                                    {(selected as string[]).map(value => (
-                                      <Chip
-                                        key={value}
-                                        label={value}
-                                        size="small"
-                                        className={classes.chip}
-                                      />
-                                    ))}
-                                  </div>
-                                )}
+                            : column.label}
+                        </>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <span>
+                            {typeof column.label === 'function'
+                              ? column.label(root)
+                              : column.label}
+                          </span>
+                          <span>
+                            <Tooltip title="List View">
+                              <IconButton
+                                size="small"
+                                onClick={() => setViewMode('list')}
+                                style={{
+                                  padding: 2,
+                                  marginRight: 4,
+                                  backgroundColor: viewMode === 'list' ? '#1976d2' : undefined,
+                                }}
                               >
-                                {categories.map(category => (
-                                  <MenuItem key={category.path} value={category.path} dense>
-                                    <ListItemIcon className={classes.menuIcon}>
-                                      {category.groups.includes(group.path)
-                                        ? <CheckBox fontSize="small" />
-                                        : <CheckBoxOutlineBlank fontSize="small" />
-                                      }
-                                    </ListItemIcon>
-                                    <Typography variant="inherit">{category.path}</Typography>
-                                  </MenuItem>
-                                ))}
-                              </Select>
-                            </FormControl>
-                          )
-                          : null
-                        }
-                      </TableCell>
-                    </TableRow>
-                  ))
-              }
+                                <ListIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Tree View">
+                              <IconButton
+                                size="small"
+                                onClick={() => setViewMode('tree')}
+                                style={{
+                                  padding: 2,
+                                  backgroundColor: viewMode === 'tree' ? '#1976d2' : undefined,
+                                }}
+                              >
+                                <AccountTreeIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </span>
+                        </div>
+                      )}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {/* original list view wrapped */}
+                {viewMode === 'list' &&
+                  groups
+                    .filter(group =>
+                      filter.group === ''
+                      || group.path.toLowerCase().indexOf(filter.group.toLowerCase()) > -1,
+                    )
+                    .map(group => (
+                      <TableRow key={group.path}>
+                        <TableCell>
+                          {group.path}
+                        </TableCell>
+                        <TableCell className={classes.categoryCell}>
+                          {categories.length !== 0
+                            ? (
+                              <FormControl fullWidth className={classes.formControl}>
+                                <Select
+                                  labelId="group-categories-label"
+                                  id="group-categories"
+                                  multiple
+                                  value={categories.filter(category =>
+                                    category.groups.includes(group.path),
+                                  ).map(category => category.path)}
+                                  onChange={event => handleChange(event, group)}
+                                  input={<Input id="select-group-categories" />}
+                                  renderValue={(selected) => (
+                                    <div className={classes.chips}>
+                                      {(selected as string[]).map(value => (
+                                        <Chip
+                                          key={value}
+                                          label={value}
+                                          size="small"
+                                          className={classes.chip}
+                                        />
+                                      ))}
+                                    </div>
+                                  )}
+                                >
+                                  {categories.map(category => (
+                                    <MenuItem key={category.path} value={category.path} dense>
+                                      <ListItemIcon className={classes.menuIcon}>
+                                        {category.groups.includes(group.path)
+                                          ? <CheckBox fontSize="small" />
+                                          : <CheckBoxOutlineBlank fontSize="small" />}
+                                      </ListItemIcon>
+                                      <Typography variant="inherit">{category.path}</Typography>
+                                    </MenuItem>
+                                  ))}
+                                </Select>
+                              </FormControl>
+                            )
+                            : null}
+                        </TableCell>
+                      </TableRow>
+                    ))}
 
-              {viewMode === 'tree' && renderTreeRows(groupTree)}
-            </TableBody>
-          </Table>
-          : null
-        }
+                {/* tree view rows */}
+                {viewMode === 'tree' && renderTreeRows(groupTree)}
+              </TableBody>
+            </Table>
+          )
+          : null}
       </div>
     </Paper>
   );
