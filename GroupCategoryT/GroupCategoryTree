@@ -1,0 +1,73 @@
+const GroupCategoryTree: React.FC<GroupCategoryTreeProps> = ({
+  categories,
+  onRemoveGroup,
+}) => {
+  const classes = useStyles();
+
+  const tree = useMemo(
+    () => buildTreeFromCategories(categories),
+    [categories],
+  );
+
+  const renderNodes = (
+    nodes: TreeNode[],
+    depth = 0,
+    isLastArray: boolean[] = [],
+  ): React.ReactNode =>
+    nodes.map((node, index) => {
+      const isLast = index === nodes.length - 1;
+      const thisIsLastArray = [...isLastArray, isLast];
+
+      // Build ASCII prefix like your original tree
+      let prefix = '';
+      if (depth > 0) {
+        for (let i = 0; i < depth - 1; i++) {
+          prefix += thisIsLastArray[i] ? '   ' : '│  ';
+        }
+        prefix += isLast ? '└─ ' : '├─ ';
+      }
+
+      const isLeafGroup =
+        node.isGroup &&
+        node.category &&
+        (!node.children || node.children.length === 0);
+
+      return (
+        <React.Fragment key={node.fullPath}>
+          <div className={classes.treeRow}>
+            {/* left: tree text */}
+            <span className={classes.treeText}>
+              {prefix}
+              {node.name}
+            </span>
+
+            {/* middle: horizontal line (only for leaf groups) */}
+            {isLeafGroup && (
+              <div
+                style={{
+                  flex: 1,
+                  margin: '0 8px',
+                  borderBottom: '1px solid rgba(255,255,255,0.3)',
+                }}
+              />
+            )}
+
+            {/* right: trash icon (only for leaf groups) */}
+            {isLeafGroup && onRemoveGroup && (
+              <IconButton
+                size="small"
+                onClick={() => onRemoveGroup(node.category!, node.fullPath)}
+              >
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            )}
+          </div>
+
+          {/* children */}
+          {renderNodes(node.children, depth + 1, thisIsLastArray)}
+        </React.Fragment>
+      );
+    });
+
+  return <div>{renderNodes(tree)}</div>;
+};
