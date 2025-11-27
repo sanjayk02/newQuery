@@ -4,7 +4,6 @@ const GroupCategoryTree: React.FC<GroupCategoryTreeProps> = ({
 }) => {
   const classes = useStyles();
 
-  // Build tree nodes from categories + groups
   const tree = useMemo(
     () => buildTreeFromCategories(categories),
     [categories],
@@ -19,11 +18,11 @@ const GroupCategoryTree: React.FC<GroupCategoryTreeProps> = ({
       const isLast = index === nodes.length - 1;
       const thisIsLastArray = [...isLastArray, isLast];
 
-      // Build the ASCII prefix EXACTLY like your original:
-      // e.g. "│  ├─ ", "│  └─ "
+      // Build ASCII prefix exactly like before
       let prefix = '';
       if (depth > 0) {
         for (let i = 0; i < depth - 1; i++) {
+          // keep your top-column tweak here if you added it
           prefix += thisIsLastArray[i] ? '   ' : '│  ';
         }
         prefix += isLast ? '└─ ' : '├─ ';
@@ -37,17 +36,24 @@ const GroupCategoryTree: React.FC<GroupCategoryTreeProps> = ({
       return (
         <React.Fragment key={node.fullPath}>
           <div className={classes.treeRow}>
-            {/* Left: plain ASCII tree text */}
-            <span className={classes.treeText}>
+            {/* column 1: ASCII tree text (fixed width) */}
+            <span
+              className={classes.treeText}
+              style={{ fontWeight: depth === 0 ? 'bold' : 'normal' }}
+            >
               {prefix}
               {node.name}
             </span>
 
-            {/* Spacer so icon sits on the far right */}
-            {isLeafGroup && <div style={{ flex: 1 }} />}
+            {/* column 2: horizontal line only for leaf groups */}
+            {isLeafGroup ? (
+              <div className={classes.treeLine} />
+            ) : (
+              <div /> // empty to keep grid alignment
+            )}
 
-            {/* Right: tiny delete icon, only for leaf groups */}
-            {isLeafGroup && onRemoveGroup && (
+            {/* column 3: delete icon only for leaf groups */}
+            {isLeafGroup && onRemoveGroup ? (
               <IconButton
                 size="small"
                 style={{ padding: 4 }}
@@ -55,10 +61,11 @@ const GroupCategoryTree: React.FC<GroupCategoryTreeProps> = ({
               >
                 <DeleteIcon fontSize="small" />
               </IconButton>
+            ) : (
+              <span /> // empty cell to keep columns aligned
             )}
           </div>
 
-          {/* Children */}
           {renderNodes(node.children, depth + 1, thisIsLastArray)}
         </React.Fragment>
       );
