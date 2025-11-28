@@ -1,0 +1,29 @@
+
+container: {
+  width: '100%',
+  backgroundColor: theme.palette.background.paper,
+  display: 'flex',
+
+  // let children handle their own scroll
+  overflow: 'hidden',
+
+  // LEFT: Roots list
+  '& > nav': {
+    overflowY: 'auto',
+    overflowX: 'hidden',
+    marginRight: theme.spacing(0.5),
+    flexShrink: 0,
+    '&:first-child': {
+      marginLeft: theme.spacing(0.5),
+    },
+  },
+
+  // RIGHT: tree / list panel
+  '& > div': {
+    overflowY: 'auto',
+    overflowX: 'hidden',   // ⬅ important: no horizontal bar
+    marginRight: theme.spacing(0.5),
+    flex: 1,               // fill remaining width
+    minWidth: 0,           // prevent internal horizontal scroll
+  },
+},
