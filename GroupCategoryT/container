@@ -1,29 +1,69 @@
+const useStyles = makeStyles((theme: Theme) =>
+  createStyles({
+    root: {
+      width: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+    },
 
-container: {
-  width: '100%',
-  backgroundColor: theme.palette.background.paper,
-  display: 'flex',
+    headerRow: {
+      display: 'flex',
+      backgroundColor: theme.palette.background.paper,
+      borderBottom: `1px solid ${theme.palette.divider}`,
+      '& > div': {
+        flex: 1,
+        padding: theme.spacing(1),
+        fontSize: 14,
+        color: theme.palette.text.secondary,
+        fontWeight: 500,
+      },
+    },
 
-  // let children handle their own scroll
-  overflow: 'hidden',
+    // 🔹 3-column layout
+    container: {
+      width: '100%',
+      height: '100%',
+      backgroundColor: theme.palette.background.paper,
+      display: 'grid',
+      gridTemplateColumns: '160px 420px 1fr', // Roots | Tree | Right side
+      columnGap: theme.spacing(0.5),
+      overflow: 'hidden',
+    },
 
-  // LEFT: Roots list
-  '& > nav': {
-    overflowY: 'auto',
-    overflowX: 'hidden',
-    marginRight: theme.spacing(0.5),
-    flexShrink: 0,
-    '&:first-child': {
+    rootsColumn: {
+      overflowY: 'auto',
+      overflowX: 'hidden',
       marginLeft: theme.spacing(0.5),
     },
-  },
 
-  // RIGHT: tree / list panel
-  '& > div': {
-    overflowY: 'auto',
-    overflowX: 'hidden',   // ⬅ important: no horizontal bar
-    marginRight: theme.spacing(0.5),
-    flex: 1,               // fill remaining width
-    minWidth: 0,           // prevent internal horizontal scroll
-  },
-},
+    treeColumn: {
+      overflowY: 'auto',
+      overflowX: 'hidden',
+      borderLeft: `1px solid ${theme.palette.divider}`,
+      paddingLeft: theme.spacing(1),
+    },
+
+    rightColumn: {
+      overflowY: 'auto',
+      overflowX: 'hidden',
+      paddingLeft: theme.spacing(1),
+      paddingRight: theme.spacing(1),
+    },
+
+    treeText: {
+      fontFamily: 'monospace',
+      fontSize: 14,
+      whiteSpace: 'pre',
+      margin: 0,
+      padding: theme.spacing(0.1, 0),
+    },
+
+    treeRow: {
+      display: 'grid',
+      gridTemplateColumns: '16px auto', // arrow | text (no delete now)
+      alignItems: 'center',
+      columnGap: theme.spacing(0.5),
+    },
+  }),
+);
