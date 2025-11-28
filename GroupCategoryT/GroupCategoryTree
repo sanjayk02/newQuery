@@ -1,14 +1,3 @@
-const GroupCategoryTree: React.FC<GroupCategoryTreeProps> = ({
-  categories,
-  onRemoveGroup,
-}) => {
-  const classes = useStyles();
-
-  const tree = useMemo(
-    () => buildTreeFromCategories(categories),
-    [categories],
-  );
-
   const renderNodes = (
     nodes: TreeNode[],
     depth = 0,
@@ -18,12 +7,16 @@ const GroupCategoryTree: React.FC<GroupCategoryTreeProps> = ({
       const isLast = index === nodes.length - 1;
       const thisIsLastArray = [...isLastArray, isLast];
 
-      // Build ASCII prefix exactly like before
+      // Build ASCII prefix – your existing logic
       let prefix = '';
       if (depth > 0) {
         for (let i = 0; i < depth - 1; i++) {
-          // keep your top-column tweak here if you added it
-          prefix += thisIsLastArray[i] ? '   ' : '│  ';
+          const isRootColumn = i === 0;
+          if (isRootColumn) {
+            prefix += '   ';
+          } else {
+            prefix += thisIsLastArray[i] ? '   ' : '│  ';
+          }
         }
         prefix += isLast ? '└─ ' : '├─ ';
       }
@@ -33,10 +26,24 @@ const GroupCategoryTree: React.FC<GroupCategoryTreeProps> = ({
         node.category &&
         (!node.children || node.children.length === 0);
 
+      const hasChildren = node.children && node.children.length > 0;
+      const isCollapsed = !!collapsed[node.fullPath];
+
       return (
         <React.Fragment key={node.fullPath}>
           <div className={classes.treeRow}>
-            {/* column 1: ASCII tree text (fixed width) */}
+            {/* column 1: + / - toggle */}
+            <span
+              style={{
+                cursor: hasChildren ? 'pointer' : 'default',
+                userSelect: 'none',
+              }}
+              onClick={() => hasChildren && toggleNode(node.fullPath)}
+            >
+              {hasChildren ? (isCollapsed ? '+' : '-') : ''}
+            </span>
+
+            {/* column 2: ASCII tree text */}
             <span
               className={classes.treeText}
               style={{ fontWeight: depth === 0 ? 'bold' : 'normal' }}
@@ -45,31 +52,23 @@ const GroupCategoryTree: React.FC<GroupCategoryTreeProps> = ({
               {node.name}
             </span>
 
-            {/* column 2: horizontal line only for leaf groups */}
-            {isLeafGroup ? (
-              <div className={classes.treeLine} />
-            ) : (
-              <div /> // empty to keep grid alignment
-            )}
-
             {/* column 3: delete icon only for leaf groups */}
             {isLeafGroup && onRemoveGroup ? (
               <IconButton
                 size="small"
-                style={{ padding: 4 }}
+                className={classes.treeIcon}
                 onClick={() => onRemoveGroup(node.category!, node.fullPath)}
               >
                 <DeleteIcon fontSize="small" />
               </IconButton>
             ) : (
-              <span /> // empty cell to keep columns aligned
+              <span /> // empty cell to keep grid alignment
             )}
           </div>
 
-          {renderNodes(node.children, depth + 1, thisIsLastArray)}
+          {/* children: render ONLY when not collapsed */}
+          {!isCollapsed &&
+            renderNodes(node.children, depth + 1, thisIsLastArray)}
         </React.Fragment>
       );
     });
-
-  return <div>{renderNodes(tree)}</div>;
-};
