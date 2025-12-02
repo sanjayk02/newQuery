@@ -23,7 +23,11 @@ import DeleteIcon from '@material-ui/icons/Delete';
 import { queryPreference } from '../../pipeline-setting/api';
 import { Project } from '../types';
 import { Category } from './types';
-import { createGroupCategory, deleteGroupCategory, updateGroupCategory } from './api';
+import {
+  createGroupCategory,
+  deleteGroupCategory,
+  updateGroupCategory,
+} from './api';
 import AddDialog from './GroupCategoryAddDialog';
 import DeleteDialog from './GroupCategoryDeleteDialog';
 
@@ -436,9 +440,7 @@ const GroupList: React.FC<GroupListProps> = ({
         <Dialog open={deleteDialogOpen} aria-labelledby="delete-dialog-title">
           <DialogTitle id="delete-dialog-title">Delete Group</DialogTitle>
           <DialogContent>
-            <DialogContentText>
-              Group: {groupToDelete}
-            </DialogContentText>
+            <DialogContentText>Group: {groupToDelete}</DialogContentText>
           </DialogContent>
           <DialogActions>
             <Button onClick={handleCloseDeleteDialog}>Cancel</Button>
@@ -463,7 +465,6 @@ type TreeNode = {
 
 type GroupCategoryTreeProps = {
   categories: Category[];
-  onRemoveGroup?: (category: Category, groupPath: string) => void;
   onSelectNode?: (category: Category, fullPath: string) => void;
   selectedPath?: string | null;
 };
@@ -491,7 +492,7 @@ const buildTreeFromCategories = (categories: Category[]): TreeNode[] => {
   };
 
   categories.forEach(category => {
-    // category path (e.g. "sample/testAsset")
+    // category path (e.g. "character/alchemaxSecurityA")
     const pathParts = category.path.split('/').filter(Boolean);
     let current = root;
     let fullPath = '';
@@ -507,10 +508,13 @@ const buildTreeFromCategories = (categories: Category[]): TreeNode[] => {
       let groupCurrent = current;
       let groupFullPath = category.path;
 
-      groupParts.forEach((groupPart, idx) => {
+      groupParts.forEach(groupPart => {
         groupFullPath += '/' + groupPart;
-        groupCurrent = getOrCreate(groupCurrent, groupPart, groupFullPath)
-          .children;
+        groupCurrent = getOrCreate(
+          groupCurrent,
+          groupPart,
+          groupFullPath,
+        ).children;
       });
     });
   });
@@ -544,7 +548,7 @@ const GroupCategoryTree: React.FC<GroupCategoryTreeProps> = ({
       // category node
       map[cat.path] = cat;
 
-      // paths under this category
+      // all paths under this category
       cat.groups.forEach(groupPath => {
         const parts = groupPath.split('/').filter(Boolean);
         let currentPath = cat.path;
@@ -558,6 +562,12 @@ const GroupCategoryTree: React.FC<GroupCategoryTreeProps> = ({
 
     return map;
   }, [categories]);
+
+  // also support folder-only nodes like "character"
+  const getCategoryForPath = (fullPath: string): Category | undefined => {
+    if (pathToCategory[fullPath]) return pathToCategory[fullPath];
+    return categories.find(c => c.path.startsWith(fullPath + '/'));
+  };
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -593,9 +603,7 @@ const GroupCategoryTree: React.FC<GroupCategoryTreeProps> = ({
       const hasChildren = node.children && node.children.length > 0;
       const isCollapsed = !!collapsed[node.fullPath];
 
-      const nodeCategory: Category | undefined =
-        pathToCategory[node.fullPath];
-
+      const nodeCategory = getCategoryForPath(node.fullPath);
       const isSelected = selectedPath === node.fullPath;
 
       const handleSelect = () => {
@@ -668,9 +676,8 @@ const GroupCategoryLocation: React.FC<GroupCategoryLocationProps> = ({
 }) => {
   const classes = useStyles();
 
-  const [selectedCategory, setSelectedCategory] = useState<Category | null>(
-    null,
-  );
+  const [selectedCategory, setSelectedCategory] =
+    useState<Category | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'tree' | 'list'>('tree');
 
@@ -700,10 +707,9 @@ const GroupCategoryLocation: React.FC<GroupCategoryLocationProps> = ({
       });
   };
 
-  // when categories change, keep selectedCategory in sync
+  // keep selectedCategory in sync when categories array changes
   useEffect(() => {
     if (!selectedCategory) return;
-
     const updated = categories.find(c => c.id === selectedCategory.id);
     setSelectedCategory(updated || null);
   }, [categories]);
@@ -727,12 +733,7 @@ const GroupCategoryLocation: React.FC<GroupCategoryLocationProps> = ({
               }}
             >
               <div>Groups</div>
-              <div
-                style={{
-                  display: 'flex',
-                  gap: 24,
-                }}
-              >
+              <div style={{ display: 'flex', gap: 24 }}>
                 <span
                   onClick={() => setViewMode('tree')}
                   style={{
@@ -809,7 +810,7 @@ const GroupCategoryLocation: React.FC<GroupCategoryLocationProps> = ({
               )}
             </div>
 
-            {/* Column 3 – groups for selected node */}
+            {/* Column 3 – groups */}
             <div className={classes.rightColumn}>
               {selectedCategory && (
                 <GroupList
