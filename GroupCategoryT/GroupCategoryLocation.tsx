@@ -399,6 +399,13 @@ const GroupList: React.FC<GroupListProps> = ({
   const handleAcceptDeleteDialog = () => {
     if (groupToDelete == null) return;
 
+    // disable real deletes for virtual merged categories (id < 0)
+    if (category.id < 0) {
+      setDeleteDialogOpen(false);
+      setGroupToDelete(null);
+      return;
+    }
+
     updateGroupCategory(
       project.key_name,
       category.id,
@@ -423,15 +430,17 @@ const GroupList: React.FC<GroupListProps> = ({
         {groupsToShow.map(group => (
           <ListItem key={group} button>
             {group}
-            <ListItemSecondaryAction>
-              <IconButton
-                edge="end"
-                aria-label="delete"
-                onClick={() => handleDeleteClick(group)}
-              >
-                <DeleteIcon fontSize="small" />
-              </IconButton>
-            </ListItemSecondaryAction>
+            {category.id >= 0 && (
+              <ListItemSecondaryAction>
+                <IconButton
+                  edge="end"
+                  aria-label="delete"
+                  onClick={() => handleDeleteClick(group)}
+                >
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </ListItemSecondaryAction>
+            )}
           </ListItem>
         ))}
       </List>
@@ -465,7 +474,7 @@ type TreeNode = {
 
 type GroupCategoryTreeProps = {
   categories: Category[];
-  onSelectNode?: (category: Category, fullPath: string) => void;
+  onSelectPath?: (fullPath: string) => void;
   selectedPath?: string | null;
 };
 
@@ -530,7 +539,7 @@ const buildTreeFromCategories = (categories: Category[]): TreeNode[] => {
 
 const GroupCategoryTree: React.FC<GroupCategoryTreeProps> = ({
   categories,
-  onSelectNode,
+  onSelectPath,
   selectedPath,
 }) => {
   const classes = useStyles();
@@ -539,35 +548,6 @@ const GroupCategoryTree: React.FC<GroupCategoryTreeProps> = ({
     () => buildTreeFromCategories(categories),
     [categories],
   );
-
-  // path -> owning category
-  const pathToCategory: Record<string, Category> = useMemo(() => {
-    const map: Record<string, Category> = {};
-
-    categories.forEach(cat => {
-      // category node
-      map[cat.path] = cat;
-
-      // all paths under this category
-      cat.groups.forEach(groupPath => {
-        const parts = groupPath.split('/').filter(Boolean);
-        let currentPath = cat.path;
-
-        parts.forEach(part => {
-          currentPath = `${currentPath}/${part}`;
-          map[currentPath] = cat;
-        });
-      });
-    });
-
-    return map;
-  }, [categories]);
-
-  // also support folder-only nodes like "character"
-  const getCategoryForPath = (fullPath: string): Category | undefined => {
-    if (pathToCategory[fullPath]) return pathToCategory[fullPath];
-    return categories.find(c => c.path.startsWith(fullPath + '/'));
-  };
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -602,13 +582,11 @@ const GroupCategoryTree: React.FC<GroupCategoryTreeProps> = ({
 
       const hasChildren = node.children && node.children.length > 0;
       const isCollapsed = !!collapsed[node.fullPath];
-
-      const nodeCategory = getCategoryForPath(node.fullPath);
       const isSelected = selectedPath === node.fullPath;
 
       const handleSelect = () => {
-        if (nodeCategory && onSelectNode) {
-          onSelectNode(nodeCategory, node.fullPath);
+        if (onSelectPath) {
+          onSelectPath(node.fullPath);
         }
       };
 
@@ -687,36 +665,53 @@ const GroupCategoryLocation: React.FC<GroupCategoryLocationProps> = ({
     );
   };
 
-  const handleRemoveGroup = (category: Category, groupPath: string) => {
-    if (!project) return;
-
-    updateGroupCategory(
-      project.key_name,
-      category.id,
-      'remove',
-      [groupPath],
-    )
-      .then(res => {
-        if (res == null) return;
-        setCategories(
-          categories.map(c => (c.id === res.id ? res : c)),
-        );
-      })
-      .catch(err => {
-        console.error(err);
-      });
-  };
-
   // keep selectedCategory in sync when categories array changes
   useEffect(() => {
-    if (!selectedCategory) return;
+    if (!selectedCategory || selectedCategory.id < 0) return; // ignore virtual
     const updated = categories.find(c => c.id === selectedCategory.id);
     setSelectedCategory(updated || null);
   }, [categories]);
 
-  const handleTreeSelect = (category: Category, fullPath: string) => {
-    setSelectedCategory(category);
+  // When a tree node is clicked
+  const handleTreePathSelect = (fullPath: string) => {
     setSelectedPath(fullPath);
+
+    // find all categories under this path
+    const matching = categories.filter(
+      c => c.path === fullPath || c.path.startsWith(fullPath + '/'),
+    );
+
+    if (matching.length === 0) {
+      setSelectedCategory(null);
+      return;
+    }
+
+    if (matching.length === 1) {
+      // single category – normal behaviour
+      setSelectedCategory(matching[0]);
+      return;
+    }
+
+    // multiple categories – build a virtual merged category
+    const allGroups: string[] = [];
+    matching.forEach(cat => {
+      const relCat = cat.path.slice(fullPath.length + 1); // after folder
+      cat.groups.forEach(g => {
+        const merged =
+          relCat && relCat.length > 0 ? `${relCat}/${g}` : g;
+        allGroups.push(merged);
+      });
+    });
+
+    const base = matching[0];
+    const virtualCat: Category = {
+      ...base,
+      id: -1, // mark as virtual / read-only
+      path: fullPath,
+      groups: allGroups,
+    };
+
+    setSelectedCategory(virtualCat);
   };
 
   return (
@@ -782,7 +777,7 @@ const GroupCategoryLocation: React.FC<GroupCategoryLocationProps> = ({
                     >
                       <GroupCategoryTree
                         categories={categories}
-                        onSelectNode={handleTreeSelect}
+                        onSelectPath={handleTreePathSelect}
                         selectedPath={selectedPath}
                       />
                     </div>
