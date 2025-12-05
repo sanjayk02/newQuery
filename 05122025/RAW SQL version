@@ -1,44 +1,67 @@
+WITH joined AS (
+    SELECT
+        ri.id,
+        ri.project,
+        ri.root,
+        ri.group_1,
+        ri.relation,
+        ri.phase,
+        ri.work_status,
+        ri.approval_status,
+        ri.submitted_at_utc,
+        ri.modified_at_utc,
+
+        -- leaf from JSON ["camAim"], ["camHero"], ...
+        JSON_UNQUOTE(JSON_EXTRACT(ri.`groups`, '$[0]')) AS leaf_group_name,
+
+        -- group tables
+        gcg.id   AS group_category_group_id,
+        gcg.path AS group_leaf_path,
+        gc.id    AS group_category_id,
+        gc.path  AS group_category_path,
+        gc.depth AS group_category_depth,
+
+        -- top group node (camera / character / prop / ...)
+        SUBSTRING_INDEX(gc.path, '/', 1) AS top_group_node
+    FROM t_review_info AS ri
+    INNER JOIN t_group_category_group AS gcg
+            ON gcg.project = ri.project
+           AND gcg.deleted = 0
+           AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.`groups`, '$[0]'))
+    INNER JOIN t_group_category AS gc
+            ON gc.id = gcg.group_category_id
+           AND gc.deleted = 0
+           AND gc.root = 'assets'
+    WHERE ri.project = 'potoodev'
+      AND ri.root    = 'assets'
+      AND ri.deleted = 0
+),
+ranked AS (
+    SELECT
+        j.*,
+        ROW_NUMBER() OVER (
+          PARTITION BY j.project, j.root, j.group_1, j.relation
+          ORDER BY j.modified_at_utc DESC   -- latest submission wins
+        ) AS rn
+    FROM joined j
+)
 SELECT
-    ri.id,
-    ri.project,
-    ri.root,
-    ri.group_1,
-    ri.relation,
-    ri.phase,
-    ri.work_status,
-    ri.approval_status,
-    ri.submitted_at_utc,
-
-    -- Leaf group name stored in JSON ["camAim"], ["camHero"], ...
-    JSON_UNQUOTE(JSON_EXTRACT(ri.`groups`, '$[0]')) AS leaf_group_name,
-
-    -- Group-category tables
-    gcg.id   AS group_category_group_id,
-    gcg.path AS group_leaf_path,
-
-    gc.id    AS group_category_id,
-    gc.path  AS group_category_path,
-    gc.depth AS group_category_depth,
-
-    -- TOP GROUP NODE for ShotGrid-style grouping (camera / character / prop / ...)
-    SUBSTRING_INDEX(gc.path, '/', 1) AS top_group_node
-
-FROM t_review_info AS ri
-
--- Match review_info to t_group_category_group using the leaf name
-INNER JOIN t_group_category_group AS gcg
-        ON gcg.project = ri.project
-       AND gcg.deleted = 0
-       AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.`groups`, '$[0]'))
-
--- Then match to t_group_category to get the category path (camera/..., character/..., etc.)
-INNER JOIN t_group_category AS gc
-        ON gc.id = gcg.group_category_id
-       AND gc.deleted = 0
-       AND gc.root = 'assets'
-
-WHERE ri.project = 'potoodev'
-  AND ri.root    = 'assets'
-  AND ri.deleted = 0
-
-ORDER BY top_group_node, ri.group_1, ri.relation;
+    id,
+    project,
+    root,
+    group_1,
+    relation,
+    phase,
+    work_status,
+    approval_status,
+    submitted_at_utc,
+    leaf_group_name,
+    group_category_group_id,
+    group_leaf_path,
+    group_category_id,
+    group_category_path,
+    group_category_depth,
+    top_group_node
+FROM ranked
+WHERE rn = 1              -- 🚫 removes duplicates: 1 row per asset
+ORDER BY top_group_node, group_1, relation;
