@@ -1,0 +1,44 @@
+SELECT
+    ri.id,
+    ri.project,
+    ri.root,
+    ri.group_1,
+    ri.relation,
+    ri.take,
+    ri.approval_status,
+    ri.work_status,
+
+    -- leaf group row
+    gcg.id   AS group_category_group_id,
+    gcg.path AS group_leaf_path,
+
+    -- category root (depth=1 level)
+    gc.id    AS group_category_id,
+    gc.path  AS group_category_path,
+
+    -- TOP GROUP NODE (first folder in the path)
+    SUBSTRING_INDEX(gcg.path, '/', 1) AS top_group_node,
+
+    -- your phase fields…
+    ri.mdl_work_status,
+    ri.mdl_approval_status,
+    ri.mdl_submitted_at_utc,
+    ri.rig_work_status,
+    ...
+FROM t_review_info ri
+
+LEFT JOIN t_group_category_group gcg
+    ON gcg.project = ri.project
+   AND gcg.deleted = 0
+   AND gcg.path = ri.groups         -- THIS IS THE KEY LINK
+
+LEFT JOIN t_group_category gc
+    ON gc.id = gcg.group_category_id
+   AND gc.deleted = 0
+   AND gc.root = 'assets'
+
+WHERE ri.deleted = 0
+  AND ri.project = ?
+  AND ri.root = ?
+ORDER BY ...
+LIMIT ? OFFSET ?;
