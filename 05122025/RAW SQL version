@@ -8,37 +8,31 @@ SELECT
     ri.approval_status,
     ri.work_status,
 
-    -- leaf group row
+    -- LEAF GROUP (t_group_category_group)
     gcg.id   AS group_category_group_id,
     gcg.path AS group_leaf_path,
 
-    -- category root (depth=1 level)
+    -- CATEGORY ROOT NODE (t_group_category)
     gc.id    AS group_category_id,
     gc.path  AS group_category_path,
+    gc.depth AS group_category_depth,
 
-    -- TOP GROUP NODE (first folder in the path)
-    SUBSTRING_INDEX(gcg.path, '/', 1) AS top_group_node,
+    -- THIS IS WHAT YOU WANT FOR SHOTGRID GROUPING
+    SUBSTRING_INDEX(gcg.path, '/', 1) AS top_group_node
 
-    -- your phase fields…
-    ri.mdl_work_status,
-    ri.mdl_approval_status,
-    ri.mdl_submitted_at_utc,
-    ri.rig_work_status,
-    ...
 FROM t_review_info ri
 
-LEFT JOIN t_group_category_group gcg
+LEFT JOIN t_group_category_group AS gcg
     ON gcg.project = ri.project
    AND gcg.deleted = 0
-   AND gcg.path = ri.groups         -- THIS IS THE KEY LINK
+   AND gcg.path = ri.groups      -- IMPORTANT: your screenshot shows "groups" exists in t_review_info
 
-LEFT JOIN t_group_category gc
+LEFT JOIN t_group_category AS gc
     ON gc.id = gcg.group_category_id
    AND gc.deleted = 0
    AND gc.root = 'assets'
 
 WHERE ri.deleted = 0
-  AND ri.project = ?
-  AND ri.root = ?
-ORDER BY ...
-LIMIT ? OFFSET ?;
+  AND ri.project = 'potoodev'        -- your project
+  -- AND ri.root = 'assets'           -- add if needed
+;
