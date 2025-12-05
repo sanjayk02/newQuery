@@ -4,35 +4,87 @@ SELECT
     ri.root,
     ri.group_1,
     ri.relation,
-    ri.take,
-    ri.approval_status,
+    ri.phase,
     ri.work_status,
+    ri.approval_status,
+    ri.submitted_at_utc,
 
-    -- LEAF GROUP (t_group_category_group)
+    /* ------------------------------
+       GROUPING INFORMATION
+       ------------------------------ */
+
+    -- Top Group Node (ex: camera / character / prop / set)
+    JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[1]')) AS top_group_node,
+
+    -- Leaf Group Name (ex: camAim / kushta / axe)
+    JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[3]')) AS leaf_group_name,
+
+    /* ------------------------------
+       GROUP CATEGORY TABLES
+       ------------------------------ */
+
     gcg.id   AS group_category_group_id,
     gcg.path AS group_leaf_path,
 
-    -- CATEGORY ROOT NODE (t_group_category)
     gc.id    AS group_category_id,
     gc.path  AS group_category_path,
-    gc.depth AS group_category_depth,
-
-    -- THIS IS WHAT YOU WANT FOR SHOTGRID GROUPING
-    SUBSTRING_INDEX(gcg.path, '/', 1) AS top_group_node
+    gc.depth AS group_category_depth
 
 FROM t_review_info ri
 
-LEFT JOIN t_group_category_group AS gcg
-    ON gcg.project = ri.project
-   AND gcg.deleted = 0
-   AND gcg.path = ri.groups      -- IMPORTANT: your screenshot shows "groups" exists in t_review_info
+/* ------------------------------------------
+   MATCH REVIEW INFO TO GROUP CATEGORY GROUPS
+   ------------------------------------------ */
 
-LEFT JOIN t_group_category AS gc
-    ON gc.id = gcg.group_category_id
-   AND gc.deleted = 0
-   AND gc.root = 'assets'
+LEFT JOIN t_group_category_group gcg
+       ON gcg.project = ri.project
+      AND gcg.deleted = 0
+      AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[3]'))
+
+LEFT JOIN t_group_category gc
+       ON gc.id = gcg.group_category_id
+      AND gc.deleted = 0
+      AND gc.root = 'assets'
+
+/* ------------------------------------------ */
 
 WHERE ri.deleted = 0
-  AND ri.project = 'potoodev'        -- your project
-  -- AND ri.root = 'assets'           -- add if needed
-;
+  AND ri.project = 'potoodev'
+  AND ri.root    = 'assets'
+
+ORDER BY top_group_node, ri.group_1, ri.relation;
+
+SELECT
+    ri.id,
+    ri.group_1,
+    ri.relation,
+    JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[1]')) AS top_group_node,
+    JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[3]')) AS leaf_group_name
+FROM t_review_info ri
+INNER JOIN t_group_category_group gcg
+        ON gcg.project = ri.project
+       AND gcg.deleted = 0
+       AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[3]'))
+INNER JOIN t_group_category gc
+        ON gc.id = gcg.group_category_id
+       AND gc.deleted = 0
+       AND gc.root = 'assets'
+WHERE ri.deleted = 0
+  AND ri.project = 'potoodev'
+  AND ri.root    = 'assets'
+ORDER BY top_group_node, ri.group_1;
+
+SELECT
+    ri.id,
+    ri.group_1,
+    ri.groups,
+    JSON_EXTRACT(ri.groups,'$[0]') AS g0,
+    JSON_EXTRACT(ri.groups,'$[1]') AS g1,
+    JSON_EXTRACT(ri.groups,'$[2]') AS g2,
+    JSON_EXTRACT(ri.groups,'$[3]') AS g3,
+    JSON_EXTRACT(ri.groups,'$[4]') AS g4
+FROM t_review_info ri
+WHERE ri.project = 'potoodev'
+  AND ri.root = 'assets'
+LIMIT 20;
+
