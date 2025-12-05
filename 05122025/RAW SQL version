@@ -1,141 +1,44 @@
 SELECT
     ri.id,
+    ri.project,
+    ri.root,
     ri.group_1,
-    ri.`groups` AS groups_json
+    ri.relation,
+    ri.phase,
+    ri.work_status,
+    ri.approval_status,
+    ri.submitted_at_utc,
+
+    -- Leaf group name stored in JSON ["camAim"], ["camHero"], ...
+    JSON_UNQUOTE(JSON_EXTRACT(ri.`groups`, '$[0]')) AS leaf_group_name,
+
+    -- Group-category tables
+    gcg.id   AS group_category_group_id,
+    gcg.path AS group_leaf_path,
+
+    gc.id    AS group_category_id,
+    gc.path  AS group_category_path,
+    gc.depth AS group_category_depth,
+
+    -- TOP GROUP NODE for ShotGrid-style grouping (camera / character / prop / ...)
+    SUBSTRING_INDEX(gc.path, '/', 1) AS top_group_node
+
 FROM t_review_info AS ri
+
+-- Match review_info to t_group_category_group using the leaf name
+INNER JOIN t_group_category_group AS gcg
+        ON gcg.project = ri.project
+       AND gcg.deleted = 0
+       AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.`groups`, '$[0]'))
+
+-- Then match to t_group_category to get the category path (camera/..., character/..., etc.)
+INNER JOIN t_group_category AS gc
+        ON gc.id = gcg.group_category_id
+       AND gc.deleted = 0
+       AND gc.root = 'assets'
+
 WHERE ri.project = 'potoodev'
-  AND ri.root = 'assets'
+  AND ri.root    = 'assets'
   AND ri.deleted = 0
-LIMIT 50;
 
-/* ===============================================================
-   AUTO-DETECT GROUP INDEXES + RETURN GROUPED ASSETS IN ONE QUERY
-   =============================================================== */
-
-/* 
-   STEP 1: Determine which JSON index matches t_group_category_group.path
-   We check JSON indexes [1], [2], [3] dynamically and pick the first match.
-*/
-
-WITH leaf_candidates AS (
-    SELECT
-        ri.id,
-        ri.project,
-        ri.root,
-        ri.group_1,
-        ri.relation,
-        ri.phase,
-        ri.work_status,
-        ri.approval_status,
-        ri.submitted_at_utc,
-        ri.groups,
-
-        JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[1]')) AS g1,
-        JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[2]')) AS g2,
-        JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[3]')) AS g3
-    FROM t_review_info ri
-    WHERE ri.project = 'potoodev'
-      AND ri.root = 'assets'
-      AND ri.deleted = 0
-),
-
-/* 
-   STEP 2: Find which candidate (g1, g2, g3) actually matches a group_category_group.path
-*/
-detected_leaf AS (
-    SELECT DISTINCT
-        lc.*,
-        CASE 
-            WHEN gcg1.id IS NOT NULL THEN '1'
-            WHEN gcg2.id IS NOT NULL THEN '2'
-            WHEN gcg3.id IS NOT NULL THEN '3'
-            ELSE NULL
-        END AS leaf_index
-    FROM leaf_candidates lc
-    LEFT JOIN t_group_category_group gcg1
-           ON gcg1.project = lc.project
-          AND gcg1.deleted = 0
-          AND gcg1.path = lc.g1
-    LEFT JOIN t_group_category_group gcg2
-           ON gcg2.project = lc.project
-          AND gcg2.deleted = 0
-          AND gcg2.path = lc.g2
-    LEFT JOIN t_group_category_group gcg3
-           ON gcg3.project = lc.project
-          AND gcg3.deleted = 0
-          AND gcg3.path = lc.g3
-),
-
-/*
-   STEP 3: Keep only rows where we successfully detected a leaf index.
-*/
-valid_groups AS (
-    SELECT *
-    FROM detected_leaf
-    WHERE leaf_index IS NOT NULL
-),
-
-/*
-   STEP 4: Attach the correct leaf value dynamically.
-*/
-final_grouped AS (
-    SELECT
-        vg.*,
-
-        CASE vg.leaf_index
-            WHEN '1' THEN vg.g1
-            WHEN '2' THEN vg.g2
-            WHEN '3' THEN vg.g3
-        END AS leaf_group_name,
-
-        /* TOP GROUP NODE IS USUALLY g1, but we auto-detect:
-           top group is the FIRST non-null group above the leaf.
-        */
-        vg.g1 AS top_group_node
-    FROM valid_groups vg
-),
-
-/*
-   STEP 5: Join to category tables using detected leaf value
-*/
-joined_groups AS (
-    SELECT
-        fg.*,
-        gcg.id   AS group_category_group_id,
-        gcg.path AS group_leaf_path,
-        gc.id    AS group_category_id,
-        gc.path  AS group_category_path,
-        gc.depth AS group_category_depth
-    FROM final_grouped fg
-    LEFT JOIN t_group_category_group gcg
-           ON gcg.project = fg.project
-          AND gcg.deleted = 0
-          AND gcg.path = fg.leaf_group_name
-    LEFT JOIN t_group_category gc
-           ON gc.id = gcg.group_category_id
-          AND gc.deleted = 0
-          AND gc.root = 'assets'
-)
-
-/* ===============================================================
-   FINAL RESULT
-   =============================================================== */
-SELECT
-    id,
-    project,
-    root,
-    group_1,
-    relation,
-    phase,
-    work_status,
-    approval_status,
-    submitted_at_utc,
-    top_group_node,
-    leaf_group_name,
-    group_category_group_id,
-    group_leaf_path,
-    group_category_id,
-    group_category_path,
-    group_category_depth
-FROM joined_groups
-ORDER BY top_group_node, group_1, relation;
+ORDER BY top_group_node, ri.group_1, ri.relation;
