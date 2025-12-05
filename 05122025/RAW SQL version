@@ -1,3 +1,16 @@
+SELECT
+    id,
+    group_1,
+    groups
+FROM t_review_info
+WHERE project = 'potoodev'
+  AND root = 'assets'
+  AND deleted = 0
+LIMIT 50;
+
+
+
+
 /* ===============================================================
    AUTO-DETECT GROUP INDEXES + RETURN GROUPED ASSETS IN ONE QUERY
    =============================================================== */
