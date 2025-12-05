@@ -1,15 +1,12 @@
 SELECT
-    id,
-    group_1,
-    groups
-FROM t_review_info
-WHERE project = 'potoodev'
-  AND root = 'assets'
-  AND deleted = 0
+    ri.id,
+    ri.group_1,
+    ri.`groups` AS groups_json
+FROM t_review_info AS ri
+WHERE ri.project = 'potoodev'
+  AND ri.root = 'assets'
+  AND ri.deleted = 0
 LIMIT 50;
-
-
-
 
 /* ===============================================================
    AUTO-DETECT GROUP INDEXES + RETURN GROUPED ASSETS IN ONE QUERY
