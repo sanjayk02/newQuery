@@ -1,0 +1,5 @@
+List view (current behavior):
+GET /projects/myproj/reviews/assets/pivot?sort=group_1&dir=asc&page=1
+
+Grouped view:
+GET /projects/myproj/reviews/assets/pivot?view=grouped&sort=group_1&dir=asc&page=1
