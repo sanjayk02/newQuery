@@ -1,0 +1,70 @@
+// ✅ Groups by TopGroupNode
+// ✅ Bucket order: camera, character, set, prop, then all others A–Z
+// ✅ Sorts children inside each group by Group1 (ASC/DESC)
+func GroupAndSortByTopNode(
+	rows []AssetPivot,
+	dir SortDirection,
+) []GroupedAssetBucket {
+
+	grouped := make(map[string][]AssetPivot)
+
+	// 1) Group rows by TopGroupNode (normalize empty)
+	for _, row := range rows {
+		key := row.TopGroupNode
+		if strings.TrimSpace(key) == "" {
+			key = "Unassigned"
+		}
+		grouped[key] = append(grouped[key], row)
+	}
+
+	// 2) Build ordered list of group keys with custom priority
+	priority := []string{"camera", "character", "set", "prop"}
+
+	orderedKeys := make([]string, 0, len(grouped))
+	seen := make(map[string]bool)
+
+	// 2a) Add priority groups first, if they exist (case-insensitive)
+	for _, p := range priority {
+		for k := range grouped {
+			if strings.EqualFold(k, p) && !seen[k] {
+				orderedKeys = append(orderedKeys, k)
+				seen[k] = true
+			}
+		}
+	}
+
+	// 2b) Add remaining groups, sorted alphabetically
+	var rest []string
+	for k := range grouped {
+		if !seen[k] {
+			rest = append(rest, k)
+		}
+	}
+	sort.Strings(rest)
+	orderedKeys = append(orderedKeys, rest...)
+
+	// 3) Sort ONLY children inside each group by Group1
+	for _, key := range orderedKeys {
+		children := grouped[key]
+
+		sort.Slice(children, func(i, j int) bool {
+			if dir == SortDESC {
+				return children[i].Group1 > children[j].Group1
+			}
+			return children[i].Group1 < children[j].Group1
+		})
+
+		grouped[key] = children
+	}
+
+	// 4) Build final grouped output in the computed group order
+	result := make([]GroupedAssetBucket, 0, len(orderedKeys))
+	for _, key := range orderedKeys {
+		result = append(result, GroupedAssetBucket{
+			TopGroupNode: key,
+			Items:        grouped[key],
+		})
+	}
+
+	return result
+}
