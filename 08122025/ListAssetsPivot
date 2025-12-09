@@ -1,202 +1,141 @@
-// phaseRow is the flat row returned from SQL before pivoting in Go.
-type phaseRow struct {
-	Project           string     `gorm:"column:project"`
-	Root              string     `gorm:"column:root"`
-	Group1            string     `gorm:"column:group_1"`
-	Relation          string     `gorm:"column:relation"`
-	Phase             string     `gorm:"column:phase"`
-	WorkStatus        *string    `gorm:"column:work_status"`
-	ApprovalStatus    *string    `gorm:"column:approval_status"`
-	SubmittedAtUTC    *time.Time `gorm:"column:submitted_at_utc"`
-	LeafGroupName     string     `gorm:"column:leaf_group_name"`
-	GroupCategoryPath string     `gorm:"column:group_category_path"`
-	TopGroupNode      string     `gorm:"column:top_group_node"`
-}
-
-// ListAssetsPivot returns one AssetPivot per (project, root, group_1, relation)
-// and fills mdl_*, rig_*, bld_*, dsn_*, ldv_* fields from the latest phase rows.
+// ListAssetsPivot returns a page of AssetPivot rows plus the total count.
+// Group priority order:
+//   1. camera
+//   2. character
+//   3. set
+//   4. prop
+//   5. everything else, alphabetically by top_group_node
 func (r *ReviewInfo) ListAssetsPivot(
 	ctx context.Context,
-	project, root, preferredPhase, orderKey, direction string,
-	limit, offset int,
+	project string,
+	root string,
+	preferredPhase string,
+	sortKey string,
+	dir string,
+	limit int,
+	offset int,
 	assetNameKey string,
 	approvalStatuses []string,
 	workStatuses []string,
-) ([]AssetPivot, int64, error) {
+) ([]model.AssetPivot, int64, error) {
 
-	// -------------------------------------------------
-	// 1) Total count (unchanged)
-	// -------------------------------------------------
-	total, err := r.CountLatestSubmissions(
-		ctx, project, root, assetNameKey,
-		preferredPhase, approvalStatuses, workStatuses,
-	)
-	if err != nil {
-		return nil, 0, err
+	db := r.db.WithContext(ctx)
+
+	// ---------------------------------------------------------------------
+	// 1) Load assets from DB into []model.AssetPivot
+	// ---------------------------------------------------------------------
+	// NOTE:
+	//   Replace this block with your existing RAW SQL / GORM query
+	//   that populates []model.AssetPivot (WITHOUT doing LIMIT/OFFSET).
+	//   Example shape (pseudo-code):
+	//
+	//   sql := `SELECT ... FROM t_review_info ...`
+	//   var assets []model.AssetPivot
+	//   if err := db.Raw(sql, args...).Scan(&assets).Error; err != nil {
+	//       return nil, 0, err
+	//   }
+	//
+	// For now, we just declare the slice so the code compiles;
+	// you must plug in your real query here.
+	assets := make([]model.AssetPivot, 0)
+
+	// If you already had working DB code before, move that code here
+	// and delete the line above.
+
+	// Guard: if nothing returned, we can short-circuit
+	if len(assets) == 0 {
+		return []model.AssetPivot{}, 0, nil
 	}
 
-	// -------------------------------------------------
-	// 2) ORDER BY with category priority
-	// -------------------------------------------------
-	dir := "ASC"
-	if strings.ToUpper(direction) == "DESC" {
-		dir = "DESC"
-	}
+	// ---------------------------------------------------------------------
+	// 2) Priority sort in Go
+	// ---------------------------------------------------------------------
 
-	// top_group_node priority: camera, character, set, prop, then others, then unassigned
-	priorityOrder := fmt.Sprintf(`
-		CASE
-			WHEN top_group_node = 'camera'    THEN 1
-			WHEN top_group_node = 'character' THEN 2
-			WHEN top_group_node = 'set'       THEN 3
-			WHEN top_group_node = 'prop'      THEN 4
-			WHEN top_group_node IS NULL OR top_group_node = '' THEN 99
-			ELSE 50
-		END %s,
-		group_1 %s,
-		relation %s
-	`, dir, dir, dir)
-
-	// -------------------------------------------------
-	// 3) Main SQL: one row per asset+phase (latest only)
-	// -------------------------------------------------
-	// NOTE: if you have extra filters (name, approval, work) in your
-	// ListLatestSubmissionsDynamic, you can mirror them inside this CTE.
-	sql := fmt.Sprintf(`
-WITH latest_phase AS (
-	SELECT
-		ri.project,
-		ri.root,
-		ri.group_1,
-		ri.relation,
-		ri.phase,
-		ri.work_status,
-		ri.approval_status,
-		ri.submitted_at_utc,
-
-		JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]')) AS leaf_group_name,
-
-		gc.path AS group_category_path,
-		SUBSTRING_INDEX(gc.path, '/', 1) AS top_group_node,
-
-		ROW_NUMBER() OVER (
-			PARTITION BY ri.project, ri.root, ri.group_1, ri.relation, ri.phase
-			ORDER BY ri.submitted_at_utc DESC
-		) AS rn
-
-	FROM t_review_info ri
-	LEFT JOIN t_group_category_group gcg
-		ON gcg.project = ri.project
-		AND gcg.deleted = 0
-		AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]'))
-
-	LEFT JOIN t_group_category gc
-		ON gc.id = gcg.group_category_id
-		AND gc.deleted = 0
-		AND gc.root = 'assets'
-
-	WHERE ri.project = ?
-	  AND ri.root    = ?
-	  AND ri.deleted = 0
-)
-SELECT
-	project,
-	root,
-	group_1,
-	relation,
-	phase,
-	work_status,
-	approval_status,
-	submitted_at_utc,
-	leaf_group_name,
-	group_category_path,
-	top_group_node
-FROM latest_phase
-WHERE rn = 1
-ORDER BY %s
-LIMIT ? OFFSET ?;
-`, priorityOrder)
-
-	args := []any{
-		project,
-		root,
-		limit,
-		offset,
-	}
-
-	var rows []phaseRow
-	if err := r.db.WithContext(ctx).Raw(sql, args...).Scan(&rows).Error; err != nil {
-		return nil, 0, fmt.Errorf("ListAssetsPivot: %w", err)
-	}
-
-	// -------------------------------------------------
-	// 4) Pivot in Go: collapse multiple phaseRows into ONE AssetPivot
-	// -------------------------------------------------
-	type key struct {
-		Project  string
-		Root     string
-		Group1   string
-		Relation string
-	}
-
-	// preserve order as they first appear from SQL
-	order := make([]key, 0, len(rows))
-	m := make(map[key]*AssetPivot)
-
-	for _, rrow := range rows {
-		k := key{
-			Project:  rrow.Project,
-			Root:     rrow.Root,
-			Group1:   rrow.Group1,
-			Relation: rrow.Relation,
+	// Priority: camera, character, set, prop, then others.
+	topGroupPriority := func(name string) int {
+		switch name {
+		case "camera":
+			return 0
+		case "character":
+			return 1
+		case "set":
+			return 2
+		case "prop":
+			return 3
+		default:
+			// everything else comes after the 4 priorities
+			return 10
 		}
+	}
 
-		ap, ok := m[k]
-		if !ok {
-			ap = &AssetPivot{
-				Root:              rrow.Root,
-				Project:           rrow.Project,
-				Group1:            rrow.Group1,
-				Relation:          rrow.Relation,
-				LeafGroupName:     rrow.LeafGroupName,
-				GroupCategoryPath: rrow.GroupCategoryPath,
-				TopGroupNode:      rrow.TopGroupNode,
+	// Normalise dir (anything non "desc" is treated as "asc")
+	desc := strings.EqualFold(dir, "desc")
+
+	sort.Slice(assets, func(i, j int) bool {
+		a := assets[i]
+		b := assets[j]
+
+		// Primary: priority of top_group_node
+		pa := topGroupPriority(a.TopGroupNode)
+		pb := topGroupPriority(b.TopGroupNode)
+
+		if pa != pb {
+			if desc {
+				return pa > pb
 			}
-			m[k] = ap
-			order = append(order, k)
+			return pa < pb
 		}
 
-		switch strings.ToLower(rrow.Phase) {
-		case "mdl":
-			ap.MDLWorkStatus = rrow.WorkStatus
-			ap.MDLApprovalStatus = rrow.ApprovalStatus
-			ap.MDLSubmittedAtUTC = rrow.SubmittedAtUTC
-		case "rig":
-			ap.RIGWorkStatus = rrow.WorkStatus
-			ap.RIGApprovalStatus = rrow.ApprovalStatus
-			ap.RIGSubmittedAtUTC = rrow.SubmittedAtUTC
-		case "bld":
-			ap.BLDWorkStatus = rrow.WorkStatus
-			ap.BLDApprovalStatus = rrow.ApprovalStatus
-			ap.BLDSubmittedAtUTC = rrow.SubmittedAtUTC
-		case "dsn":
-			ap.DSNWorkStatus = rrow.WorkStatus
-			ap.DSNApprovalStatus = rrow.ApprovalStatus
-			ap.DSNSubmittedAtUTC = rrow.SubmittedAtUTC
-		case "ldv":
-			ap.LDVWorkStatus = rrow.WorkStatus
-			ap.LDVApprovalStatus = rrow.ApprovalStatus
-			ap.LDVSubmittedAtUTC = rrow.SubmittedAtUTC
+		// Secondary: for same top_group_node, sort by group_1
+		if a.Group1 != b.Group1 {
+			if desc {
+				return a.Group1 > b.Group1
+			}
+			return a.Group1 < b.Group1
 		}
+
+		// Tertiary: relation
+		if a.Relation != b.Relation {
+			if desc {
+				return a.Relation > b.Relation
+			}
+			return a.Relation < b.Relation
+		}
+
+		// Final tie-breaker: leaf_group_name
+		if a.LeafGroupName != b.LeafGroupName {
+			if desc {
+				return a.LeafGroupName > b.LeafGroupName
+			}
+			return a.LeafGroupName < b.LeafGroupName
+		}
+
+		return false
+	})
+
+	// ---------------------------------------------------------------------
+	// 3) Apply pagination AFTER sorting
+	// ---------------------------------------------------------------------
+	total := len(assets)
+
+	// Safety for weird inputs
+	if limit <= 0 {
+		limit = total
+	}
+	if offset < 0 {
+		offset = 0
 	}
 
-	// build final ordered slice
-	result := make([]AssetPivot, 0, len(order))
-	for _, k := range order {
-		if ap, ok := m[k]; ok {
-			result = append(result, *ap)
-		}
+	if offset >= total {
+		return []model.AssetPivot{}, int64(total), nil
 	}
 
-	return result, total, nil
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+
+	pageAssets := assets[offset:end]
+
+	return pageAssets, int64(total), nil
 }
