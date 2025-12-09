@@ -1,0 +1,541 @@
+package reviewinfo
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"strings"
+	"time"
+
+	"gorm.io/gorm"
+)
+
+// ---- DB row types ----
+
+type LatestSubmissionKey struct {
+	Root         string         `json:"root"          gorm:"column:root"`
+	Project      string         `json:"project"       gorm:"column:project"`
+	Group1       string         `json:"group_1"       gorm:"column:group_1"`
+	Relation     string         `json:"relation"      gorm:"column:relation"`
+	TopGroupNode sql.NullString `json:"top_group_node" gorm:"column:top_group_node"`
+}
+
+// One row per (asset, phase) after "latest per phase" selection.
+type LatestSubmissionRow struct {
+	Root             string         `json:"root"              gorm:"column:root"`
+	Project          string         `json:"project"           gorm:"column:project"`
+	Group1           string         `json:"group_1"           gorm:"column:group_1"`
+	Relation         string         `json:"relation"          gorm:"column:relation"`
+	LeafGroupName    sql.NullString `json:"leaf_group_name"   gorm:"column:leaf_group_name"`
+	GroupCategoryPath sql.NullString `json:"group_category_path" gorm:"column:group_category_path"`
+	TopGroupNode     sql.NullString `json:"top_group_node"    gorm:"column:top_group_node"`
+
+	Phase          string         `json:"phase"             gorm:"column:phase"`
+	WorkStatus     sql.NullString `json:"work_status"       gorm:"column:work_status"`
+	ApprovalStatus sql.NullString `json:"approval_status"   gorm:"column:approval_status"`
+	SubmittedAtUTC *time.Time     `json:"submitted_at_utc"  gorm:"column:submitted_at_utc"`
+}
+
+// ---- API response structs ----
+
+type AssetPivot struct {
+	Root             string     `json:"root"`
+	Project          string     `json:"project"`
+	Group1           string     `json:"group_1"`
+	Relation         string     `json:"relation"`
+
+	LeafGroupName    string     `json:"leaf_group_name"`
+	GroupCategoryPath string    `json:"group_category_path"`
+	TopGroupNode     string     `json:"top_group_node"`
+
+	MdlWorkStatus     *string    `json:"mdl_work_status,omitempty"`
+	MdlApprovalStatus *string    `json:"mdl_approval_status,omitempty"`
+	MdlSubmittedAtUTC *time.Time `json:"mdl_submitted_at_utc,omitempty"`
+
+	RigWorkStatus     *string    `json:"rig_work_status,omitempty"`
+	RigApprovalStatus *string    `json:"rig_approval_status,omitempty"`
+	RigSubmittedAtUTC *time.Time `json:"rig_submitted_at_utc,omitempty"`
+
+	BldWorkStatus     *string    `json:"bld_work_status,omitempty"`
+	BldApprovalStatus *string    `json:"bld_approval_status,omitempty"`
+	BldSubmittedAtUTC *time.Time `json:"bld_submitted_at_utc,omitempty"`
+
+	DsnWorkStatus     *string    `json:"dsn_work_status,omitempty"`
+	DsnApprovalStatus *string    `json:"dsn_approval_status,omitempty"`
+	DsnSubmittedAtUTC *time.Time `json:"dsn_submitted_at_utc,omitempty"`
+
+	LdvWorkStatus     *string    `json:"ldv_work_status,omitempty"`
+	LdvApprovalStatus *string    `json:"ldv_approval_status,omitempty"`
+	LdvSubmittedAtUTC *time.Time `json:"ldv_submitted_at_utc,omitempty"`
+}
+
+type AssetGroup struct {
+	TopGroupNode string        `json:"top_group_node"`
+	Items        []AssetPivot  `json:"items"`
+}
+
+type PivotResult struct {
+	Assets  []AssetPivot `json:"assets"`
+	Groups  []AssetGroup `json:"groups"`
+
+	Dir      string `json:"dir"`
+	HasNext  bool   `json:"has_next"`
+	HasPrev  bool   `json:"has_prev"`
+	Page     int    `json:"page"`
+	PageLast int    `json:"page_last"`
+	PerPage  int    `json:"per_page"`
+	Project  string `json:"project"`
+	Root     string `json:"root"`
+	Sort     string `json:"sort"`
+	Total    int64  `json:"total"`
+	View     string `json:"view"`
+}
+
+// If you already have a filter struct, plug it in here.
+// Kept empty for now to not change your behavior.
+type PivotFilters struct {
+	PhaseParam string // lowercased phase filter: "mdl", "rig", ...
+}
+
+// Priority for top_group_node:
+// camera → character → set → prop → others → Unassigned
+func buildTopGroupPriorityExpr(alias string) string {
+	col := "top_group_node"
+	if alias != "" {
+		col = alias + ".top_group_node"
+	}
+	return fmt.Sprintf(`
+		CASE
+			WHEN %s = 'camera'    THEN 1
+			WHEN %s = 'character' THEN 2
+			WHEN %s = 'set'       THEN 3
+			WHEN %s = 'prop'      THEN 4
+			WHEN %s IS NULL OR %s = '' THEN 99
+			ELSE 50
+		END
+	`, col, col, col, col, col, col)
+}
+
+func CountLatestSubmissions(
+	ctx context.Context,
+	db *gorm.DB,
+	project string,
+	root string,
+	f PivotFilters,
+) (int64, error) {
+
+	var total int64
+
+	// We only need distinct assets here, so no window functions.
+	var sb strings.Builder
+	sb.WriteString(`
+		SELECT COUNT(*) FROM (
+			SELECT
+				ri.root,
+				ri.project,
+				ri.group_1,
+				ri.relation
+			FROM t_review_info AS ri
+			WHERE ri.deleted = 0
+			  AND ri.project = ?
+			  AND ri.root    = ?
+	`)
+
+	args := []interface{}{project, root}
+
+	// Optional phase filter: only assets that have at least one row in that phase.
+	if f.PhaseParam != "" && f.PhaseParam != "none" {
+		sb.WriteString(` AND LOWER(ri.phase) = ?`)
+		args = append(args, strings.ToLower(f.PhaseParam))
+	}
+
+	sb.WriteString(`
+			GROUP BY ri.root, ri.project, ri.group_1, ri.relation
+		) AS x
+	`)
+
+	if err := db.WithContext(ctx).Raw(sb.String(), args...).Scan(&total).Error; err != nil {
+		return 0, err
+	}
+
+	return total, nil
+}
+
+
+func ListLatestSubmissionsDynamic(
+	ctx context.Context,
+	db *gorm.DB,
+	project string,
+	root string,
+	f PivotFilters,
+	page int,
+	perPage int,
+) ([]LatestSubmissionKey, error) {
+
+	if page < 1 {
+		page = 1
+	}
+	if perPage <= 0 {
+		perPage = 20
+	}
+	offset := (page - 1) * perPage
+
+	priorityExpr := buildTopGroupPriorityExpr("ak")
+
+	var sb strings.Builder
+	sb.WriteString(`
+		WITH asset_keys AS (
+			SELECT
+				ri.root,
+				ri.project,
+				ri.group_1,
+				ri.relation,
+
+				-- leaf_group_name = JSON ["camAim"], ["ichiroHero"], etc
+				JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]')) AS leaf_group_name,
+
+				-- Group-category join for top_group_node (camera / character / set / prop / ...)
+				gc.path AS group_category_path,
+				SUBSTRING_INDEX(gc.path, '/', 1) AS top_group_node
+			FROM t_review_info AS ri
+			LEFT JOIN t_group_category_group AS gcg
+				ON gcg.project = ri.project
+				AND gcg.deleted = 0
+				AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]'))
+			LEFT JOIN t_group_category AS gc
+				ON gc.id = gcg.group_category_id
+				AND gc.deleted = 0
+			WHERE ri.deleted = 0
+			  AND ri.project = ?
+			  AND ri.root    = ?
+	`)
+
+	args := []interface{}{project, root}
+
+	// Optional phase filter (same semantics as CountLatestSubmissions)
+	if f.PhaseParam != "" && f.PhaseParam != "none" {
+		sb.WriteString(` AND LOWER(ri.phase) = ?`)
+		args = append(args, strings.ToLower(f.PhaseParam))
+	}
+
+	// Deduplicate per asset; group_category_path/top_group_node are just hints.
+	sb.WriteString(`
+			GROUP BY
+				ri.root,
+				ri.project,
+				ri.group_1,
+				ri.relation,
+				top_group_node
+		)
+		SELECT
+			ak.root,
+			ak.project,
+			ak.group_1,
+			ak.relation,
+			ak.top_group_node
+		FROM asset_keys AS ak
+		ORDER BY
+	`)
+
+	// PRIORITY ORDER:
+	// camera → character → set → prop → others → Unassigned
+	sb.WriteString(priorityExpr)
+	sb.WriteString(` ASC, ak.group_1 ASC, ak.relation ASC
+		LIMIT ? OFFSET ?
+	`)
+
+	args = append(args, perPage, offset)
+
+	var rows []LatestSubmissionKey
+	if err := db.WithContext(ctx).Raw(sb.String(), args...).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	return rows, nil
+}
+
+
+func ListAssetsPivot(
+	ctx context.Context,
+	db *gorm.DB,
+	project string,
+	root string,
+	f PivotFilters,
+	page int,
+	perPage int,
+	view string, // "grouped" or "list" – we always compute groups; UI can ignore if needed
+	sort string, // currently we only support "group_1" for this flow
+	dir  string, // "asc" / "desc"
+) (*PivotResult, error) {
+
+	if dir == "" {
+		dir = "asc"
+	}
+	dir = strings.ToLower(dir)
+
+	total, err := CountLatestSubmissions(ctx, db, project, root, f)
+	if err != nil {
+		return nil, err
+	}
+	if total == 0 {
+		return &PivotResult{
+			Assets:   []AssetPivot{},
+			Groups:   []AssetGroup{},
+			Dir:      dir,
+			HasNext:  false,
+			HasPrev:  false,
+			Page:     1,
+			PageLast: 0,
+			PerPage:  perPage,
+			Project:  project,
+			Root:     root,
+			Sort:     sort,
+			Total:    0,
+			View:     view,
+		}, nil
+	}
+
+	keys, err := ListLatestSubmissionsDynamic(ctx, db, project, root, f, page, perPage)
+	if err != nil {
+		return nil, err
+	}
+	if len(keys) == 0 {
+		// Should not happen if total > 0, but handle gracefully
+		return &PivotResult{
+			Assets:   []AssetPivot{},
+			Groups:   []AssetGroup{},
+			Dir:      dir,
+			HasNext:  false,
+			HasPrev:  page > 1,
+			Page:     page,
+			PageLast: int((total + int64(perPage) - 1) / int64(perPage)),
+			PerPage:  perPage,
+			Project:  project,
+			Root:     root,
+			Sort:     sort,
+			Total:    total,
+			View:     view,
+		}, nil
+	}
+
+	// Build WHERE clause for keys
+	var whereParts []string
+	args := []interface{}{project, root}
+	for _, k := range keys {
+		whereParts = append(whereParts, `(ri.root = ? AND ri.project = ? AND ri.group_1 = ? AND ri.relation = ?)`)
+		args = append(args, k.Root, k.Project, k.Group1, k.Relation)
+	}
+	keysWhere := strings.Join(whereParts, " OR ")
+
+	priorityExpr := buildTopGroupPriorityExpr("ph")
+
+	var sb strings.Builder
+	sb.WriteString(`
+		WITH phased AS (
+			SELECT
+				ri.root,
+				ri.project,
+				ri.group_1,
+				ri.relation,
+
+				JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]')) AS leaf_group_name,
+				gc.path AS group_category_path,
+				SUBSTRING_INDEX(gc.path, '/', 1) AS top_group_node,
+
+				ri.phase,
+				ri.work_status,
+				ri.approval_status,
+				ri.submitted_at_utc,
+
+				ROW_NUMBER() OVER (
+					PARTITION BY
+						ri.root, ri.project, ri.group_1, ri.relation, ri.phase
+					ORDER BY
+						ri.submitted_at_utc DESC, ri.id DESC
+				) AS rn
+			FROM t_review_info AS ri
+			LEFT JOIN t_group_category_group AS gcg
+				ON gcg.project = ri.project
+				AND gcg.deleted = 0
+				AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]'))
+			LEFT JOIN t_group_category AS gc
+				ON gc.id = gcg.group_category_id
+				AND gc.deleted = 0
+			WHERE ri.deleted = 0
+			  AND ri.project = ?
+			  AND ri.root    = ?
+			  AND (
+	`)
+	sb.WriteString(keysWhere)
+	sb.WriteString(`
+			  )
+		)
+		SELECT
+			ph.root,
+			ph.project,
+			ph.group_1,
+			ph.relation,
+			ph.leaf_group_name,
+			ph.group_category_path,
+			ph.top_group_node,
+			ph.phase,
+			ph.work_status,
+			ph.approval_status,
+			ph.submitted_at_utc
+		FROM phased AS ph
+		WHERE ph.rn = 1
+		ORDER BY
+	`)
+
+	sb.WriteString(priorityExpr)
+	sb.WriteString(` ASC, ph.group_1 ASC, ph.relation ASC, ph.phase ASC`)
+
+	var phaseRows []LatestSubmissionRow
+	if err := db.WithContext(ctx).Raw(sb.String(), args...).Scan(&phaseRows).Error; err != nil {
+		return nil, err
+	}
+
+	// ---- Pivot into one AssetPivot per asset ----
+	pivotMap := map[string]*AssetPivot{}
+
+	for _, r := range phaseRows {
+		key := fmt.Sprintf("%s|%s|%s|%s", r.Root, r.Project, r.Group1, r.Relation)
+		ap, ok := pivotMap[key]
+		if !ok {
+			ap = &AssetPivot{
+				Root:    r.Root,
+				Project: r.Project,
+				Group1:  r.Group1,
+				Relation: r.Relation,
+				LeafGroupName:    r.LeafGroupName.String,
+				GroupCategoryPath: r.GroupCategoryPath.String,
+				TopGroupNode:     r.TopGroupNode.String,
+			}
+			pivotMap[key] = ap
+		}
+
+		// Map phase → columns
+		phase := strings.ToLower(r.Phase)
+		ws := nullableStringPtr(r.WorkStatus)
+		as := nullableStringPtr(r.ApprovalStatus)
+		ts := r.SubmittedAtUTC
+
+		switch phase {
+		case "mdl":
+			ap.MdlWorkStatus = ws
+			ap.MdlApprovalStatus = as
+			ap.MdlSubmittedAtUTC = ts
+		case "rig":
+			ap.RigWorkStatus = ws
+			ap.RigApprovalStatus = as
+			ap.RigSubmittedAtUTC = ts
+		case "bld":
+			ap.BldWorkStatus = ws
+			ap.BldApprovalStatus = as
+			ap.BldSubmittedAtUTC = ts
+		case "dsn":
+			ap.DsnWorkStatus = ws
+			ap.DsnApprovalStatus = as
+			ap.DsnSubmittedAtUTC = ts
+		case "ldv":
+			ap.LdvWorkStatus = ws
+			ap.LdvApprovalStatus = as
+			ap.LdvSubmittedAtUTC = ts
+		}
+	}
+
+	// Preserve the order from phaseRows (which already has priority + group_1 order)
+	assets := make([]AssetPivot, 0, len(pivotMap))
+	seen := map[string]bool{}
+	for _, r := range phaseRows {
+		k := fmt.Sprintf("%s|%s|%s|%s", r.Root, r.Project, r.Group1, r.Relation)
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		if ap, ok := pivotMap[k]; ok {
+			assets = append(assets, *ap)
+		}
+	}
+
+	// ---- Build groups (same priority order) ----
+	groupBuckets := map[string][]AssetPivot{}
+	for _, a := range assets {
+		top := a.TopGroupNode
+		if top == "" {
+			top = "Unassigned"
+		}
+		groupBuckets[top] = append(groupBuckets[top], a)
+	}
+
+	priorityOrder := []string{"camera", "character", "set", "prop"}
+	groups := make([]AssetGroup, 0)
+
+	// 1) priority buckets
+	for _, top := range priorityOrder {
+		if bucket, ok := groupBuckets[top]; ok && len(bucket) > 0 {
+			groups = append(groups, AssetGroup{
+				TopGroupNode: top,
+				Items:        bucket,
+			})
+			delete(groupBuckets, top)
+		}
+	}
+
+	// 2) all other named groups (sorted by key to have stable output)
+	var otherKeys []string
+	for k := range groupBuckets {
+		if k == "Unassigned" {
+			continue
+		}
+		otherKeys = append(otherKeys, k)
+	}
+	if len(otherKeys) > 0 {
+		sort.Strings(otherKeys)
+		for _, k := range otherKeys {
+			groups = append(groups, AssetGroup{
+				TopGroupNode: k,
+				Items:        groupBuckets[k],
+			})
+			delete(groupBuckets, k)
+		}
+	}
+
+	// 3) Unassigned last
+	if bucket, ok := groupBuckets["Unassigned"]; ok && len(bucket) > 0 {
+		groups = append(groups, AssetGroup{
+			TopGroupNode: "Unassigned",
+			Items:        bucket,
+		})
+	}
+
+	pageLast := int((total + int64(perPage) - 1) / int64(perPage))
+	hasNext := page < pageLast
+	hasPrev := page > 1
+
+	return &PivotResult{
+		Assets:   assets,
+		Groups:   groups,
+		Dir:      dir,
+		HasNext:  hasNext,
+		HasPrev:  hasPrev,
+		Page:     page,
+		PageLast: pageLast,
+		PerPage:  perPage,
+		Project:  project,
+		Root:     root,
+		Sort:     sort,
+		Total:    total,
+		View:     view,
+	}, nil
+}
+
+// small helper
+func nullableStringPtr(ns sql.NullString) *string {
+	if !ns.Valid {
+		return nil
+	}
+	v := ns.String
+	return &v
+}
+
