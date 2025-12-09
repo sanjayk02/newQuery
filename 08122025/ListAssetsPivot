@@ -1,0 +1,168 @@
+func (r *ReviewInfo) ListAssetsPivot(
+	ctx context.Context,
+	project, root, preferredPhase, orderKey, direction string,
+	limit, offset int,
+	assetNameKey string,
+	approvalStatuses []string,
+	workStatuses []string,
+) ([]AssetPivot, int64, error) {
+
+	// -------------------------------------------------
+	// 1️⃣ TOTAL COUNT (unchanged)
+	// -------------------------------------------------
+	total, err := r.CountLatestSubmissions(
+		ctx, project, root, assetNameKey,
+		preferredPhase, approvalStatuses, workStatuses,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// -------------------------------------------------
+	// 2️⃣ BUILD SQL ORDER BY WITH PRIORITY
+	// -------------------------------------------------
+	dir := "ASC"
+	if strings.ToUpper(direction) == "DESC" {
+		dir = "DESC"
+	}
+
+	priorityOrder := fmt.Sprintf(`
+		CASE
+			WHEN top_group_node = 'camera'    THEN 1
+			WHEN top_group_node = 'character' THEN 2
+			WHEN top_group_node = 'set'       THEN 3
+			WHEN top_group_node = 'prop'      THEN 4
+			WHEN top_group_node IS NULL OR top_group_node = '' THEN 99
+			ELSE 50
+		END %s,
+		group_1 %s,
+		relation %s
+	`, dir, dir, dir)
+
+	// -------------------------------------------------
+	// 3️⃣ MAIN SQL (PAGINATED + PRIORITY SORT)
+	// -------------------------------------------------
+	sql := fmt.Sprintf(`
+WITH latest_phase AS (
+	SELECT
+		ri.project,
+		ri.root,
+		ri.group_1,
+		ri.relation,
+		ri.phase,
+		ri.work_status,
+		ri.approval_status,
+		ri.submitted_at_utc,
+		ri.modified_at_utc,
+
+		JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]')) AS leaf_group_name,
+
+		gc.path AS group_category_path,
+		SUBSTRING_INDEX(gc.path, '/', 1) AS top_group_node,
+
+		ROW_NUMBER() OVER (
+			PARTITION BY ri.project, ri.root, ri.group_1, ri.relation, ri.phase
+			ORDER BY ri.modified_at_utc DESC
+		) rn
+
+	FROM t_review_info ri
+	LEFT JOIN t_group_category_group gcg
+		ON gcg.project = ri.project
+		AND gcg.deleted = 0
+		AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]'))
+
+	LEFT JOIN t_group_category gc
+		ON gc.id = gcg.group_category_id
+		AND gc.deleted = 0
+		AND gc.root = 'assets'
+
+	WHERE ri.project = ?
+	  AND ri.root = ?
+	  AND ri.deleted = 0
+)
+
+SELECT
+	project,
+	root,
+	group_1,
+	relation,
+	phase,
+	work_status,
+	approval_status,
+	submitted_at_utc,
+	leaf_group_name,
+	group_category_path,
+	top_group_node
+
+FROM latest_phase
+WHERE rn = 1
+
+ORDER BY %s
+LIMIT ? OFFSET ?;
+`, priorityOrder)
+
+	params := []any{
+		project, root,
+		limit, offset,
+	}
+
+	// -------------------------------------------------
+	// 4️⃣ EXECUTE QUERY
+	// -------------------------------------------------
+	var phases []phaseRow
+	if err := r.db.WithContext(ctx).Raw(sql, params...).Scan(&phases).Error; err != nil {
+		return nil, 0, fmt.Errorf("ListAssetsPivot: %w", err)
+	}
+
+	// -------------------------------------------------
+	// 5️⃣ STITCH INTO ASSET PIVOT STRUCTURE
+	// -------------------------------------------------
+	type keyStruct struct {
+		p, r, g, rel string
+	}
+
+	m := make(map[keyStruct]*AssetPivot)
+	ordered := make([]AssetPivot, 0)
+
+	for _, pr := range phases {
+		id := keyStruct{pr.Project, pr.Root, pr.Group1, pr.Relation}
+
+		ap := &AssetPivot{
+			Root:               pr.Root,
+			Project:            pr.Project,
+			Group1:             pr.Group1,
+			Relation:           pr.Relation,
+			LeafGroupName:      pr.LeafGroupName,
+			GroupCategoryPath: pr.GroupCategoryPath,
+			TopGroupNode:       pr.TopGroupNode,
+		}
+
+		switch strings.ToLower(pr.Phase) {
+		case "mdl":
+			ap.MDLWorkStatus = pr.WorkStatus
+			ap.MDLApprovalStatus = pr.ApprovalStatus
+			ap.MDLSubmittedAtUTC = pr.SubmittedAtUTC
+		case "rig":
+			ap.RIGWorkStatus = pr.WorkStatus
+			ap.RIGApprovalStatus = pr.ApprovalStatus
+			ap.RIGSubmittedAtUTC = pr.SubmittedAtUTC
+		case "bld":
+			ap.BLDWorkStatus = pr.WorkStatus
+			ap.BLDApprovalStatus = pr.ApprovalStatus
+			ap.BLDSubmittedAtUTC = pr.SubmittedAtUTC
+		case "dsn":
+			ap.DSNWorkStatus = pr.WorkStatus
+			ap.DSNApprovalStatus = pr.ApprovalStatus
+			ap.DSNSubmittedAtUTC = pr.SubmittedAtUTC
+		case "ldv":
+			ap.LDVWorkStatus = pr.WorkStatus
+			ap.LDVApprovalStatus = pr.ApprovalStatus
+			ap.LDVSubmittedAtUTC = pr.SubmittedAtUTC
+		}
+
+		m[id] = ap
+		ordered = append(ordered, *ap)
+	}
+
+	return ordered, total, nil
+}
