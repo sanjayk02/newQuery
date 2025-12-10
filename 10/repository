@@ -90,8 +90,9 @@ type GroupedAssetBucket struct {
 // GroupAndSortByTopNode:
 //
 // - Groups by TopGroupNode
-// - Sorts group headers alphabetically (ASC/DESC)
-// - Sorts items inside each group by Group1 (ASC/DESC)
+// - "Unassigned" (no top_group_node) ALWAYS comes first
+// - Other groups sorted alphabetically (ASC/DESC)
+// - Items inside each group sorted by Group1 (ASC/DESC)
 //
 // Use this for GROUP CATEGORY VIEW:
 //   pivots, total, _ := repo.ListAssetsPivot(...)
@@ -103,8 +104,8 @@ func GroupAndSortByTopNode(rows []AssetPivot, dir SortDirection) []GroupedAssetB
 	// group and collect TopGroupNode keys
 	for _, row := range rows {
 		key := row.TopGroupNode
-		if key == "" {
-			key = "Unassigned"
+		if strings.TrimSpace(key) == "" {
+			key = "Unassigned" // represents NULL / no group
 		}
 		if _, exists := grouped[key]; !exists {
 			grouped[key] = []AssetPivot{}
@@ -113,22 +114,40 @@ func GroupAndSortByTopNode(rows []AssetPivot, dir SortDirection) []GroupedAssetB
 		grouped[key] = append(grouped[key], row)
 	}
 
-	// sort group headers by TopGroupNode
+	// custom sort for group headers:
+	// - "Unassigned" ALWAYS first
+	// - rest alphabetically, ASC or DESC
 	sort.Slice(order, func(i, j int) bool {
-		if dir == SortDESC {
-			return strings.ToLower(order[i]) > strings.ToLower(order[j])
+		ai := strings.ToLower(order[i])
+		aj := strings.ToLower(order[j])
+
+		if ai == "unassigned" && aj == "unassigned" {
+			return false
 		}
-		return strings.ToLower(order[i]) < strings.ToLower(order[j])
+		if ai == "unassigned" {
+			return true // Unassigned first
+		}
+		if aj == "unassigned" {
+			return false
+		}
+
+		if dir == SortDESC {
+			return ai > aj
+		}
+		return ai < aj
 	})
 
 	// sort children inside each group by Group1
 	for _, key := range order {
 		children := grouped[key]
 		sort.Slice(children, func(i, j int) bool {
+			gi := strings.ToLower(children[i].Group1)
+			gj := strings.ToLower(children[j].Group1)
+
 			if dir == SortDESC {
-				return strings.ToLower(children[i].Group1) > strings.ToLower(children[j].Group1)
+				return gi > gj
 			}
-			return strings.ToLower(children[i].Group1) < strings.ToLower(children[j].Group1)
+			return gi < gj
 		})
 		grouped[key] = children
 	}
@@ -538,10 +557,18 @@ LIMIT ? OFFSET ?;
 // ListAssetsPivot returns the fully pivoted rows + total count.
 //
 // LIST VIEW:
-//   pivots, total, _ := repo.ListAssetsPivot(..., "group1_only", "ASC", ...)
+//   pivots, total, _ := repo.ListAssetsPivot(
+//       ctx, project, root, preferredPhase,
+//       "group1_only", "ASC",  // DB orders by group_1
+//       limit, offset,
+//       assetNameKey, approvalStatuses, workStatuses)
 //
-// GROUP CATEGORY VIEW:
-//   pivots, total, _ := repo.ListAssetsPivot(..., "group1_only", "ASC", ...)
+// GROUP CATEGORY VIEW (with GroupAndSortByTopNode):
+//   pivots, total, _ := repo.ListAssetsPivot(
+//       ctx, project, root, preferredPhase,
+//       "group1_only", "ASC",
+//       limit, offset,
+//       assetNameKey, approvalStatuses, workStatuses)
 //   buckets := GroupAndSortByTopNode(pivots, SortASC)
 func (r *ReviewInfo) ListAssetsPivot(
 	ctx context.Context,
@@ -558,7 +585,7 @@ func (r *ReviewInfo) ListAssetsPivot(
 		root = "assets"
 	}
 
-	// total for pagination
+	// 1) Get total count for pagination (after filters)
 	total, err := r.CountLatestSubmissions(
 		ctx,
 		project,
@@ -572,7 +599,7 @@ func (r *ReviewInfo) ListAssetsPivot(
 		return nil, 0, err
 	}
 
-	// page keys (one row per asset)
+	// 2) Get page "keys" (one primary row per asset, correctly ordered)
 	keys, err := r.ListLatestSubmissionsDynamic(
 		ctx,
 		project,
@@ -593,7 +620,8 @@ func (r *ReviewInfo) ListAssetsPivot(
 		return []AssetPivot{}, total, nil
 	}
 
-	// build dynamic WHERE ( ... OR ... ) for only this page's assets
+	// 3) Build dynamic WHERE ( ... OR ... ) to restrict phase fetch
+	//    strictly to this page's assets.
 	var sb strings.Builder
 	var params []any
 
@@ -662,13 +690,15 @@ WHERE rn = 1;
 		return nil, 0, fmt.Errorf("ListAssetsPivot.phaseFetch: %w", err)
 	}
 
-	// stitch phases into pivot rows
+	// 4) Stitch phases into pivot rows, preserving the page order from `keys`.
 	type keyStruct struct {
 		p, r, g, rel string
 	}
-	m := make(map[keyStruct]*AssetPivot, len(keys))
-	ordered := make([]AssetPivot, 0, len(keys))
 
+	m := make(map[keyStruct]*AssetPivot, len(keys))
+	orderedPtrs := make([]*AssetPivot, 0, len(keys))
+
+	// create base pivot row per asset in the same order as `keys`
 	for _, k := range keys {
 		id := keyStruct{k.Project, k.Root, k.Group1, k.Relation}
 		ap := &AssetPivot{
@@ -678,13 +708,14 @@ WHERE rn = 1;
 			Relation: k.Relation,
 		}
 		m[id] = ap
-		ordered = append(ordered, *ap)
+		orderedPtrs = append(orderedPtrs, ap)
 	}
 
+	// fill per-phase fields + grouping info
 	for _, pr := range phases {
 		id := keyStruct{pr.Project, pr.Root, pr.Group1, pr.Relation}
 		if ap, ok := m[id]; ok {
-			// grouping info once
+			// grouping info only needs to be set once
 			if ap.LeafGroupName == "" {
 				ap.LeafGroupName = pr.LeafGroupName
 				ap.GroupCategoryPath = pr.GroupCategoryPath
@@ -716,124 +747,11 @@ WHERE rn = 1;
 		}
 	}
 
-	// copy back filled pivots in original key order
-	for i := range ordered {
-		id := keyStruct{
-			ordered[i].Project,
-			ordered[i].Root,
-			ordered[i].Group1,
-			ordered[i].Relation,
-		}
-		if filled, ok := m[id]; ok {
-			ordered[i] = *filled
-		}
+	// 5) Convert []*AssetPivot → []AssetPivot in the same order as keys.
+	ordered := make([]AssetPivot, len(orderedPtrs))
+	for i, ap := range orderedPtrs {
+		ordered[i] = *ap
 	}
 
 	return ordered, total, nil
 }
-
-/*
-Optional: raw SQL for debugging "top_group_node" ordering directly in DB.
-
-This version ensures:
-  - ORDER BY top_group_node, group_1
-  - NULL top_group_node appears LAST (NOT first)
-
-WITH ordered AS (
-  SELECT
-    k.*,
-    ROW_NUMBER() OVER (
-      ORDER BY
-        (k.top_group_node IS NULL) ASC,
-        k.top_group_node ASC,
-        k.group_1 ASC
-    ) AS _order
-  FROM (
-    SELECT b.*
-    FROM (
-      SELECT
-        project,
-        root,
-        group_1,
-        relation,
-        phase,
-        MAX(modified_at_utc) AS modified_at_utc
-      FROM t_review_info
-      WHERE project = 'potoodev'
-        AND root    = 'assets'
-        AND deleted = 0
-      GROUP BY project, root, group_1, relation, phase
-    ) AS a
-    LEFT JOIN (
-      SELECT
-        ri.root,
-        ri.project,
-        ri.group_1,
-        ri.phase,
-        ri.relation,
-        ri.work_status,
-        ri.submitted_at_utc,
-        ri.modified_at_utc,
-        ri.executed_computer,
-        JSON_UNQUOTE(JSON_EXTRACT(ri.`groups`, '$[0]')) AS leaf_group_name,
-        gcg.id   AS group_category_group_id,
-        gcg.path AS group_leaf_path,
-        gc.id    AS group_category_id,
-        gc.path  AS group_category_path,
-        gc.depth AS group_category_depth,
-        SUBSTRING_INDEX(gc.path, '/', 1) AS top_group_node
-      FROM t_review_info AS ri
-      LEFT JOIN t_group_category_group AS gcg
-             ON gcg.project = ri.project
-            AND gcg.deleted = 0
-            AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.`groups`, '$[0]'))
-      LEFT JOIN t_group_category AS gc
-             ON gc.id = gcg.group_category_id
-            AND gc.deleted = 0
-            AND gc.root = 'assets'
-      WHERE ri.project = 'potoodev'
-        AND ri.root    = 'assets'
-        AND ri.deleted = 0
-    ) AS b
-      ON a.project         = b.project
-     AND a.root            = b.root
-     AND a.group_1         = b.group_1
-     AND a.relation        = b.relation
-     AND a.phase           = b.phase
-     AND a.modified_at_utc = b.modified_at_utc
-    ORDER BY b.submitted_at_utc ASC
-  ) AS k
-),
-offset_ordered AS (
-  SELECT
-    c.*,
-    CASE
-      WHEN c.phase = '' THEN c._order
-      ELSE 100000 + c._order
-    END AS __order
-  FROM ordered c
-),
-ranked AS (
-  SELECT
-    b.*,
-    ROW_NUMBER() OVER (
-      PARTITION BY b.root, b.project, b.group_1, b.relation
-      ORDER BY CASE WHEN b.phase = '' THEN 0 ELSE 1 END
-    ) AS _rank
-  FROM offset_ordered b
-)
-SELECT
-  root,
-  project,
-  group_1,
-  relation,
-  phase,
-  work_status,
-  submitted_at_utc,
-  modified_at_utc,
-  top_group_node
-FROM ranked
-WHERE _rank = 1
-ORDER BY __order ASC
-LIMIT 60 OFFSET 0;
-*/
