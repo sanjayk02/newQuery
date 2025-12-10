@@ -1,0 +1,70 @@
+// GroupAndSortByTopNode:
+//
+// - Groups by TopGroupNode
+// - "Unassigned" (no top_group_node) ALWAYS comes first
+// - Other groups sorted alphabetically (ASC/DESC)
+// - Items inside each group sorted by Group1 (ASC/DESC)
+func GroupAndSortByTopNode(rows []AssetPivot, dir SortDirection) []GroupedAssetBucket {
+    grouped := make(map[string][]AssetPivot)
+    order := make([]string, 0)
+
+    // group and collect TopGroupNode keys
+    for _, row := range rows {
+        key := row.TopGroupNode
+        if key == "" {
+            key = "Unassigned" // represents NULL / no group
+        }
+        if _, exists := grouped[key]; !exists {
+            grouped[key] = []AssetPivot{}
+            order = append(order, key)
+        }
+        grouped[key] = append(grouped[key], row)
+    }
+
+    // custom sort for group headers:
+    // - "Unassigned" ALWAYS first
+    // - rest alphabetically, ASC or DESC
+    sort.Slice(order, func(i, j int) bool {
+        ai := strings.ToLower(order[i])
+        aj := strings.ToLower(order[j])
+
+        if ai == "unassigned" && aj == "unassigned" {
+            return false
+        }
+        if ai == "unassigned" {
+            return true // Unassigned first
+        }
+        if aj == "unassigned" {
+            return false
+        }
+
+        if dir == SortDESC {
+            return ai > aj
+        }
+        return ai < aj
+    })
+
+    // sort children inside each group by Group1
+    for _, key := range order {
+        children := grouped[key]
+        sort.Slice(children, func(i, j int) bool {
+            gi := strings.ToLower(children[i].Group1)
+            gj := strings.ToLower(children[j].Group1)
+
+            if dir == SortDESC {
+                return gi > gj
+            }
+            return gi < gj
+        })
+        grouped[key] = children
+    }
+
+    result := make([]GroupedAssetBucket, 0, len(order))
+    for _, key := range order {
+        result = append(result, GroupedAssetBucket{
+            TopGroupNode: key,
+            Items:        grouped[key],
+        })
+    }
+    return result
+}
