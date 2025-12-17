@@ -1,68 +1,71 @@
 <Box
   style={{
-    width: '100%',
+    width: '99.2%',
     height: 32,
     backgroundColor: theme.palette.background.paper,
     display: 'flex',
     alignItems: 'center',
-    paddingLeft: 16,
-    paddingRight: 16,
-    marginTop: 4,
-    marginBottom: 0,
-    borderRadius: 4,
-    border: `1px solid ${theme.palette.divider}`,
     boxSizing: 'border-box',
-    justifyContent: 'space-between',
+
+    borderTop: '2px solid #2c2c2c',
+    borderBottom: '1px solid #2c2c2c',
+
+    paddingLeft: 8,
+    paddingRight: 8,
+    marginTop: 8,
+    marginBottom: 4,
+    marginLeft: '0.4%',
   }}
 >
-  <span style={{ fontSize: 12, fontWeight: 600, lineHeight: '12px' }}>
-    Pipeline Phase Priority: {phasePriority.toUpperCase()}
-  </span>
-
-  {/* right icon group */}
+  {/* ================= LEFT ================= */}
   <div
     style={{
       display: 'inline-flex',
       alignItems: 'center',
-      borderRadius: 4,
-      overflow: 'hidden',
-      backgroundColor: '#1f1f1f',
+      gap: 6,
     }}
   >
-    <IconButton
-      size="small"
-      onClick={() => setBarView('grid')}
-      style={{
-        padding: 6,
-        borderRadius: 0,
-        backgroundColor: barView === 'grid' ? '#2b2b2b' : 'transparent',
-      }}
-    >
-      <ViewModuleIcon style={{ fontSize: 18, color: '#fff' }} />
-    </IconButton>
+    {/* view icons */}
+    {/* grid / list / compact icons */}
+  </div>
 
-    <IconButton
-      size="small"
-      onClick={() => setBarView('compact')}
-      style={{
-        padding: 6,
-        borderRadius: 0,
-        backgroundColor: barView === 'compact' ? '#2b2b2b' : 'transparent',
-      }}
-    >
-      <ViewComfyIcon style={{ fontSize: 18, color: '#fff' }} />
-    </IconButton>
+  {/* ================= SPACER ================= */}
+  <div style={{ flex: 1 }} />
 
-    <IconButton
+  {/* ================= RIGHT ================= */}
+  <div
+    style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 8,
+    }}
+  >
+    {/* Search */}
+    <TextField
       size="small"
-      onClick={() => setBarView('list')}
+      placeholder="Search Assets..."
+      variant="outlined"
+      InputProps={{
+        style: {
+          height: 26,
+          fontSize: 12,
+        },
+      }}
+    />
+
+    {/* Filter */}
+    <Button
+      size="small"
+      variant="contained"
+      color="primary"
+      startIcon={<FilterListIcon />}
       style={{
-        padding: 6,
-        borderRadius: 0,
-        backgroundColor: barView === 'list' ? '#2b2b2b' : 'transparent',
+        height: 26,
+        textTransform: 'none',
+        fontSize: 12,
       }}
     >
-      <ViewListIcon style={{ fontSize: 18, color: '#00b7ff' }} />
-    </IconButton>
+      Filter 1
+    </Button>
   </div>
 </Box>
