@@ -1,0 +1,2 @@
+apiRouter.GET("/projects/:project/reviews/assets/pivot",
+    reviewInfoDelivery.ListAssetsPivot)
