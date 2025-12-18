@@ -1,71 +1,103 @@
-<Box
-  style={{
-    width: '99.2%',
-    height: 32,
-    backgroundColor: theme.palette.background.paper,
-    display: 'flex',
-    alignItems: 'center',
-    boxSizing: 'border-box',
-
-    borderTop: '2px solid #2c2c2c',
-    borderBottom: '1px solid #2c2c2c',
-
-    paddingLeft: 8,
-    paddingRight: 8,
-    marginTop: 8,
-    marginBottom: 4,
-    marginLeft: '0.4%',
-  }}
->
-  {/* ================= LEFT ================= */}
-  <div
+{/* ─────────────────────────────────────────────────────────────
+    PIPELINE BAR (below filters, above table)
+   ───────────────────────────────────────────────────────────── */}
+<div style={{ paddingLeft: 8, paddingRight: 8 }}>
+  <Box
     style={{
-      display: 'inline-flex',
+      width: '100%',
+      height: 40,
+      display: 'flex',
       alignItems: 'center',
-      gap: 6,
+      justifyContent: 'space-between',
+      boxSizing: 'border-box',
+      marginTop: 6,
+      marginBottom: 6,
+      borderRadius: 4,
+      border: `1px solid ${'#2c2c2c'}`,
+      backgroundColor: 'transparent',
+      paddingLeft: 8,
+      paddingRight: 8,
     }}
   >
-    {/* view icons */}
-    {/* grid / list / compact icons */}
-  </div>
-
-  {/* ================= SPACER ================= */}
-  <div style={{ flex: 1 }} />
-
-  {/* ================= RIGHT ================= */}
-  <div
-    style={{
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: 8,
-    }}
-  >
-    {/* Search */}
-    <TextField
-      size="small"
-      placeholder="Search Assets..."
-      variant="outlined"
-      InputProps={{
-        style: {
-          height: 26,
-          fontSize: 12,
-        },
-      }}
-    />
-
-    {/* Filter */}
-    <Button
-      size="small"
-      variant="contained"
-      color="primary"
-      startIcon={<FilterListIcon />}
+    {/* LEFT: view icons */}
+    <div
       style={{
-        height: 26,
-        textTransform: 'none',
-        fontSize: 12,
+        display: 'inline-flex',
+        alignItems: 'center',
+        borderRadius: 4,
+        overflow: 'hidden',
+        border: `1px solid ${'#2c2c2c'}`,
       }}
     >
-      Filter 1
-    </Button>
-  </div>
-</Box>
+      <IconButton
+        size="small"
+        onClick={() => setBarView('grid')}
+        style={{
+          padding: 6,
+          borderRadius: 0,
+          // (you asked to remove the backgroundColor conditional)
+        }}
+      >
+        <ViewModuleIcon
+          style={{
+            fontSize: 18,
+            color: barView === 'grid' ? '#00b7ff' : '#b0b0b0',
+          }}
+        />
+      </IconButton>
+
+      <IconButton
+        size="small"
+        onClick={() => setBarView('list')}
+        style={{
+          padding: 6,
+          borderRadius: 0,
+        }}
+      >
+        <ViewListIcon
+          style={{
+            fontSize: 18,
+            color: barView === 'list' ? '#00b7ff' : '#b0b0b0',
+          }}
+        />
+      </IconButton>
+    </div>
+
+    {/* RIGHT: search + filter */}
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <TextField
+        placeholder="Search Assets..."
+        variant="outlined"
+        value={barSearch}
+        onChange={(e) => {
+          const v = e.target.value;
+          setBarSearch(v);
+          // optionally connect this to your existing table filter:
+          // handleFilterAssetNameChange({ target: { value: v } } as any);
+        }}
+        InputProps={{
+          style: {
+            height: 28,
+            width: 320,
+            fontSize: 12,
+          },
+        }}
+      />
+
+      <Button
+        size="small"
+        variant="contained"
+        startIcon={<FilterListIcon />}
+        style={{
+          height: 28,
+          textTransform: 'none',
+          fontSize: 12,
+          backgroundColor: '#3479e0',
+          color: '#fff',
+        }}
+      >
+        Filter
+      </Button>
+    </div>
+  </Box>
+</div>
