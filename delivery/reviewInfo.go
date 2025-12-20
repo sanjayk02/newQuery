@@ -1,8 +1,25 @@
-// ========================================================================
-// ========= Asset Review Pivot Listing ===================================
-// ========================================================================
-//
+// ========================================================================================
+// ListAssetsPivot – helper
+// ========================================================================================
+func splitCSV(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// ========================================================================================
+// Asset Review Pivot Listing
 // GET /api/projects/:project/reviews/assets/pivot
+//
 // Query:
 //   root=assets
 //   view=list|grouped
@@ -12,9 +29,9 @@
 //   per_page=15
 //   phase=none|mdl|rig|...
 //   name=cam
-//   approval_status=check,approved
-//   work_status=check,review
-//
+//   approval_status=check,approved   (or appr=...)
+//   work_status=check,review         (or work=...)
+// ========================================================================================
 func (h *ReviewInfo) ListAssetsPivot(c *gin.Context) {
 	// ---- Required path param ----
 	project := strings.TrimSpace(c.Param("project"))
@@ -29,10 +46,10 @@ func (h *ReviewInfo) ListAssetsPivot(c *gin.Context) {
 		root = "assets"
 	}
 
-	view := strings.TrimSpace(c.DefaultQuery("view", "list")) // "list" or "grouped"
+	view := strings.TrimSpace(c.DefaultQuery("view", "list")) // list | grouped
 
 	sortKey := strings.TrimSpace(c.DefaultQuery("sort", "group_1"))
-	dir := strings.TrimSpace(c.DefaultQuery("dir", "asc")) // usecase will normalize if needed
+	dir := strings.TrimSpace(c.DefaultQuery("dir", "asc")) // usecase will normalize
 
 	phase := strings.TrimSpace(c.DefaultQuery("phase", "none"))
 	if phase == "" {
@@ -51,7 +68,7 @@ func (h *ReviewInfo) ListAssetsPivot(c *gin.Context) {
 
 	assetNameKey := strings.TrimSpace(c.DefaultQuery("name", ""))
 
-	// Support both new & old query keys (safe)
+	// Support both new & old query keys
 	approvalRaw := c.Query("approval_status")
 	if approvalRaw == "" {
 		approvalRaw = c.Query("appr")
@@ -68,7 +85,7 @@ func (h *ReviewInfo) ListAssetsPivot(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 7*time.Second)
 	defer cancel()
 
-	// ---- Call usecase (NEW SIGNATURE: (ctx, params) -> (result, error)) ----
+	// ---- NEW usecase signature: (ctx, params) -> (result, error) ----
 	params := usecase.ListAssetsPivotParams{
 		Project:          project,
 		Root:             root,
@@ -89,8 +106,6 @@ func (h *ReviewInfo) ListAssetsPivot(c *gin.Context) {
 		return
 	}
 
-	// ---- Response ----
-	// Always return assets; return groups only when grouped view.
 	res := gin.H{
 		"assets":    result.Assets,
 		"total":     result.Total,
