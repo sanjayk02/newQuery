@@ -2,6 +2,8 @@ package delivery
 
 import (
 	"context"
+	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"strconv"
@@ -10,41 +12,34 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/PolygonPictures/central30-web/front/repository"
-	"github.com/PolygonPictures/central30-web/front/usecase"
+	"your/module/path/usecase"
 )
 
-// ========================================================================
-// Review Info Delivery
-// ========================================================================
-
 type ReviewInfoDelivery struct {
-	reviewInfoUsecase usecase.ReviewInfoUsecase
+	reviewInfoUsecase *usecase.ReviewInfoUsecase
 }
 
-func NewReviewInfoDelivery(uc usecase.ReviewInfoUsecase) *ReviewInfoDelivery {
-	return &ReviewInfoDelivery{
-		reviewInfoUsecase: uc,
-	}
+func NewReviewInfoDelivery(u *usecase.ReviewInfoUsecase) *ReviewInfoDelivery {
+	return &ReviewInfoDelivery{reviewInfoUsecase: u}
 }
 
-// ========================================================================
-// Assets Pivot API - returns latest review info per asset
-// GET /projects/:project/reviews/assets/pivot
-// ========================================================================
-
+// Register like:
+// apiRouter.GET("/projects/:project/reviews/assets/pivot", reviewInfoDelivery.ListAssetsPivot)
 func (d *ReviewInfoDelivery) ListAssetsPivot(c *gin.Context) {
-	// ---- Project ----
+	// ---- Required path param ----
 	project := strings.TrimSpace(c.Param("project"))
 	if project == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "project is required in the path"})
 		return
 	}
 
-	// ---- Root ----
+	// ---- Basic params ----
 	root := strings.TrimSpace(c.DefaultQuery("root", "assets"))
-	if root == "" {
-		root = "assets"
+
+	// ---- Phase ----
+	phaseParam := strings.TrimSpace(c.Query("phase"))
+	if phaseParam == "" {
+		phaseParam = "none"
 	}
 
 	// ---- Pagination ----
@@ -52,84 +47,83 @@ func (d *ReviewInfoDelivery) ListAssetsPivot(c *gin.Context) {
 	page = int(math.Max(float64(page), 1))
 
 	perPage := clampPerPage(mustAtoi(c.DefaultQuery("per_page", "15")))
-	limit := perPage
-	offset := (page - 1) * perPage
 
 	// ---- Sorting ----
-	sortParam := c.DefaultQuery("sort", "group_1")
-	dirParam := c.DefaultQuery("dir", "ASC")
+	sortParam := strings.TrimSpace(c.DefaultQuery("sort", "group_1"))
+	dirParam := strings.TrimSpace(c.DefaultQuery("dir", "ASC"))
+
+	// Your usecase expects:
+	// OrderKey -> string (your internal sort key)
+	// Direction -> "ASC" or "DESC"
 	orderKey := normalizeSortKey(sortParam)
 	dir := normalizeDir(dirParam)
 
-	// ---- View Mode ----
+	// ---- View ----
 	viewParam := strings.ToLower(strings.TrimSpace(c.DefaultQuery("view", "list")))
-	isGroupedView := viewParam == "group" || viewParam == "grouped" || viewParam == "category"
-
-	// ---- Phase / Preferred Phase ----
-	phaseParam := strings.TrimSpace(c.Query("phase"))
-	preferredPhase := phaseParam
-	if preferredPhase == "" {
-		preferredPhase = "none"
-	}
-
-	// If ordering forces “no preferred phase”
-	if orderKey == "group1_only" || orderKey == "relation_only" || orderKey == "group_rel_submitted" {
-		preferredPhase = "none"
-	}
 
 	// ---- Filters ----
 	assetNameKey := strings.TrimSpace(c.Query("name"))
 	approvalStatuses := parseStatusParam(c, "approval_status")
 	workStatuses := parseStatusParam(c, "work_status")
 
+	// ---- Preferred phase logic ----
+	preferredPhase := phaseParam
+	if orderKey == "group1_only" || orderKey == "relation_only" || orderKey == "group_rel_submitted" {
+		preferredPhase = "none"
+	}
+	if preferredPhase == "" {
+		preferredPhase = "none"
+	}
+
 	// ---- Context timeout ----
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 7*time.Second)
 	defer cancel()
 
-	// ---- Usecase call ----
-	assets, total, err := d.reviewInfoUsecase.ListAssetsPivot(
-		ctx,
-		project,
-		root,
-		preferredPhase,
-		orderKey,
-		dir,
-		limit,
-		offset,
-		assetNameKey,
-		approvalStatuses,
-		workStatuses,
-	)
+	// ---- Usecase call (CORRECT) ----
+	params := usecase.ListAssetsPivotParams{
+		Project:          project,
+		Root:             root,
+		PreferredPhase:   preferredPhase,
+		OrderKey:         orderKey,
+		Direction:        dir,
+		Page:             page,
+		PerPage:          perPage,
+		AssetNameKey:     assetNameKey,
+		ApprovalStatuses: approvalStatuses,
+		WorkStatuses:     workStatuses,
+		View:             viewParam, // "list" or "grouped"
+	}
+
+	result, err := d.reviewInfoUsecase.ListAssetsPivot(ctx, params)
 	if err != nil {
+		log.Printf("[pivot-assets] query error for project %q: %v", project, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// ---- Grouped View (Optional) ----
-	var groups []repository.GroupedAssetBucket
-	if isGroupedView {
-		groups = repository.GroupAndSortByTopNode(
-			assets,
-			repository.SortDirection(strings.ToUpper(dir)),
-		)
-	}
-
 	// ---- Response ----
 	resp := gin.H{
-		"assets":    assets,
-		"total":     total,
-		"page":      page,
-		"per_page":  perPage,
+		"assets":    result.Assets,
+		"total":     result.Total,
+		"page":      result.Page,
+		"per_page":  result.PerPage,
+		"page_last": result.PageLast,
+		"has_next":  result.HasNext,
+		"has_prev":  result.HasPrev,
 		"sort":      sortParam,
-		"dir":       strings.ToLower(dir),
+		"dir":       strings.ToLower(result.Dir),
 		"project":   project,
 		"root":      root,
-		"has_next":  offset+limit < int(total),
-		"has_prev":  page > 1,
-		"page_last": (int(total) + perPage - 1) / perPage,
 		"view":      viewParam,
 	}
 
+	// include groups only for grouped view
+	isGroupedView := viewParam == "group" || viewParam == "grouped" || viewParam == "category"
+	if isGroupedView {
+		resp["groups"] = result.Groups
+	}
+
+	// optional echoes
 	if phaseParam != "" {
 		resp["phase"] = phaseParam
 	}
@@ -142,16 +136,20 @@ func (d *ReviewInfoDelivery) ListAssetsPivot(c *gin.Context) {
 	if len(workStatuses) > 0 {
 		resp["work_status"] = workStatuses
 	}
-	if isGroupedView {
-		resp["groups"] = groups
+
+	// cache + link headers (optional)
+	c.Header("Cache-Control", "public, max-age=15")
+	baseURL := fmt.Sprintf("/api/projects/%s/reviews/assets/pivot", project)
+	if links := paginationLinks(baseURL, page, perPage, int(result.Total)); links != "" {
+		c.Header("Link", links)
 	}
 
 	c.JSON(http.StatusOK, resp)
 }
 
-// ========================================================================
-// Helpers
-// ========================================================================
+// -----------------------------------------------------------------------------
+// Helpers (same file, so delivery compiles cleanly)
+// -----------------------------------------------------------------------------
 
 func mustAtoi(s string) int {
 	s = strings.TrimSpace(s)
@@ -165,95 +163,89 @@ func mustAtoi(s string) int {
 	return n
 }
 
-func clampPerPage(n int) int {
-	// match your UI expectations
-	if n <= 0 {
+func clampPerPage(v int) int {
+	if v <= 0 {
 		return 15
 	}
-	if n > 200 {
+	if v > 200 {
 		return 200
 	}
-	return n
+	return v
 }
 
-func normalizeDir(s string) string {
-	ss := strings.ToUpper(strings.TrimSpace(s))
-	if ss == "DESC" {
-		return "DESC"
+func normalizeDir(dir string) string {
+	d := strings.ToUpper(strings.TrimSpace(dir))
+	if d != "ASC" && d != "DESC" {
+		return "ASC"
 	}
-	return "ASC"
+	return d
 }
 
-func normalizeSortKey(s string) string {
-	ss := strings.ToLower(strings.TrimSpace(s))
-
-	// You can expand these as you support more UI sorts
-	switch ss {
+// Map UI "sort" -> your backend orderKey
+func normalizeSortKey(sort string) string {
+	s := strings.ToLower(strings.TrimSpace(sort))
+	switch s {
 	case "group_1", "group1":
-		return "group_1"
-	case "top_group_node", "top":
+		return "group1_only"
+	case "top_group_node":
 		return "top_group_node"
 	case "relation":
-		return "relation"
-	case "submitted_at", "submitted":
-		return "submitted_at"
-	case "group1_only":
-		return "group1_only"
-	case "relation_only":
 		return "relation_only"
-	case "group_rel_submitted":
-		return "group_rel_submitted"
+	case "submitted_at_utc":
+		return "submitted_at_utc"
 	default:
-		// safe default for stable pagination
-		return "group_1"
+		return "group1_only"
 	}
 }
 
-// parseStatusParam supports:
-// ?approval_status=check,review
-// ?approval_status=check&approval_status=review
 func parseStatusParam(c *gin.Context, key string) []string {
-	raw := c.QueryArray(key)
-	if len(raw) == 0 {
-		v := strings.TrimSpace(c.Query(key))
-		if v == "" {
-			return nil
-		}
-		parts := strings.Split(v, ",")
-		out := make([]string, 0, len(parts))
-		for _, p := range parts {
-			p = strings.TrimSpace(p)
-			if p != "" {
-				out = append(out, p)
-			}
-		}
-		if len(out) == 0 {
-			return nil
-		}
-		return out
+	raw := strings.TrimSpace(c.Query(key))
+	if raw == "" {
+		return nil
 	}
-
-	out := make([]string, 0, len(raw))
-	for _, v := range raw {
-		v = strings.TrimSpace(v)
-		if v == "" {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	seen := map[string]bool{}
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
 			continue
 		}
-		// allow comma even in array form
-		if strings.Contains(v, ",") {
-			parts := strings.Split(v, ",")
-			for _, p := range parts {
-				p = strings.TrimSpace(p)
-				if p != "" {
-					out = append(out, p)
-				}
-			}
-			continue
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, p)
 		}
-		out = append(out, v)
 	}
 	if len(out) == 0 {
 		return nil
 	}
 	return out
+}
+
+func paginationLinks(baseURL string, page, perPage, total int) string {
+	if perPage <= 0 {
+		return ""
+	}
+	last := (total + perPage - 1) / perPage
+	if last <= 1 {
+		return ""
+	}
+
+	makeURL := func(p int) string {
+		return fmt.Sprintf("%s?page=%d&per_page=%d", baseURL, p, perPage)
+	}
+
+	links := []string{
+		fmt.Sprintf(`<%s>; rel="first"`, makeURL(1)),
+		fmt.Sprintf(`<%s>; rel="last"`, makeURL(last)),
+	}
+
+	if page > 1 {
+		links = append(links, fmt.Sprintf(`<%s>; rel="prev"`, makeURL(page-1)))
+	}
+	if page < last {
+		links = append(links, fmt.Sprintf(`<%s>; rel="next"`, makeURL(page+1)))
+	}
+
+	return strings.Join(links, ", ")
 }
