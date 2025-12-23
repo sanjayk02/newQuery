@@ -3,7 +3,10 @@
     AssetsRowTablePanel.tsx
 
   Module Description:
-    Implementation for the "Assets Row" page with populated workflow data.
+    Assets Row Table with:
+    - Group mode (left tree + table)
+    - List mode (flat rows, no group header rows)
+    - Proper alignment + column group "box" separators
 ─────────────────────────────────────────────────────────────────────────── */
 
 import React from 'react';
@@ -25,17 +28,12 @@ import {
   Collapse,
   styled,
 } from '@material-ui/core';
-
 import MenuIcon from '@material-ui/icons/Menu';
 import ViewModuleIcon from '@material-ui/icons/ViewModule';
 import ViewListIcon from '@material-ui/icons/ViewList';
 import FilterListIcon from '@material-ui/icons/FilterList';
 import ExpandLessIcon from '@material-ui/icons/ExpandLess';
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
-
-// -------------------- Sizing constants (IMPORTANT for alignment) --------------------
-const GROUP_ROW_H = 32;  // left group header height
-const ASSET_ROW_H = 44;  // left asset row height AND table asset row height
 
 // --- Styled Components ---
 
@@ -65,6 +63,7 @@ const ContentRow = styled('div')({
   flexDirection: 'row',
   width: '100%',
   alignItems: 'stretch',
+  minHeight: 0,
 });
 
 const LeftPanel = styled('div')({
@@ -94,40 +93,37 @@ const LeftPanelBody = styled('div')({
 
 const TableWrap = styled(Paper)({
   flex: 1,
-  overflowX: 'auto',
+  overflow: 'auto',
   backgroundColor: '#1e1e1e',
   borderRadius: 0,
   boxShadow: 'none',
+  minHeight: 0,
 });
 
 const HeaderCell = styled(TableCell)({
-  fontWeight: 600,
+  fontWeight: 700,
   textTransform: 'uppercase',
   fontSize: 11,
   letterSpacing: 0.5,
   whiteSpace: 'nowrap',
-  padding: '8px 10px',
+  padding: '10px 12px',
   backgroundColor: '#2d2d2d !important',
   color: '#ffffff',
   borderBottom: '1px solid rgba(255,255,255,0.12)',
+  position: 'sticky',
+  top: 0,
+  zIndex: 3,
 });
 
 const DataCell = styled(TableCell)({
   color: '#b0b0b0',
-  padding: '8px 10px',
+  padding: '10px 12px',
   fontSize: 12,
   borderBottom: '1px solid rgba(255,255,255,0.05)',
-  height: ASSET_ROW_H,
+  height: 44,
   boxSizing: 'border-box',
   verticalAlign: 'middle',
   whiteSpace: 'nowrap',
-});
-
-const GroupSpacerCell = styled(TableCell)({
-  padding: 0,
-  borderBottom: '1px solid rgba(255,255,255,0.05)',
-  height: GROUP_ROW_H,
-  backgroundColor: '#1e1e1e',
 });
 
 const Thumb = styled('div')({
@@ -139,109 +135,161 @@ const Thumb = styled('div')({
   flex: '0 0 auto',
 });
 
-// Used in left panel asset items
 const RowItem = styled('div')({
   display: 'flex',
   alignItems: 'center',
-  height: ASSET_ROW_H,
-  width: '100%',
-  boxSizing: 'border-box',
-  // ✅ bigger gap between thumb and name
-  columnGap: 16,
+  gap: 10, // ✅ gap between thumb & name
+  minWidth: 0,
 });
 
-// Used in table "Name" cell to align nicely
-const NameCellWrap = styled('div')({
-  display: 'flex',
-  alignItems: 'center',
-  columnGap: 12,
+const NameText = styled(Typography)({
+  color: '#ddd',
+  fontSize: 12,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
 });
 
 // --- Types & Constants ---
 
+type AssetRow = {
+  id: string;
+  name: string;
+  groupId: string;
+  groupLabel: string;
+
+  thumbnail?: string;
+
+  mdl_work: string;
+  mdl_appr: string;
+  mdl_submitted: string;
+
+  rig_work: string;
+  rig_appr: string;
+  rig_submitted: string;
+
+  bld_work: string;
+  bld_appr: string;
+  bld_submitted: string;
+
+  dsn_work: string;
+  dsn_appr: string;
+  dsn_submitted: string;
+
+  ldv_work: string;
+  ldv_appr: string;
+  ldv_submitted: string;
+
+  relation: string;
+};
+
 const HEADER_COLUMNS = [
-  { id: 'thumbnail', label: 'Thumbnail', minWidth: 100 },
-  { id: 'name', label: 'Name', minWidth: 150 },
-  { id: 'mdl_work', label: 'MDL Work', minWidth: 100 },
-  { id: 'mdl_appr', label: 'MDL Appr', minWidth: 100 },
-  { id: 'mdl_submitted', label: 'MDL Submitted At', minWidth: 140 },
-  { id: 'rig_work', label: 'RIG Work', minWidth: 100 },
-  { id: 'rig_appr', label: 'RIG Appr', minWidth: 100 },
-  { id: 'rig_submitted', label: 'RIG Submitted At', minWidth: 140 },
-  { id: 'bld_work', label: 'BLD Work', minWidth: 100 },
-  { id: 'bld_appr', label: 'BLD Appr', minWidth: 100 },
-  { id: 'bld_submitted', label: 'BLD Submitted At', minWidth: 140 },
-  { id: 'dsn_work', label: 'DSN Work', minWidth: 100 },
-  { id: 'dsn_appr', label: 'DSN Appr', minWidth: 100 },
-  { id: 'dsn_submitted', label: 'DSN Submitted At', minWidth: 140 },
-  { id: 'ldv_work', label: 'LDV Work', minWidth: 100 },
-  { id: 'ldv_appr', label: 'LDV Appr', minWidth: 100 },
-  { id: 'ldv_submitted', label: 'LDV Submitted At', minWidth: 140 },
-  { id: 'relation', label: 'Relation', minWidth: 90 },
-];
+  { id: 'thumbnail', label: 'Thumbnail', minWidth: 110 },
+  { id: 'name', label: 'Name', minWidth: 180 },
 
-type AssetRow = ReturnType<typeof generateMockData>;
-type GroupRow = { id: string; label: string; count: number; assets: AssetRow[] };
+  { id: 'mdl_work', label: 'MDL Work', minWidth: 110 },
+  { id: 'mdl_appr', label: 'MDL Appr', minWidth: 110 },
+  { id: 'mdl_submitted', label: 'MDL Submitted At', minWidth: 150 },
 
-/** Helper to generate mock workflow data for an asset */
-function generateMockData(id: string, name: string) {
-  return {
-    id,
-    name,
-    mdl_work: Math.random() > 0.5 ? 'In Progress' : 'Done',
-    mdl_appr: Math.random() > 0.5 ? 'Pending' : 'Approved',
-    mdl_submitted: '2023-11-20',
-    rig_work: 'In Progress',
-    rig_appr: '—',
-    rig_submitted: '—',
-    bld_work: 'Waiting',
-    bld_appr: '—',
-    bld_submitted: '—',
-    dsn_work: 'Done',
-    dsn_appr: 'Approved',
-    dsn_submitted: '2023-10-15',
-    ldv_work: '—',
-    ldv_appr: '—',
-    ldv_submitted: '—',
-    relation: 'Master',
-  };
-}
+  { id: 'rig_work', label: 'RIG Work', minWidth: 110 },
+  { id: 'rig_appr', label: 'RIG Appr', minWidth: 110 },
+  { id: 'rig_submitted', label: 'RIG Submitted At', minWidth: 150 },
 
-const MOCK_GROUPS: GroupRow[] = [
+  { id: 'bld_work', label: 'BLD Work', minWidth: 110 },
+  { id: 'bld_appr', label: 'BLD Appr', minWidth: 110 },
+  { id: 'bld_submitted', label: 'BLD Submitted At', minWidth: 150 },
+
+  { id: 'dsn_work', label: 'DSN Work', minWidth: 110 },
+  { id: 'dsn_appr', label: 'DSN Appr', minWidth: 110 },
+  { id: 'dsn_submitted', label: 'DSN Submitted At', minWidth: 150 },
+
+  { id: 'ldv_work', label: 'LDV Work', minWidth: 110 },
+  { id: 'ldv_appr', label: 'LDV Appr', minWidth: 110 },
+  { id: 'ldv_submitted', label: 'LDV Submitted At', minWidth: 150 },
+
+  { id: 'relation', label: 'Relation', minWidth: 110 },
+] as const;
+
+type ColumnId = typeof HEADER_COLUMNS[number]['id'];
+
+const generateMockData = (id: string, name: string, groupId: string, groupLabel: string): AssetRow => ({
+  id,
+  name,
+  groupId,
+  groupLabel,
+
+  mdl_work: Math.random() > 0.5 ? 'In Progress' : 'Done',
+  mdl_appr: Math.random() > 0.5 ? 'Pending' : 'Approved',
+  mdl_submitted: '2023-11-20',
+
+  rig_work: 'In Progress',
+  rig_appr: '—',
+  rig_submitted: '—',
+
+  bld_work: 'Waiting',
+  bld_appr: '—',
+  bld_submitted: '—',
+
+  dsn_work: 'Done',
+  dsn_appr: 'Approved',
+  dsn_submitted: '2023-10-15',
+
+  ldv_work: '—',
+  ldv_appr: '—',
+  ldv_submitted: '—',
+
+  relation: 'Master',
+});
+
+const MOCK_GROUPS = [
   {
     id: 'camera',
     label: 'camera',
     count: 3,
-    assets: [
-      generateMockData('camAim', 'camAim'),
-      generateMockData('camHero', 'camHero'),
-      generateMockData('camWide', 'camWide'),
-    ],
+    assets: ['camAim', 'camHero', 'camWide'].map((n) => generateMockData(n, n, 'camera', 'camera')),
   },
   {
     id: 'character',
     label: 'character',
     count: 4,
-    assets: [
-      generateMockData('ando', 'ando'),
-      generateMockData('baseFemale', 'baseFemale'),
-      generateMockData('baseMale', 'baseMale'),
-      generateMockData('chris', 'chris'),
-    ],
+    assets: ['ando', 'baseFemale', 'baseMale', 'chris'].map((n) =>
+      generateMockData(n, n, 'character', 'character')
+    ),
   },
   {
     id: 'fx',
     label: 'fx',
     count: 1,
-    assets: [generateMockData('fx_smoke', 'fx_smoke')],
+    assets: ['fx_smoke'].map((n) => generateMockData(n, n, 'fx', 'fx')),
   },
   {
     id: 'other',
     label: 'other',
     count: 1,
-    assets: [generateMockData('env_prop', 'env_prop')],
+    assets: ['env_prop'].map((n) => generateMockData(n, n, 'other', 'other')),
   },
 ];
+
+// --- Column Group "Box" Borders ---
+
+const GROUP_BORDER_COLOR = 'rgba(255,255,255,0.12)';
+
+const COLUMN_GROUPS: Array<{ start: ColumnId; end: ColumnId }> = [
+  { start: 'mdl_work', end: 'mdl_submitted' },
+  { start: 'rig_work', end: 'rig_submitted' },
+  { start: 'bld_work', end: 'bld_submitted' },
+  { start: 'dsn_work', end: 'dsn_submitted' },
+  { start: 'ldv_work', end: 'ldv_submitted' },
+];
+
+function getGroupBorderStyle(colId: ColumnId): React.CSSProperties {
+  let style: React.CSSProperties = {};
+  for (const g of COLUMN_GROUPS) {
+    if (colId === g.start) style = { ...style, borderLeft: `2px solid ${GROUP_BORDER_COLOR}` };
+    if (colId === g.end) style = { ...style, borderRight: `2px solid ${GROUP_BORDER_COLOR}` };
+  }
+  return style;
+}
 
 // --- Main Component ---
 
@@ -249,6 +297,7 @@ const AssetsRowTablePanel: React.FC = () => {
   const [search, setSearch] = React.useState('');
   const [barView, setBarView] = React.useState<'list' | 'group'>('group');
   const [leftOpen, setLeftOpen] = React.useState(true);
+
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>({
     camera: true,
     character: true,
@@ -256,53 +305,37 @@ const AssetsRowTablePanel: React.FC = () => {
     other: true,
   });
 
-  // Filter columns based on view mode
-  const headerColumns = React.useMemo(() => {
-    // group mode = table should NOT show thumbnail/name (they are in left panel)
-    if (barView === 'group') {
-      return HEADER_COLUMNS.filter((c) => c.id !== 'thumbnail' && c.id !== 'name');
-    }
-    // list mode = show full columns
-    return HEADER_COLUMNS;
-  }, [barView]);
-
   const toggleGroup = (id: string) => {
     setOpenGroups((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  // search filter (simple)
-  const filteredGroups = React.useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return MOCK_GROUPS;
+  // Columns: in group view remove thumbnail+name (since sidebar shows them)
+  const visibleColumns = React.useMemo(() => {
+    if (barView === 'group') {
+      return HEADER_COLUMNS.filter((c) => c.id !== 'thumbnail' && c.id !== 'name');
+    }
+    return HEADER_COLUMNS;
+  }, [barView]);
 
-    return MOCK_GROUPS.map((g) => ({
-      ...g,
-      assets: g.assets.filter((a) => a.name.toLowerCase().includes(q)),
-    })).filter((g) => g.assets.length > 0);
+  // All rows flattened
+  const allRows = React.useMemo(() => {
+    const flat = MOCK_GROUPS.flatMap((g) => g.assets);
+    const q = search.trim().toLowerCase();
+    if (!q) return flat;
+    return flat.filter((r) => r.name.toLowerCase().includes(q));
   }, [search]);
 
-  // Flatten for list mode (no group header rows in table)
-  const flatAssets = React.useMemo(() => {
-    return filteredGroups.flatMap((g) => g.assets.map((a) => ({ groupId: g.id, asset: a })));
-  }, [filteredGroups]);
-
-  const renderCell = (asset: AssetRow, colId: string) => {
-    if (colId === 'thumbnail') {
-      return <Thumb />;
-    }
-    if (colId === 'name') {
-      return (
-        <NameCellWrap>
-          {/* keep name aligned nicely in list mode */}
-          <Typography style={{ color: '#ddd', fontSize: 12 }}>{asset.name}</Typography>
-        </NameCellWrap>
-      );
+  // Rows shown in table
+  const tableRows = React.useMemo(() => {
+    if (barView === 'list') {
+      // ✅ list mode = flat rows, no group header rows at all
+      return allRows;
     }
 
-    const val = asset[colId as keyof AssetRow];
-    if (val === '—') return <span style={{ opacity: 0.3 }}>—</span>;
-    return val as any;
-  };
+    // group mode = only open groups
+    const openIds = new Set(Object.entries(openGroups).filter(([, v]) => v).map(([k]) => k));
+    return allRows.filter((r) => openIds.has(r.groupId));
+  }, [barView, allRows, openGroups]);
 
   return (
     <Root maxWidth={false}>
@@ -335,7 +368,7 @@ const AssetsRowTablePanel: React.FC = () => {
               variant="outlined"
               size="small"
               InputProps={{ style: { height: 30, color: '#fff', fontSize: 12, backgroundColor: '#444' } }}
-              style={{ width: 200 }}
+              style={{ width: 220 }}
             />
             <IconButton style={{ padding: 6 }}>
               <FilterListIcon style={{ fontSize: 18, color: '#b0b0b0' }} />
@@ -344,11 +377,11 @@ const AssetsRowTablePanel: React.FC = () => {
         </Toolbar>
 
         <ContentRow>
-          {/* LEFT PANEL: Group Tree */}
+          {/* LEFT PANEL (only group mode) */}
           {barView === 'group' && leftOpen && (
             <LeftPanel>
               <LeftPanelHeader>
-                <Typography variant="caption" style={{ color: '#fff', fontWeight: 600 }}>
+                <Typography variant="caption" style={{ color: '#fff', fontWeight: 700 }}>
                   Groups
                 </Typography>
                 <Typography variant="caption" style={{ color: '#666' }}>
@@ -358,19 +391,14 @@ const AssetsRowTablePanel: React.FC = () => {
 
               <LeftPanelBody>
                 <List dense disablePadding>
-                  {filteredGroups.map((g) => {
+                  {MOCK_GROUPS.map((g) => {
                     const isOpen = !!openGroups[g.id];
-
                     return (
                       <React.Fragment key={g.id}>
-                        <ListItem
-                          button
-                          onClick={() => toggleGroup(g.id)}
-                          style={{ height: GROUP_ROW_H, paddingLeft: 12, paddingRight: 8 }}
-                        >
+                        <ListItem button onClick={() => toggleGroup(g.id)} style={{ height: 34 }}>
                           <ListItemText
                             primary={`${g.label} (${g.count})`}
-                            primaryTypographyProps={{ style: { fontSize: 12, color: '#fff', fontWeight: 600 } }}
+                            primaryTypographyProps={{ style: { fontSize: 12, color: '#fff', fontWeight: 700 } }}
                           />
                           {isOpen ? (
                             <ExpandLessIcon style={{ color: '#666' }} />
@@ -386,13 +414,13 @@ const AssetsRowTablePanel: React.FC = () => {
                               button
                               style={{
                                 paddingLeft: 18,
+                                height: 44,
                                 paddingRight: 10,
-                                height: ASSET_ROW_H,
                               }}
                             >
                               <RowItem>
                                 <Thumb />
-                                <Typography style={{ color: '#ddd', fontSize: 12 }}>{a.name}</Typography>
+                                <NameText>{a.name}</NameText>
                               </RowItem>
                             </ListItem>
                           ))}
@@ -405,13 +433,19 @@ const AssetsRowTablePanel: React.FC = () => {
             </LeftPanel>
           )}
 
-          {/* RIGHT PANEL: Data Table */}
+          {/* RIGHT TABLE */}
           <TableWrap>
-            <Table stickyHeader size="small">
+            <Table size="small" style={{ minWidth: 1200 }}>
               <TableHead>
                 <TableRow>
-                  {headerColumns.map((c) => (
-                    <HeaderCell key={c.id} style={{ minWidth: c.minWidth }}>
+                  {visibleColumns.map((c) => (
+                    <HeaderCell
+                      key={c.id}
+                      style={{
+                        minWidth: c.minWidth,
+                        ...getGroupBorderStyle(c.id as ColumnId),
+                      }}
+                    >
                       {c.label}
                     </HeaderCell>
                   ))}
@@ -419,40 +453,42 @@ const AssetsRowTablePanel: React.FC = () => {
               </TableHead>
 
               <TableBody>
-                {/* ✅ LIST MODE: NO group header rows, only assets */}
-                {barView === 'list' &&
-                  flatAssets.map(({ asset }) => (
-                    <TableRow key={asset.id} hover style={{ height: ASSET_ROW_H }}>
-                      {headerColumns.map((col) => (
-                        <DataCell key={col.id}>{renderCell(asset, col.id)}</DataCell>
-                      ))}
-                    </TableRow>
-                  ))}
+                {tableRows.map((asset) => (
+                  <TableRow key={asset.id} hover>
+                    {visibleColumns.map((col) => {
+                      const id = col.id as ColumnId;
 
-                {/* ✅ GROUP MODE: add spacer row per group to match left panel group header height */}
-                {barView === 'group' &&
-                  filteredGroups.map((group) => {
-                    const isOpen = !!openGroups[group.id];
+                      // Special render for thumbnail+name in list mode (aligned + gap)
+                      if (id === 'thumbnail') {
+                        return (
+                          <DataCell key={id} style={{ width: 110 }}>
+                            <Thumb />
+                          </DataCell>
+                        );
+                      }
 
-                    return (
-                      <React.Fragment key={group.id}>
-                        {/* spacer row aligns with left group header */}
-                        <TableRow style={{ height: GROUP_ROW_H }}>
-                          <GroupSpacerCell colSpan={headerColumns.length} />
-                        </TableRow>
+                      if (id === 'name') {
+                        return (
+                          <DataCell key={id} style={{ width: 180 }}>
+                            <RowItem style={{ gap: 12 }}>
+                              {/* keep a small spacer so name aligns nicely with thumb column */}
+                              <span style={{ width: 0 }} />
+                              <NameText style={{ color: '#ddd' }}>{asset.name}</NameText>
+                            </RowItem>
+                          </DataCell>
+                        );
+                      }
 
-                        {/* asset rows align with left asset rows */}
-                        {isOpen &&
-                          group.assets.map((asset) => (
-                            <TableRow key={asset.id} hover style={{ height: ASSET_ROW_H }}>
-                              {headerColumns.map((col) => (
-                                <DataCell key={col.id}>{renderCell(asset, col.id)}</DataCell>
-                              ))}
-                            </TableRow>
-                          ))}
-                      </React.Fragment>
-                    );
-                  })}
+                      const val = (asset as any)[id] as string;
+
+                      return (
+                        <DataCell key={id} style={{ ...getGroupBorderStyle(id) }}>
+                          {val === '—' ? <span style={{ opacity: 0.3 }}>—</span> : val}
+                        </DataCell>
+                      );
+                    })}
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
           </TableWrap>
