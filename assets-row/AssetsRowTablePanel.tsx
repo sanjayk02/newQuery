@@ -1,32 +1,54 @@
 /* ──────────────────────────────────────────────────────────────────────────
   Module Name:
     AssetsRowTablePanel.tsx
-  
-  Implementation Notes:
-    - Adds white "Group Title" rows inside the table body.
-    - Implements color-coded status logic (Orange, Green, Blue).
-    - Ensures 1:1 row height alignment between Sidebar and Table.
+
+  Module Description:
+    Assets Row Table with group/list view, synced sidebar, search & selection.
 ─────────────────────────────────────────────────────────────────────────── */
 
 import React from 'react';
 import {
-  Box, Container, Paper, Table, TableBody, TableCell, TableHead, TableRow,
-  Typography, TextField, IconButton, List, ListItem, ListItemText,
-  Collapse, styled,
+  Box,
+  Container,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Typography,
+  TextField,
+  IconButton,
+  List,
+  ListItem,
+  ListItemText,
+  Collapse,
+  styled,
 } from '@material-ui/core';
-import {
-  Menu as MenuIcon, ViewModule as ViewModuleIcon, ViewList as ViewListIcon,
-  FilterList as FilterListIcon, ExpandLess as ExpandLessIcon, ExpandMore as ExpandMoreIcon
-} from '@material-ui/icons';
 
-// --- Styled Components ---
+import MenuIcon from '@material-ui/icons/Menu';
+import ViewModuleIcon from '@material-ui/icons/ViewModule';
+import ViewListIcon from '@material-ui/icons/ViewList';
+import FilterListIcon from '@material-ui/icons/FilterList';
+import ExpandLessIcon from '@material-ui/icons/ExpandLess';
+import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
 
-const Root = styled(Container)({
+/* ───────────────────────── Constants ───────────────────────── */
+
+const ASSET_ROW_H = 44;
+const GROUP_ROW_H = 32;
+
+/* ───────────────────────── Styled Components ───────────────────────── */
+
+const Root = styled(Container)(({ theme }) => ({
   position: 'relative',
   padding: 0,
   backgroundColor: '#1e1e1e',
   minHeight: '100vh',
-});
+  '& > *': {
+    padding: theme.spacing(1),
+  },
+}));
 
 const Toolbar = styled('div')(({ theme }) => ({
   display: 'flex',
@@ -34,9 +56,15 @@ const Toolbar = styled('div')(({ theme }) => ({
   justifyContent: 'space-between',
   background: '#2d2d2d',
   borderBottom: '1px solid rgba(255,255,255,0.08)',
-  padding: theme.spacing(0.5, 1),
+  padding: theme.spacing(1),
   height: 48,
 }));
+
+const ContentRow = styled('div')({
+  display: 'flex',
+  width: '100%',
+  alignItems: 'stretch',
+});
 
 const LeftPanel = styled('div')({
   width: 260,
@@ -47,215 +75,297 @@ const LeftPanel = styled('div')({
   flexDirection: 'column',
 });
 
+const LeftPanelHeader = styled('div')({
+  height: 40,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  padding: '0 8px 0 12px',
+  backgroundColor: '#2d2d2d',
+  borderBottom: '1px solid rgba(255,255,255,0.08)',
+});
+
+const LeftPanelBody = styled('div')({
+  overflowY: 'auto',
+  flex: 1,
+});
+
 const TableWrap = styled(Paper)({
   flex: 1,
   overflowX: 'auto',
   backgroundColor: '#1e1e1e',
   borderRadius: 0,
   boxShadow: 'none',
-  // Custom scrollbar styling
-  '&::-webkit-scrollbar': { height: 8 },
-  '&::-webkit-scrollbar-thumb': { backgroundColor: '#444', borderRadius: 4 },
 });
 
 const HeaderCell = styled(TableCell)({
-  fontWeight: 700,
+  fontWeight: 600,
   textTransform: 'uppercase',
-  fontSize: 10,
-  padding: '12px 10px',
+  fontSize: 11,
+  letterSpacing: 0.5,
+  whiteSpace: 'nowrap',
+  padding: '8px 10px',
   backgroundColor: '#2d2d2d !important',
   color: '#ffffff',
-  borderBottom: '1px solid #444',
-  whiteSpace: 'nowrap',
+  borderBottom: '1px solid rgba(255,255,255,0.12)',
 });
 
 const DataCell = styled(TableCell)({
+  color: '#b0b0b0',
   padding: '8px 10px',
   fontSize: 12,
   borderBottom: '1px solid rgba(255,255,255,0.05)',
-  height: 48, 
-  color: '#ccc',
-  whiteSpace: 'nowrap',
+  height: ASSET_ROW_H,
+  boxSizing: 'border-box',
 });
 
-// Row for the "Top Node" group title inside the table
-const GroupHeaderRow = styled(TableRow)({
-  backgroundColor: '#1e1e1e',
-  '& td': {
-    borderBottom: 'none',
-    paddingTop: 16,
-    paddingBottom: 4,
-  }
+const Thumb = styled('div')({
+  width: 32,
+  height: 24,
+  borderRadius: 2,
+  background: 'rgba(255,255,255,0.1)',
+  border: '1px solid rgba(255,255,255,0.2)',
 });
 
-const GroupTitleLabel = styled('div')({
-  backgroundColor: '#ffffff', // High contrast white label
-  color: '#000000',
-  display: 'inline-block',
-  padding: '2px 14px',
-  borderRadius: '2px',
-  fontWeight: 800,
-  fontSize: 14,
-  textTransform: 'capitalize',
+const RowItem = styled('div')({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  height: ASSET_ROW_H,
 });
 
-// --- Helpers & Mock Data ---
-
-const getStatusColor = (status: string) => {
-  switch (status?.toLowerCase()) {
-    case 'done': return '#4caf50';      // Green
-    case 'approved': return '#8bc34a';  // Light Green
-    case 'in progress': return '#ff9800'; // Orange
-    case 'waiting': return '#2196f3';    // Blue
-    case 'pending': return '#9e9e9e';    // Gray
-    default: return '#555';
-  }
-};
+/* ───────────────────────── Data ───────────────────────── */
 
 const HEADER_COLUMNS = [
-  { id: 'thumbnail', label: 'Thumbnail', minWidth: 100 },
-  { id: 'name', label: 'Name', minWidth: 150 },
-  { id: 'mdl_work', label: 'MDL WORK', minWidth: 110 },
-  { id: 'mdl_appr', label: 'MDL APPR', minWidth: 110 },
-  { id: 'mdl_submitted', label: 'MDL SUBMITTED AT', minWidth: 140 },
-  { id: 'rig_work', label: 'RIG WORK', minWidth: 110 },
-  { id: 'rig_appr', label: 'RIG APPR', minWidth: 110 },
-  { id: 'rig_submitted', label: 'RIG SUBMITTED AT', minWidth: 140 },
-  { id: 'bld_work', label: 'BLD WORK', minWidth: 110 },
-  { id: 'bld_appr', label: 'BLD APPR', minWidth: 110 },
-  { id: 'bld_submitted', label: 'BLD SUBMITTED AT', minWidth: 140 },
-  { id: 'dsn_work', label: 'DSN WORK', minWidth: 110 },
-  { id: 'dsn_appr', label: 'DSN APPR', minWidth: 110 },
-  { id: 'dsn_submitted', label: 'DSN SUBMITTED AT', minWidth: 140 },
-  { id: 'relation', label: 'RELATION', minWidth: 90 },
+  { id: 'name', label: 'Name', minWidth: 160 },
+  { id: 'mdl_work', label: 'MDL Work', minWidth: 100 },
+  { id: 'mdl_appr', label: 'MDL Appr', minWidth: 100 },
+  { id: 'mdl_submitted', label: 'MDL Submitted', minWidth: 140 },
+  { id: 'rig_work', label: 'RIG Work', minWidth: 100 },
+  { id: 'rig_appr', label: 'RIG Appr', minWidth: 100 },
+  { id: 'relation', label: 'Relation', minWidth: 100 },
 ];
 
-const MOCK_DATA = [
+const generateMockData = (id: string, name: string) => ({
+  id,
+  name,
+  mdl_work: Math.random() > 0.5 ? 'In Progress' : 'Done',
+  mdl_appr: Math.random() > 0.5 ? 'Pending' : 'Approved',
+  mdl_submitted: '2023-11-20',
+  rig_work: 'Waiting',
+  rig_appr: '—',
+  relation: 'Master',
+});
+
+const MOCK_GROUPS = [
   {
     id: 'camera',
-    label: 'Camera',
+    label: 'camera',
     assets: [
-      { id: 'c1', name: 'camAim', mdl_work: 'In Progress', mdl_appr: 'Pending', mdl_submitted: '2023-11-20', rig_work: 'In Progress', bld_work: 'Waiting', dsn_work: 'Done', dsn_appr: 'Approved', dsn_submitted: '2023-10-15', relation: '-' },
-      { id: 'c2', name: 'camHero', mdl_work: 'In Progress', mdl_appr: 'Pending', mdl_submitted: '2023-11-20', rig_work: 'In Progress', bld_work: 'Waiting', dsn_work: 'Done', dsn_appr: 'Approved', dsn_submitted: '2023-10-15', relation: '-' },
-      { id: 'c3', name: 'camWide', mdl_work: 'In Progress', mdl_appr: 'Pending', mdl_submitted: '2023-11-20', rig_work: 'In Progress', bld_work: 'Waiting', dsn_work: 'Done', dsn_appr: 'Approved', dsn_submitted: '2023-10-15', relation: '-' },
-    ]
+      generateMockData('camAim', 'camAim'),
+      generateMockData('camHero', 'camHero'),
+      generateMockData('camWide', 'camWide'),
+    ],
   },
   {
     id: 'character',
-    label: 'Character',
+    label: 'character',
     assets: [
-      { id: 'ch1', name: 'ando', mdl_work: 'Done', mdl_appr: 'Pending', mdl_submitted: '2023-11-20', rig_work: 'In Progress', bld_work: 'Waiting', dsn_work: 'Done', dsn_appr: 'Approved', dsn_submitted: '2023-10-15', relation: '-' },
-      { id: 'ch2', name: 'baseFemale', mdl_work: 'Done', mdl_appr: 'Pending', mdl_submitted: '2023-11-20', rig_work: 'In Progress', bld_work: 'Waiting', dsn_work: 'Done', dsn_appr: 'Approved', dsn_submitted: '2023-10-15', relation: '-' },
-      { id: 'ch3', name: 'baseMale', mdl_work: 'In Progress', mdl_appr: 'Approved', mdl_submitted: '2023-11-20', rig_work: 'In Progress', bld_work: 'Waiting', dsn_work: 'Done', dsn_appr: 'Approved', dsn_submitted: '2023-10-15', relation: '-' },
-      { id: 'ch4', name: 'chris', mdl_work: 'In Progress', mdl_appr: 'Approved', mdl_submitted: '2023-11-20', rig_work: 'In Progress', bld_work: 'Waiting', dsn_work: 'Done', dsn_appr: 'Approved', dsn_submitted: '2023-10-15', relation: '-' },
-    ]
-  }
+      generateMockData('ando', 'ando'),
+      generateMockData('baseFemale', 'baseFemale'),
+      generateMockData('baseMale', 'baseMale'),
+      generateMockData('chris', 'chris'),
+    ],
+  },
 ];
 
-// --- Main Component ---
+/* ───────────────────────── Component ───────────────────────── */
 
 const AssetsRowTablePanel: React.FC = () => {
-  const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>({ camera: true, character: true });
+  const [view, setView] = React.useState<'group' | 'list'>('group');
+  const [leftOpen, setLeftOpen] = React.useState(true);
+  const [search, setSearch] = React.useState('');
+  const [selectedId, setSelectedId] = React.useState<string | null>(null);
 
-  const toggleGroup = (id: string) => setOpenGroups(p => ({ ...p, [id]: !p[id] }));
+  const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>({
+    camera: true,
+    character: true,
+  });
 
-  // Filter columns for Group Category View
-  const activeCols = HEADER_COLUMNS.filter(c => c.id !== 'thumbnail' && c.id !== 'name');
+  const toggleGroup = (id: string) =>
+    setOpenGroups((s) => ({ ...s, [id]: !s[id] }));
+
+  const filteredGroups = React.useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return MOCK_GROUPS;
+
+    return MOCK_GROUPS
+      .map((g) => ({
+        ...g,
+        assets: g.assets.filter(
+          (a) =>
+            a.name.toLowerCase().includes(q) ||
+            a.id.toLowerCase().includes(q)
+        ),
+      }))
+      .filter((g) => g.assets.length > 0);
+  }, [search]);
 
   return (
     <Root maxWidth={false}>
       <Toolbar>
-        <Box display="flex" alignItems="center" style={{ gap: 12 }}>
-          <ViewListIcon style={{ fontSize: 18, color: '#666' }} />
-          <ViewModuleIcon style={{ fontSize: 18, color: '#00b7ff' }} />
-          <MenuIcon style={{ fontSize: 18, color: '#fff' }} />
-          <Typography variant="subtitle2" style={{ color: '#fff', fontWeight: 600 }}>Assets Row Table</Typography>
+        <Box display="flex" alignItems="center" gap={1}>
+          <IconButton onClick={() => setView('list')}>
+            <ViewListIcon style={{ color: view === 'list' ? '#00b7ff' : '#aaa' }} />
+          </IconButton>
+          <IconButton onClick={() => setView('group')}>
+            <ViewModuleIcon style={{ color: view === 'group' ? '#00b7ff' : '#aaa' }} />
+          </IconButton>
+          {view === 'group' && (
+            <IconButton onClick={() => setLeftOpen((v) => !v)}>
+              <MenuIcon style={{ color: '#fff' }} />
+            </IconButton>
+          )}
+          <Typography style={{ color: '#fff', fontWeight: 600 }}>
+            Assets Row Table
+          </Typography>
         </Box>
-        <Box display="flex" alignItems="center" style={{ gap: 8 }}>
+
+        <Box display="flex" alignItems="center" gap={1}>
           <TextField
-            placeholder="Search Assets..."
-            variant="outlined"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search assets…"
             size="small"
-            InputProps={{ style: { height: 28, color: '#fff', fontSize: 12, backgroundColor: '#333' } }}
+            variant="outlined"
+            InputProps={{
+              style: { background: '#444', color: '#fff', height: 30 },
+            }}
           />
-          <FilterListIcon style={{ fontSize: 18, color: '#666' }} />
+          <IconButton>
+            <FilterListIcon style={{ color: '#aaa' }} />
+          </IconButton>
         </Box>
       </Toolbar>
 
-      <Box display="flex" height="calc(100vh - 48px)">
-        {/* LEFT PANEL SIDEBAR */}
-        <LeftPanel>
-          <Box p={1} display="flex" justifyContent="space-between" alignItems="center">
-            <Typography style={{ color: '#fff', fontSize: 11, fontWeight: 700 }}>Groups</Typography>
-            <Typography style={{ color: '#666', fontSize: 10 }}>(mock)</Typography>
-          </Box>
-          <List dense disablePadding>
-            {MOCK_DATA.map(g => (
-              <React.Fragment key={g.id}>
-                <ListItem button onClick={() => toggleGroup(g.id)} style={{ height: 32 }}>
-                  <ListItemText 
-                    primary={`${g.label} (${g.assets.length})`} 
-                    primaryTypographyProps={{ style: { color: '#fff', fontSize: 12, fontWeight: 600 } }} 
-                  />
-                  {openGroups[g.id] ? <ExpandLessIcon style={{ color: '#666' }} /> : <ExpandMoreIcon style={{ color: '#666' }} />}
-                </ListItem>
-                <Collapse in={openGroups[g.id]}>
-                  {g.assets.map(a => (
-                    <ListItem key={a.id} button style={{ paddingLeft: 32, height: 48 }}>
-                      <Box width={30} height={22} bgcolor="#444" mr={1.5} borderRadius={1} border="1px solid #555" />
-                      <Typography style={{ color: '#aaa', fontSize: 12 }}>{a.name}</Typography>
-                    </ListItem>
-                  ))}
-                </Collapse>
-              </React.Fragment>
-            ))}
-          </List>
-        </LeftPanel>
+      <ContentRow>
+        {view === 'group' && leftOpen && (
+          <LeftPanel>
+            <LeftPanelHeader>
+              <Typography style={{ color: '#fff', fontWeight: 600 }}>
+                Groups
+              </Typography>
+            </LeftPanelHeader>
 
-        {/* RIGHT TABLE PANEL */}
+            <LeftPanelBody>
+              <List disablePadding dense>
+                {filteredGroups.map((g) => {
+                  const open = openGroups[g.id];
+                  return (
+                    <React.Fragment key={g.id}>
+                      <ListItem
+                        button
+                        onClick={() => toggleGroup(g.id)}
+                        style={{ height: GROUP_ROW_H }}
+                      >
+                        <ListItemText
+                          primary={`${g.label} (${g.assets.length})`}
+                          primaryTypographyProps={{ style: { color: '#fff' } }}
+                        />
+                        {open ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                      </ListItem>
+
+                      <Collapse in={open}>
+                        {g.assets.map((a) => {
+                          const active = selectedId === a.id;
+                          return (
+                            <ListItem
+                              key={a.id}
+                              button
+                              onClick={() => setSelectedId(a.id)}
+                              style={{
+                                paddingLeft: 24,
+                                height: ASSET_ROW_H,
+                                background: active
+                                  ? 'rgba(0,183,255,0.15)'
+                                  : undefined,
+                                borderLeft: active
+                                  ? '2px solid #00b7ff'
+                                  : '2px solid transparent',
+                              }}
+                            >
+                              <RowItem>
+                                <Thumb />
+                                <Typography style={{ color: '#ddd' }}>
+                                  {a.name}
+                                </Typography>
+                              </RowItem>
+                            </ListItem>
+                          );
+                        })}
+                      </Collapse>
+                    </React.Fragment>
+                  );
+                })}
+              </List>
+            </LeftPanelBody>
+          </LeftPanel>
+        )}
+
         <TableWrap>
           <Table stickyHeader size="small">
             <TableHead>
               <TableRow>
-                {activeCols.map(c => (
-                  <HeaderCell key={c.id} style={{ minWidth: c.minWidth }}>{c.label}</HeaderCell>
+                {HEADER_COLUMNS.map((c) => (
+                  <HeaderCell key={c.id} style={{ minWidth: c.minWidth }}>
+                    {c.label}
+                  </HeaderCell>
                 ))}
               </TableRow>
             </TableHead>
-            <TableBody>
-              {MOCK_DATA.map(group => (
-                <React.Fragment key={group.id}>
-                  {/* TOP NODE GROUP HEADER */}
-                  <GroupHeaderRow>
-                    <DataCell colSpan={activeCols.length}>
-                      <GroupTitleLabel>{group.label}</GroupTitleLabel>
-                    </DataCell>
-                  </GroupHeaderRow>
 
-                  {/* ASSET DATA ROWS */}
-                  {openGroups[group.id] && group.assets.map(asset => (
-                    <TableRow key={asset.id} hover>
-                      {activeCols.map(col => {
-                        const val = asset[col.id as keyof typeof asset] || '—';
-                        
-                        // Apply specific colors to status columns
-                        const isStatusCol = ['work', 'appr', 'submitted'].some(k => col.id.includes(k));
-                        const color = isStatusCol ? getStatusColor(val) : '#ccc';
-                        
-                        return (
-                          <DataCell key={col.id} style={{ color }}>
-                            {val}
-                          </DataCell>
-                        );
-                      })}
+            <TableBody>
+              {filteredGroups.map((g) => (
+                <React.Fragment key={g.id}>
+                  {view === 'list' && (
+                    <TableRow>
+                      <DataCell
+                        colSpan={HEADER_COLUMNS.length}
+                        style={{ fontWeight: 700, color: '#00b7ff' }}
+                      >
+                        {g.label.toUpperCase()}
+                      </DataCell>
                     </TableRow>
-                  ))}
+                  )}
+
+                  {(view === 'list' || openGroups[g.id]) &&
+                    g.assets.map((a) => {
+                      const active = selectedId === a.id;
+                      return (
+                        <TableRow
+                          key={a.id}
+                          hover
+                          onClick={() => setSelectedId(a.id)}
+                          style={{
+                            background: active
+                              ? 'rgba(0,183,255,0.12)'
+                              : undefined,
+                          }}
+                        >
+                          {HEADER_COLUMNS.map((c) => (
+                            <DataCell key={c.id}>
+                              {(a as any)[c.id] ?? '—'}
+                            </DataCell>
+                          ))}
+                        </TableRow>
+                      );
+                    })}
                 </React.Fragment>
               ))}
             </TableBody>
           </Table>
         </TableWrap>
-      </Box>
+      </ContentRow>
     </Root>
   );
 };
