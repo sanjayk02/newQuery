@@ -3,10 +3,12 @@
     AssetsRowTablePanel.tsx
 
   Module Description:
-    Assets Row Table with:
-    - Group mode (left tree + table)
-    - List mode (flat rows, no group header rows)
-    - Proper alignment + column group "box" separators
+    Assets Row table with:
+      ✅ Proper left alignment (no “top group row” shifting)
+      ✅ List mode: NO group header rows (CAMERA/CHARACTER removed)
+      ✅ Gap between thumbnail and name (sidebar + table)
+      ✅ Column “Groups / Boxes” (MDL / RIG / BLD / DSN / LDV) header bands
+      ✅ No TableContainer usage (fixes “TableContainer not exported” error)
 ─────────────────────────────────────────────────────────────────────────── */
 
 import React from 'react';
@@ -28,6 +30,7 @@ import {
   Collapse,
   styled,
 } from '@material-ui/core';
+
 import MenuIcon from '@material-ui/icons/Menu';
 import ViewModuleIcon from '@material-ui/icons/ViewModule';
 import ViewListIcon from '@material-ui/icons/ViewList';
@@ -35,7 +38,9 @@ import FilterListIcon from '@material-ui/icons/FilterList';
 import ExpandLessIcon from '@material-ui/icons/ExpandLess';
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
 
-// --- Styled Components ---
+// ──────────────────────────────────────────────────────────────────────────
+// Styled
+// ──────────────────────────────────────────────────────────────────────────
 
 const Root = styled(Container)(({ theme }) => ({
   position: 'relative',
@@ -63,7 +68,6 @@ const ContentRow = styled('div')({
   flexDirection: 'row',
   width: '100%',
   alignItems: 'stretch',
-  minHeight: 0,
 });
 
 const LeftPanel = styled('div')({
@@ -93,12 +97,15 @@ const LeftPanelBody = styled('div')({
 
 const TableWrap = styled(Paper)({
   flex: 1,
-  overflow: 'auto',
+  overflowX: 'auto',
   backgroundColor: '#1e1e1e',
   borderRadius: 0,
   boxShadow: 'none',
-  minHeight: 0,
 });
+
+// Header sizes (important for sticky top offsets)
+const GROUP_HEADER_H = 30;
+const COL_HEADER_H = 34;
 
 const HeaderCell = styled(TableCell)({
   fontWeight: 700,
@@ -106,24 +113,32 @@ const HeaderCell = styled(TableCell)({
   fontSize: 11,
   letterSpacing: 0.5,
   whiteSpace: 'nowrap',
-  padding: '10px 12px',
+  padding: '8px 10px',
   backgroundColor: '#2d2d2d !important',
   color: '#ffffff',
   borderBottom: '1px solid rgba(255,255,255,0.12)',
-  position: 'sticky',
-  top: 0,
-  zIndex: 3,
+});
+
+const GroupBandCell = styled(TableCell)({
+  fontWeight: 800,
+  textTransform: 'uppercase',
+  fontSize: 11,
+  letterSpacing: 0.6,
+  whiteSpace: 'nowrap',
+  padding: '6px 10px',
+  backgroundColor: '#2d2d2d !important',
+  color: '#ffffff',
+  borderBottom: '1px solid rgba(255,255,255,0.12)',
 });
 
 const DataCell = styled(TableCell)({
   color: '#b0b0b0',
-  padding: '10px 12px',
+  padding: '8px 10px',
   fontSize: 12,
   borderBottom: '1px solid rgba(255,255,255,0.05)',
   height: 44,
   boxSizing: 'border-box',
   verticalAlign: 'middle',
-  whiteSpace: 'nowrap',
 });
 
 const Thumb = styled('div')({
@@ -138,54 +153,19 @@ const Thumb = styled('div')({
 const RowItem = styled('div')({
   display: 'flex',
   alignItems: 'center',
-  gap: 10, // ✅ gap between thumb & name
-  minWidth: 0,
+  gap: 10, // ✅ gap between thumb and name
+  height: 28,
 });
 
-const NameText = styled(Typography)({
-  color: '#ddd',
-  fontSize: 12,
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
-});
+// ──────────────────────────────────────────────────────────────────────────
+// Types & Constants
+// ──────────────────────────────────────────────────────────────────────────
 
-// --- Types & Constants ---
+type Col = { id: string; label: string; minWidth: number; align?: 'left' | 'right' | 'center' };
 
-type AssetRow = {
-  id: string;
-  name: string;
-  groupId: string;
-  groupLabel: string;
-
-  thumbnail?: string;
-
-  mdl_work: string;
-  mdl_appr: string;
-  mdl_submitted: string;
-
-  rig_work: string;
-  rig_appr: string;
-  rig_submitted: string;
-
-  bld_work: string;
-  bld_appr: string;
-  bld_submitted: string;
-
-  dsn_work: string;
-  dsn_appr: string;
-  dsn_submitted: string;
-
-  ldv_work: string;
-  ldv_appr: string;
-  ldv_submitted: string;
-
-  relation: string;
-};
-
-const HEADER_COLUMNS = [
-  { id: 'thumbnail', label: 'Thumbnail', minWidth: 110 },
-  { id: 'name', label: 'Name', minWidth: 180 },
+const HEADER_COLUMNS: Col[] = [
+  { id: 'thumbnail', label: 'Thumbnail', minWidth: 120 },
+  { id: 'name', label: 'Name', minWidth: 190 },
 
   { id: 'mdl_work', label: 'MDL Work', minWidth: 110 },
   { id: 'mdl_appr', label: 'MDL Appr', minWidth: 110 },
@@ -208,36 +188,47 @@ const HEADER_COLUMNS = [
   { id: 'ldv_submitted', label: 'LDV Submitted At', minWidth: 150 },
 
   { id: 'relation', label: 'Relation', minWidth: 110 },
-] as const;
+];
 
-type ColumnId = typeof HEADER_COLUMNS[number]['id'];
+type AssetRow = {
+  id: string;
+  name: string;
+  mdl_work: string;
+  mdl_appr: string;
+  mdl_submitted: string;
+  rig_work: string;
+  rig_appr: string;
+  rig_submitted: string;
+  bld_work: string;
+  bld_appr: string;
+  bld_submitted: string;
+  dsn_work: string;
+  dsn_appr: string;
+  dsn_submitted: string;
+  ldv_work: string;
+  ldv_appr: string;
+  ldv_submitted: string;
+  relation: string;
+};
 
-const generateMockData = (id: string, name: string, groupId: string, groupLabel: string): AssetRow => ({
+const generateMockData = (id: string, name: string): AssetRow => ({
   id,
   name,
-  groupId,
-  groupLabel,
-
   mdl_work: Math.random() > 0.5 ? 'In Progress' : 'Done',
   mdl_appr: Math.random() > 0.5 ? 'Pending' : 'Approved',
   mdl_submitted: '2023-11-20',
-
   rig_work: 'In Progress',
   rig_appr: '—',
   rig_submitted: '—',
-
   bld_work: 'Waiting',
   bld_appr: '—',
   bld_submitted: '—',
-
   dsn_work: 'Done',
   dsn_appr: 'Approved',
   dsn_submitted: '2023-10-15',
-
   ldv_work: '—',
   ldv_appr: '—',
   ldv_submitted: '—',
-
   relation: 'Master',
 });
 
@@ -246,58 +237,41 @@ const MOCK_GROUPS = [
     id: 'camera',
     label: 'camera',
     count: 3,
-    assets: ['camAim', 'camHero', 'camWide'].map((n) => generateMockData(n, n, 'camera', 'camera')),
+    assets: [generateMockData('camAim', 'camAim'), generateMockData('camHero', 'camHero'), generateMockData('camWide', 'camWide')],
   },
   {
     id: 'character',
     label: 'character',
     count: 4,
-    assets: ['ando', 'baseFemale', 'baseMale', 'chris'].map((n) =>
-      generateMockData(n, n, 'character', 'character')
-    ),
+    assets: [
+      generateMockData('ando', 'ando'),
+      generateMockData('baseFemale', 'baseFemale'),
+      generateMockData('baseMale', 'baseMale'),
+      generateMockData('chris', 'chris'),
+    ],
   },
-  {
-    id: 'fx',
-    label: 'fx',
-    count: 1,
-    assets: ['fx_smoke'].map((n) => generateMockData(n, n, 'fx', 'fx')),
-  },
-  {
-    id: 'other',
-    label: 'other',
-    count: 1,
-    assets: ['env_prop'].map((n) => generateMockData(n, n, 'other', 'other')),
-  },
+  { id: 'fx', label: 'fx', count: 1, assets: [generateMockData('fx_smoke', 'fx_smoke')] },
+  { id: 'other', label: 'other', count: 1, assets: [generateMockData('env_prop', 'env_prop')] },
 ];
 
-// --- Column Group "Box" Borders ---
-
-const GROUP_BORDER_COLOR = 'rgba(255,255,255,0.12)';
-
-const COLUMN_GROUPS: Array<{ start: ColumnId; end: ColumnId }> = [
-  { start: 'mdl_work', end: 'mdl_submitted' },
-  { start: 'rig_work', end: 'rig_submitted' },
-  { start: 'bld_work', end: 'bld_submitted' },
-  { start: 'dsn_work', end: 'dsn_submitted' },
-  { start: 'ldv_work', end: 'ldv_submitted' },
+const PHASE_GROUPS = [
+  { key: 'mdl', label: 'MDL', colIds: ['mdl_work', 'mdl_appr', 'mdl_submitted'], border: '#2e86ff' },
+  { key: 'rig', label: 'RIG', colIds: ['rig_work', 'rig_appr', 'rig_submitted'], border: '#7c3aed' },
+  { key: 'bld', label: 'BLD', colIds: ['bld_work', 'bld_appr', 'bld_submitted'], border: '#ff2d7a' },
+  { key: 'dsn', label: 'DSN', colIds: ['dsn_work', 'dsn_appr', 'dsn_submitted'], border: '#00c7b7' },
+  { key: 'ldv', label: 'LDV', colIds: ['ldv_work', 'ldv_appr', 'ldv_submitted'], border: '#ffcc00' },
 ];
 
-function getGroupBorderStyle(colId: ColumnId): React.CSSProperties {
-  let style: React.CSSProperties = {};
-  for (const g of COLUMN_GROUPS) {
-    if (colId === g.start) style = { ...style, borderLeft: `2px solid ${GROUP_BORDER_COLOR}` };
-    if (colId === g.end) style = { ...style, borderRight: `2px solid ${GROUP_BORDER_COLOR}` };
-  }
-  return style;
-}
+// ──────────────────────────────────────────────────────────────────────────
+// Helpers
+// ──────────────────────────────────────────────────────────────────────────
 
-// --- Main Component ---
+const normalize = (v: unknown) => (v === '—' ? '—' : String(v ?? ''));
 
 const AssetsRowTablePanel: React.FC = () => {
   const [search, setSearch] = React.useState('');
   const [barView, setBarView] = React.useState<'list' | 'group'>('group');
   const [leftOpen, setLeftOpen] = React.useState(true);
-
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>({
     camera: true,
     character: true,
@@ -305,37 +279,50 @@ const AssetsRowTablePanel: React.FC = () => {
     other: true,
   });
 
-  const toggleGroup = (id: string) => {
-    setOpenGroups((prev) => ({ ...prev, [id]: !prev[id] }));
-  };
+  const toggleGroup = (id: string) => setOpenGroups((p) => ({ ...p, [id]: !p[id] }));
 
-  // Columns: in group view remove thumbnail+name (since sidebar shows them)
-  const visibleColumns = React.useMemo(() => {
-    if (barView === 'group') {
-      return HEADER_COLUMNS.filter((c) => c.id !== 'thumbnail' && c.id !== 'name');
-    }
+  // In GROUP mode => hide thumbnail+name from table (because name is in left panel)
+  const visibleColumns: Col[] = React.useMemo(() => {
+    if (barView === 'group') return HEADER_COLUMNS.filter((c) => c.id !== 'thumbnail' && c.id !== 'name');
     return HEADER_COLUMNS;
   }, [barView]);
 
-  // All rows flattened
-  const allRows = React.useMemo(() => {
-    const flat = MOCK_GROUPS.flatMap((g) => g.assets);
+  const filteredGroups = React.useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return flat;
-    return flat.filter((r) => r.name.toLowerCase().includes(q));
+    if (!q) return MOCK_GROUPS;
+
+    return MOCK_GROUPS.map((g) => ({
+      ...g,
+      assets: g.assets.filter((a) => a.name.toLowerCase().includes(q) || a.id.toLowerCase().includes(q)),
+    })).filter((g) => g.assets.length > 0);
   }, [search]);
 
-  // Rows shown in table
-  const tableRows = React.useMemo(() => {
-    if (barView === 'list') {
-      // ✅ list mode = flat rows, no group header rows at all
-      return allRows;
-    }
+  // ✅ List mode: flatten assets (NO group header rows)
+  const listModeRows = React.useMemo(() => {
+    const rows: AssetRow[] = [];
+    filteredGroups.forEach((g) => g.assets.forEach((a) => rows.push(a)));
+    return rows;
+  }, [filteredGroups]);
 
-    // group mode = only open groups
-    const openIds = new Set(Object.entries(openGroups).filter(([, v]) => v).map(([k]) => k));
-    return allRows.filter((r) => openIds.has(r.groupId));
-  }, [barView, allRows, openGroups]);
+  // ✅ Group mode: only include open groups (right table stays aligned to left list)
+  const groupModeRows = React.useMemo(() => {
+    const rows: AssetRow[] = [];
+    filteredGroups.forEach((g) => {
+      const isOpen = !!openGroups[g.id];
+      if (isOpen) g.assets.forEach((a) => rows.push(a));
+    });
+    return rows;
+  }, [filteredGroups, openGroups]);
+
+  const rowsToRender = barView === 'group' ? groupModeRows : listModeRows;
+
+  // Sticky header cell style helper
+  const stickyStyle = (top: number) =>
+    ({
+      position: 'sticky',
+      top,
+      zIndex: 5,
+    }) as React.CSSProperties;
 
   return (
     <Root maxWidth={false}>
@@ -368,7 +355,7 @@ const AssetsRowTablePanel: React.FC = () => {
               variant="outlined"
               size="small"
               InputProps={{ style: { height: 30, color: '#fff', fontSize: 12, backgroundColor: '#444' } }}
-              style={{ width: 220 }}
+              style={{ width: 200 }}
             />
             <IconButton style={{ padding: 6 }}>
               <FilterListIcon style={{ fontSize: 18, color: '#b0b0b0' }} />
@@ -377,7 +364,7 @@ const AssetsRowTablePanel: React.FC = () => {
         </Toolbar>
 
         <ContentRow>
-          {/* LEFT PANEL (only group mode) */}
+          {/* LEFT PANEL (only for group mode) */}
           {barView === 'group' && leftOpen && (
             <LeftPanel>
               <LeftPanelHeader>
@@ -391,20 +378,16 @@ const AssetsRowTablePanel: React.FC = () => {
 
               <LeftPanelBody>
                 <List dense disablePadding>
-                  {MOCK_GROUPS.map((g) => {
+                  {filteredGroups.map((g) => {
                     const isOpen = !!openGroups[g.id];
                     return (
                       <React.Fragment key={g.id}>
-                        <ListItem button onClick={() => toggleGroup(g.id)} style={{ height: 34 }}>
+                        <ListItem button onClick={() => toggleGroup(g.id)} style={{ height: 32 }}>
                           <ListItemText
-                            primary={`${g.label} (${g.count})`}
+                            primary={`${g.label} (${g.assets.length})`}
                             primaryTypographyProps={{ style: { fontSize: 12, color: '#fff', fontWeight: 700 } }}
                           />
-                          {isOpen ? (
-                            <ExpandLessIcon style={{ color: '#666' }} />
-                          ) : (
-                            <ExpandMoreIcon style={{ color: '#666' }} />
-                          )}
+                          {isOpen ? <ExpandLessIcon style={{ color: '#666' }} /> : <ExpandMoreIcon style={{ color: '#666' }} />}
                         </ListItem>
 
                         <Collapse in={isOpen} timeout="auto" unmountOnExit>
@@ -413,14 +396,14 @@ const AssetsRowTablePanel: React.FC = () => {
                               key={a.id}
                               button
                               style={{
-                                paddingLeft: 18,
+                                paddingLeft: 22,
                                 height: 44,
-                                paddingRight: 10,
                               }}
                             >
+                              {/* ✅ gap between thumb and name */}
                               <RowItem>
                                 <Thumb />
-                                <NameText>{a.name}</NameText>
+                                <Typography style={{ color: '#ddd', fontSize: 12 }}>{a.name}</Typography>
                               </RowItem>
                             </ListItem>
                           ))}
@@ -433,17 +416,54 @@ const AssetsRowTablePanel: React.FC = () => {
             </LeftPanel>
           )}
 
-          {/* RIGHT TABLE */}
+          {/* RIGHT PANEL: TABLE */}
           <TableWrap>
-            <Table size="small" style={{ minWidth: 1200 }}>
+            <Table size="small" stickyHeader>
               <TableHead>
-                <TableRow>
+                {/* ── Header Row 1: Column "Groups / Boxes" (MDL/RIG/...) ── */}
+                <TableRow style={{ height: GROUP_HEADER_H }}>
+                  {/* Thumbnail/Name area */}
+                  {barView === 'list' ? (
+                    <>
+                      <GroupBandCell style={{ ...stickyStyle(0), height: GROUP_HEADER_H }} colSpan={2}>
+                        {/* empty band over thumb+name */}
+                      </GroupBandCell>
+                    </>
+                  ) : (
+                    <GroupBandCell style={{ ...stickyStyle(0), height: GROUP_HEADER_H }} colSpan={0 as any} />
+                  )}
+
+                  {PHASE_GROUPS.map((g) => (
+                    <GroupBandCell
+                      key={g.key}
+                      colSpan={g.colIds.length}
+                      style={{
+                        ...stickyStyle(0),
+                        height: GROUP_HEADER_H,
+                        borderTop: `2px solid ${g.border}`,
+                        borderLeft: `2px solid ${g.border}`,
+                        borderRight: `2px solid ${g.border}`,
+                        textAlign: 'left',
+                      }}
+                    >
+                      {g.label}
+                    </GroupBandCell>
+                  ))}
+
+                  <GroupBandCell style={{ ...stickyStyle(0), height: GROUP_HEADER_H, textAlign: 'left' }} colSpan={1}>
+                    RELATION
+                  </GroupBandCell>
+                </TableRow>
+
+                {/* ── Header Row 2: Actual column titles ── */}
+                <TableRow style={{ height: COL_HEADER_H }}>
                   {visibleColumns.map((c) => (
                     <HeaderCell
                       key={c.id}
                       style={{
+                        ...stickyStyle(GROUP_HEADER_H),
+                        height: COL_HEADER_H,
                         minWidth: c.minWidth,
-                        ...getGroupBorderStyle(c.id as ColumnId),
                       }}
                     >
                       {c.label}
@@ -453,42 +473,47 @@ const AssetsRowTablePanel: React.FC = () => {
               </TableHead>
 
               <TableBody>
-                {tableRows.map((asset) => (
+                {/* ✅ List mode: NO group header rows. Just flat rows */}
+                {rowsToRender.map((asset) => (
                   <TableRow key={asset.id} hover>
                     {visibleColumns.map((col) => {
-                      const id = col.id as ColumnId;
-
-                      // Special render for thumbnail+name in list mode (aligned + gap)
-                      if (id === 'thumbnail') {
+                      // Thumbnail + Name rendering for LIST mode
+                      if (barView === 'list' && col.id === 'thumbnail') {
                         return (
-                          <DataCell key={id} style={{ width: 110 }}>
-                            <Thumb />
-                          </DataCell>
-                        );
-                      }
-
-                      if (id === 'name') {
-                        return (
-                          <DataCell key={id} style={{ width: 180 }}>
-                            <RowItem style={{ gap: 12 }}>
-                              {/* keep a small spacer so name aligns nicely with thumb column */}
-                              <span style={{ width: 0 }} />
-                              <NameText style={{ color: '#ddd' }}>{asset.name}</NameText>
+                          <DataCell key={col.id}>
+                            <RowItem style={{ gap: 10 }}>
+                              <Thumb />
+                              <Typography style={{ color: '#ddd', fontSize: 12 }}> </Typography>
                             </RowItem>
                           </DataCell>
                         );
                       }
 
-                      const val = (asset as any)[id] as string;
+                      if (barView === 'list' && col.id === 'name') {
+                        return (
+                          <DataCell key={col.id} style={{ color: '#ddd' }}>
+                            {asset.name}
+                          </DataCell>
+                        );
+                      }
 
+                      const val = normalize((asset as any)[col.id]);
                       return (
-                        <DataCell key={id} style={{ ...getGroupBorderStyle(id) }}>
+                        <DataCell key={col.id}>
                           {val === '—' ? <span style={{ opacity: 0.3 }}>—</span> : val}
                         </DataCell>
                       );
                     })}
                   </TableRow>
                 ))}
+
+                {rowsToRender.length === 0 && (
+                  <TableRow>
+                    <DataCell colSpan={visibleColumns.length} style={{ padding: 18, color: '#888' }}>
+                      No results.
+                    </DataCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           </TableWrap>
