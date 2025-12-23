@@ -3,7 +3,7 @@
     AssetsRowTablePanel.tsx
 
   Module Description:
-    Assets Row Table with group/list view, synced sidebar, search & selection.
+    Implementation for the "Assets Row" page with populated workflow data.
 ─────────────────────────────────────────────────────────────────────────── */
 
 import React from 'react';
@@ -33,12 +33,7 @@ import FilterListIcon from '@material-ui/icons/FilterList';
 import ExpandLessIcon from '@material-ui/icons/ExpandLess';
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
 
-/* ───────────────────────── Constants ───────────────────────── */
-
-const ASSET_ROW_H = 44;
-const GROUP_ROW_H = 32;
-
-/* ───────────────────────── Styled Components ───────────────────────── */
+// --- Styled Components ---
 
 const Root = styled(Container)(({ theme }) => ({
   position: 'relative',
@@ -58,10 +53,12 @@ const Toolbar = styled('div')(({ theme }) => ({
   borderBottom: '1px solid rgba(255,255,255,0.08)',
   padding: theme.spacing(1),
   height: 48,
+  boxSizing: 'border-box',
 }));
 
 const ContentRow = styled('div')({
   display: 'flex',
+  flexDirection: 'row',
   width: '100%',
   alignItems: 'stretch',
 });
@@ -80,7 +77,8 @@ const LeftPanelHeader = styled('div')({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  padding: '0 8px 0 12px',
+  paddingLeft: 12,
+  paddingRight: 8,
   backgroundColor: '#2d2d2d',
   borderBottom: '1px solid rgba(255,255,255,0.08)',
 });
@@ -115,7 +113,7 @@ const DataCell = styled(TableCell)({
   padding: '8px 10px',
   fontSize: 12,
   borderBottom: '1px solid rgba(255,255,255,0.05)',
-  height: ASSET_ROW_H,
+  height: 44,
   boxSizing: 'border-box',
 });
 
@@ -125,42 +123,111 @@ const Thumb = styled('div')({
   borderRadius: 2,
   background: 'rgba(255,255,255,0.1)',
   border: '1px solid rgba(255,255,255,0.2)',
+  flex: '0 0 auto',
 });
 
 const RowItem = styled('div')({
   display: 'flex',
   alignItems: 'center',
   gap: 12,
-  height: ASSET_ROW_H,
+  height: 28,
 });
 
-/* ───────────────────────── Data ───────────────────────── */
+// --- Types & Constants ---
 
 const HEADER_COLUMNS = [
-  { id: 'name', label: 'Name', minWidth: 160 },
+  { id: 'thumbnail', label: 'Thumbnail', minWidth: 100 },
+  { id: 'name', label: 'Name', minWidth: 150 },
   { id: 'mdl_work', label: 'MDL Work', minWidth: 100 },
   { id: 'mdl_appr', label: 'MDL Appr', minWidth: 100 },
-  { id: 'mdl_submitted', label: 'MDL Submitted', minWidth: 140 },
+  { id: 'mdl_submitted', label: 'MDL Submitted At', minWidth: 140 },
   { id: 'rig_work', label: 'RIG Work', minWidth: 100 },
   { id: 'rig_appr', label: 'RIG Appr', minWidth: 100 },
-  { id: 'relation', label: 'Relation', minWidth: 100 },
-];
+  { id: 'rig_submitted', label: 'RIG Submitted At', minWidth: 140 },
+  { id: 'bld_work', label: 'BLD Work', minWidth: 100 },
+  { id: 'bld_appr', label: 'BLD Appr', minWidth: 100 },
+  { id: 'bld_submitted', label: 'BLD Submitted At', minWidth: 140 },
+  { id: 'dsn_work', label: 'DSN Work', minWidth: 100 },
+  { id: 'dsn_appr', label: 'DSN Appr', minWidth: 100 },
+  { id: 'dsn_submitted', label: 'DSN Submitted At', minWidth: 140 },
+  { id: 'ldv_work', label: 'LDV Work', minWidth: 100 },
+  { id: 'ldv_appr', label: 'LDV Appr', minWidth: 100 },
+  { id: 'ldv_submitted', label: 'LDV Submitted At', minWidth: 140 },
+  { id: 'relation', label: 'Relation', minWidth: 90 },
+] as const;
 
-const generateMockData = (id: string, name: string) => ({
+type HeaderCol = (typeof HEADER_COLUMNS)[number];
+type ColumnId = HeaderCol['id'];
+
+type AssetRow = {
+  id: string;
+  thumbnail?: string; // placeholder
+  name: string;
+
+  mdl_work: string;
+  mdl_appr: string;
+  mdl_submitted: string;
+
+  rig_work: string;
+  rig_appr: string;
+  rig_submitted: string;
+
+  bld_work: string;
+  bld_appr: string;
+  bld_submitted: string;
+
+  dsn_work: string;
+  dsn_appr: string;
+  dsn_submitted: string;
+
+  ldv_work: string;
+  ldv_appr: string;
+  ldv_submitted: string;
+
+  relation: string;
+};
+
+type GroupNode = {
+  id: string;
+  label: string;
+  count: number;
+  assets: AssetRow[];
+};
+
+/** Helper to generate mock workflow data for an asset */
+const generateMockData = (id: string, name: string): AssetRow => ({
   id,
   name,
+  thumbnail: '',
+
   mdl_work: Math.random() > 0.5 ? 'In Progress' : 'Done',
   mdl_appr: Math.random() > 0.5 ? 'Pending' : 'Approved',
   mdl_submitted: '2023-11-20',
-  rig_work: 'Waiting',
+
+  rig_work: 'In Progress',
   rig_appr: '—',
+  rig_submitted: '—',
+
+  bld_work: 'Waiting',
+  bld_appr: '—',
+  bld_submitted: '—',
+
+  dsn_work: 'Done',
+  dsn_appr: 'Approved',
+  dsn_submitted: '2023-10-15',
+
+  ldv_work: '—',
+  ldv_appr: '—',
+  ldv_submitted: '—',
+
   relation: 'Master',
 });
 
-const MOCK_GROUPS = [
+const MOCK_GROUPS: GroupNode[] = [
   {
     id: 'camera',
     label: 'camera',
+    count: 3,
     assets: [
       generateMockData('camAim', 'camAim'),
       generateMockData('camHero', 'camHero'),
@@ -170,6 +237,7 @@ const MOCK_GROUPS = [
   {
     id: 'character',
     label: 'character',
+    count: 4,
     assets: [
       generateMockData('ando', 'ando'),
       generateMockData('baseFemale', 'baseFemale'),
@@ -177,195 +245,213 @@ const MOCK_GROUPS = [
       generateMockData('chris', 'chris'),
     ],
   },
+  {
+    id: 'fx',
+    label: 'fx',
+    count: 1,
+    assets: [generateMockData('fx_smoke', 'fx_smoke')],
+  },
+  {
+    id: 'other',
+    label: 'other',
+    count: 1,
+    assets: [generateMockData('env_prop', 'env_prop')],
+  },
 ];
 
-/* ───────────────────────── Component ───────────────────────── */
+// --- Main Component ---
 
 const AssetsRowTablePanel: React.FC = () => {
-  const [view, setView] = React.useState<'group' | 'list'>('group');
-  const [leftOpen, setLeftOpen] = React.useState(true);
   const [search, setSearch] = React.useState('');
-  const [selectedId, setSelectedId] = React.useState<string | null>(null);
-
+  const [barView, setBarView] = React.useState<'list' | 'group'>('group');
+  const [leftOpen, setLeftOpen] = React.useState(true);
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>({
     camera: true,
     character: true,
+    fx: true,
+    other: true,
   });
 
-  const toggleGroup = (id: string) =>
-    setOpenGroups((s) => ({ ...s, [id]: !s[id] }));
+  // Filter columns based on view mode
+  const headerColumns = React.useMemo(() => {
+    if (barView !== 'group') return HEADER_COLUMNS;
+    return HEADER_COLUMNS.filter((c) => c.id !== 'thumbnail' && c.id !== 'name');
+  }, [barView]);
 
+  const toggleGroup = (id: string) => {
+    setOpenGroups((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  // Basic search (filters assets inside groups)
   const filteredGroups = React.useMemo(() => {
-    const q = search.toLowerCase().trim();
+    const q = search.trim().toLowerCase();
     if (!q) return MOCK_GROUPS;
 
-    return MOCK_GROUPS
-      .map((g) => ({
-        ...g,
-        assets: g.assets.filter(
-          (a) =>
-            a.name.toLowerCase().includes(q) ||
-            a.id.toLowerCase().includes(q)
-        ),
-      }))
-      .filter((g) => g.assets.length > 0);
+    return MOCK_GROUPS.map((g) => ({
+      ...g,
+      assets: g.assets.filter((a) => a.name.toLowerCase().includes(q) || a.id.toLowerCase().includes(q)),
+      count: g.assets.filter((a) => a.name.toLowerCase().includes(q) || a.id.toLowerCase().includes(q)).length,
+    })).filter((g) => g.assets.length > 0);
   }, [search]);
 
   return (
     <Root maxWidth={false}>
-      <Toolbar>
-        <Box display="flex" alignItems="center" gap={1}>
-          <IconButton onClick={() => setView('list')}>
-            <ViewListIcon style={{ color: view === 'list' ? '#00b7ff' : '#aaa' }} />
-          </IconButton>
-          <IconButton onClick={() => setView('group')}>
-            <ViewModuleIcon style={{ color: view === 'group' ? '#00b7ff' : '#aaa' }} />
-          </IconButton>
-          {view === 'group' && (
-            <IconButton onClick={() => setLeftOpen((v) => !v)}>
-              <MenuIcon style={{ color: '#fff' }} />
+      <Box>
+        <Toolbar>
+          <Box display="flex" alignItems="center" style={{ gap: 8 }}>
+            <IconButton onClick={() => setBarView('list')} style={{ padding: 6 }}>
+              <ViewListIcon style={{ fontSize: 18, color: barView === 'list' ? '#00b7ff' : '#b0b0b0' }} />
             </IconButton>
-          )}
-          <Typography style={{ color: '#fff', fontWeight: 600 }}>
-            Assets Row Table
-          </Typography>
-        </Box>
+            <IconButton onClick={() => setBarView('group')} style={{ padding: 6 }}>
+              <ViewModuleIcon style={{ fontSize: 18, color: barView === 'group' ? '#00b7ff' : '#b0b0b0' }} />
+            </IconButton>
 
-        <Box display="flex" alignItems="center" gap={1}>
-          <TextField
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search assets…"
-            size="small"
-            variant="outlined"
-            InputProps={{
-              style: { background: '#444', color: '#fff', height: 30 },
-            }}
-          />
-          <IconButton>
-            <FilterListIcon style={{ color: '#aaa' }} />
-          </IconButton>
-        </Box>
-      </Toolbar>
+            {barView === 'group' && (
+              <IconButton onClick={() => setLeftOpen((v) => !v)} style={{ padding: 6 }}>
+                <MenuIcon style={{ fontSize: 18, color: '#fff' }} />
+              </IconButton>
+            )}
 
-      <ContentRow>
-        {view === 'group' && leftOpen && (
-          <LeftPanel>
-            <LeftPanelHeader>
-              <Typography style={{ color: '#fff', fontWeight: 600 }}>
-                Groups
-              </Typography>
-            </LeftPanelHeader>
+            <Typography variant="subtitle2" style={{ color: '#fff', marginLeft: 8 }}>
+              Assets Row Table
+            </Typography>
+          </Box>
 
-            <LeftPanelBody>
-              <List disablePadding dense>
-                {filteredGroups.map((g) => {
-                  const open = openGroups[g.id];
-                  return (
-                    <React.Fragment key={g.id}>
-                      <ListItem
-                        button
-                        onClick={() => toggleGroup(g.id)}
-                        style={{ height: GROUP_ROW_H }}
-                      >
-                        <ListItemText
-                          primary={`${g.label} (${g.assets.length})`}
-                          primaryTypographyProps={{ style: { color: '#fff' } }}
-                        />
-                        {open ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                      </ListItem>
+          <Box display="flex" alignItems="center" style={{ gap: 8 }}>
+            <TextField
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search Assets..."
+              variant="outlined"
+              size="small"
+              InputProps={{
+                style: { height: 30, color: '#fff', fontSize: 12, backgroundColor: '#444' },
+              }}
+              style={{ width: 200 }}
+            />
+            <IconButton style={{ padding: 6 }}>
+              <FilterListIcon style={{ fontSize: 18, color: '#b0b0b0' }} />
+            </IconButton>
+          </Box>
+        </Toolbar>
 
-                      <Collapse in={open}>
-                        {g.assets.map((a) => {
-                          const active = selectedId === a.id;
-                          return (
-                            <ListItem
-                              key={a.id}
-                              button
-                              onClick={() => setSelectedId(a.id)}
-                              style={{
-                                paddingLeft: 24,
-                                height: ASSET_ROW_H,
-                                background: active
-                                  ? 'rgba(0,183,255,0.15)'
-                                  : undefined,
-                                borderLeft: active
-                                  ? '2px solid #00b7ff'
-                                  : '2px solid transparent',
-                              }}
-                            >
+        <ContentRow>
+          {/* LEFT PANEL: Group Tree */}
+          {barView === 'group' && leftOpen && (
+            <LeftPanel>
+              <LeftPanelHeader>
+                <Typography variant="caption" style={{ color: '#fff', fontWeight: 600 }}>
+                  Groups
+                </Typography>
+                <Typography variant="caption" style={{ color: '#666' }}>
+                  (mock)
+                </Typography>
+              </LeftPanelHeader>
+
+              <LeftPanelBody>
+                <List dense disablePadding>
+                  {filteredGroups.map((g) => {
+                    const isOpen = !!openGroups[g.id];
+                    return (
+                      <React.Fragment key={g.id}>
+                        <ListItem button onClick={() => toggleGroup(g.id)} style={{ height: 32 }}>
+                          <ListItemText
+                            primary={`${g.label} (${g.count})`}
+                            primaryTypographyProps={{
+                              style: { fontSize: 12, color: '#fff', fontWeight: 600 },
+                            }}
+                          />
+                          {isOpen ? (
+                            <ExpandLessIcon style={{ color: '#666' }} />
+                          ) : (
+                            <ExpandMoreIcon style={{ color: '#666' }} />
+                          )}
+                        </ListItem>
+
+                        <Collapse in={isOpen} timeout="auto" unmountOnExit>
+                          {g.assets.map((a) => (
+                            <ListItem key={a.id} button style={{ paddingLeft: 24, height: 44 }}>
                               <RowItem>
                                 <Thumb />
-                                <Typography style={{ color: '#ddd' }}>
-                                  {a.name}
-                                </Typography>
+                                <Typography style={{ color: '#ddd', fontSize: 12 }}>{a.name}</Typography>
                               </RowItem>
                             </ListItem>
-                          );
-                        })}
-                      </Collapse>
+                          ))}
+                        </Collapse>
+                      </React.Fragment>
+                    );
+                  })}
+                </List>
+              </LeftPanelBody>
+            </LeftPanel>
+          )}
+
+          {/* RIGHT PANEL: Data Table */}
+          <TableWrap>
+            <Table stickyHeader size="small">
+              <TableHead>
+                <TableRow>
+                  {headerColumns.map((c) => (
+                    <HeaderCell key={c.id} style={{ minWidth: c.minWidth }}>
+                      {c.label}
+                    </HeaderCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+
+              <TableBody>
+                {filteredGroups.map((group) => {
+                  const isOpen = barView === 'list' || openGroups[group.id];
+
+                  return (
+                    <React.Fragment key={group.id}>
+                      {/* Sub-header row for group in table view */}
+                      {barView === 'list' && (
+                        <TableRow style={{ backgroundColor: '#252525' }}>
+                          <DataCell
+                            colSpan={headerColumns.length}
+                            style={{ fontWeight: 'bold', color: '#00b7ff' }}
+                          >
+                            {group.label.toUpperCase()}
+                          </DataCell>
+                        </TableRow>
+                      )}
+
+                      {/* Asset Data Rows */}
+                      {isOpen &&
+                        group.assets.map((asset) => (
+                          <TableRow key={asset.id} hover>
+                            {headerColumns.map((col) => {
+                              const val = (asset as any)[col.id as ColumnId];
+
+                              // Render thumb in table if thumbnail column is visible
+                              if (col.id === 'thumbnail') {
+                                return (
+                                  <DataCell key={col.id}>
+                                    <Thumb />
+                                  </DataCell>
+                                );
+                              }
+
+                              return (
+                                <DataCell key={col.id}>
+                                  {val === '—' ? <span style={{ opacity: 0.3 }}>—</span> : val}
+                                </DataCell>
+                              );
+                            })}
+                          </TableRow>
+                        ))}
+
+                      {/* Spacer row when a group is collapsed */}
+                      {!isOpen && barView === 'group' && <TableRow style={{ height: 0 }} />}
                     </React.Fragment>
                   );
                 })}
-              </List>
-            </LeftPanelBody>
-          </LeftPanel>
-        )}
-
-        <TableWrap>
-          <Table stickyHeader size="small">
-            <TableHead>
-              <TableRow>
-                {HEADER_COLUMNS.map((c) => (
-                  <HeaderCell key={c.id} style={{ minWidth: c.minWidth }}>
-                    {c.label}
-                  </HeaderCell>
-                ))}
-              </TableRow>
-            </TableHead>
-
-            <TableBody>
-              {filteredGroups.map((g) => (
-                <React.Fragment key={g.id}>
-                  {view === 'list' && (
-                    <TableRow>
-                      <DataCell
-                        colSpan={HEADER_COLUMNS.length}
-                        style={{ fontWeight: 700, color: '#00b7ff' }}
-                      >
-                        {g.label.toUpperCase()}
-                      </DataCell>
-                    </TableRow>
-                  )}
-
-                  {(view === 'list' || openGroups[g.id]) &&
-                    g.assets.map((a) => {
-                      const active = selectedId === a.id;
-                      return (
-                        <TableRow
-                          key={a.id}
-                          hover
-                          onClick={() => setSelectedId(a.id)}
-                          style={{
-                            background: active
-                              ? 'rgba(0,183,255,0.12)'
-                              : undefined,
-                          }}
-                        >
-                          {HEADER_COLUMNS.map((c) => (
-                            <DataCell key={c.id}>
-                              {(a as any)[c.id] ?? '—'}
-                            </DataCell>
-                          ))}
-                        </TableRow>
-                      );
-                    })}
-                </React.Fragment>
-              ))}
-            </TableBody>
-          </Table>
-        </TableWrap>
-      </ContentRow>
+              </TableBody>
+            </Table>
+          </TableWrap>
+        </ContentRow>
+      </Box>
     </Root>
   );
 };
