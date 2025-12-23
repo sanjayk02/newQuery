@@ -3,7 +3,7 @@
     AssetsRowTablePanel.tsx
 
   Module Description:
-    Implementation for the "Assets Row" page with populated workflow data.
+    "Assets Row" page with synchronized group sidebar + table alignment.
 ─────────────────────────────────────────────────────────────────────────── */
 
 import React from 'react';
@@ -33,7 +33,16 @@ import FilterListIcon from '@material-ui/icons/FilterList';
 import ExpandLessIcon from '@material-ui/icons/ExpandLess';
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
 
-// --- Styled Components ---
+// ---------------------------------------------------------------------------
+// Layout constants (MUST match between sidebar + table)
+// ---------------------------------------------------------------------------
+const GROUP_ROW_H = 32;
+const ASSET_ROW_H = 44;
+const LEFT_W = 260;
+
+// ---------------------------------------------------------------------------
+// Styled Components
+// ---------------------------------------------------------------------------
 
 const Root = styled(Container)(({ theme }) => ({
   position: 'relative',
@@ -58,14 +67,14 @@ const Toolbar = styled('div')(({ theme }) => ({
 
 const ContentRow = styled('div')({
   display: 'flex',
-  flexDirection: 'row',
   width: '100%',
   alignItems: 'stretch',
+  overflow: 'hidden',
 });
 
 const LeftPanel = styled('div')({
-  width: 260,
-  minWidth: 260,
+  width: LEFT_W,
+  minWidth: LEFT_W,
   backgroundColor: '#252525',
   borderRight: '1px solid rgba(255,255,255,0.12)',
   display: 'flex',
@@ -81,19 +90,29 @@ const LeftPanelHeader = styled('div')({
   paddingRight: 8,
   backgroundColor: '#2d2d2d',
   borderBottom: '1px solid rgba(255,255,255,0.08)',
+  boxSizing: 'border-box',
 });
 
 const LeftPanelBody = styled('div')({
-  overflowY: 'auto',
   flex: 1,
+  overflowY: 'auto',
+  overflowX: 'hidden',
 });
 
-const TableWrap = styled(Paper)({
+const TableShell = styled(Paper)({
   flex: 1,
-  overflowX: 'auto',
   backgroundColor: '#1e1e1e',
   borderRadius: 0,
   boxShadow: 'none',
+  display: 'flex',
+  flexDirection: 'column',
+  minWidth: 0,
+});
+
+const TableScroller = styled('div')({
+  flex: 1,
+  overflow: 'auto', // single scroll area for the table
+  minWidth: 0,
 });
 
 const HeaderCell = styled(TableCell)({
@@ -110,8 +129,24 @@ const HeaderCell = styled(TableCell)({
 
 const DataCell = styled(TableCell)({
   color: '#b0b0b0',
-  padding: '8px 10px',
   fontSize: 12,
+  borderBottom: '1px solid rgba(255,255,255,0.05)',
+  padding: '0 10px', // IMPORTANT: remove vertical padding for perfect height match
+  height: ASSET_ROW_H,
+  lineHeight: `${ASSET_ROW_H}px`, // IMPORTANT: consistent vertical centering
+  whiteSpace: 'nowrap',
+  boxSizing: 'border-box',
+});
+
+const GroupRowCell = styled(TableCell)({
+  padding: '0 10px',
+  height: GROUP_ROW_H,
+  lineHeight: `${GROUP_ROW_H}px`,
+  fontSize: 12,
+  fontWeight: 700,
+  textTransform: 'uppercase',
+  color: '#00b7ff',
+  backgroundColor: '#1e1e1e',
   borderBottom: '1px solid rgba(255,255,255,0.05)',
   boxSizing: 'border-box',
 });
@@ -132,11 +167,9 @@ const RowItem = styled('div')({
   height: 28,
 });
 
-// --- Constants: HEIGHTS (keep sidebar + table synced) ---
-const GROUP_ROW_H = 32;  // left group ListItem height
-const ASSET_ROW_H = 44;  // left asset ListItem height
-
-// --- Types & Constants ---
+// ---------------------------------------------------------------------------
+// Types & Mock Data
+// ---------------------------------------------------------------------------
 
 const HEADER_COLUMNS = [
   { id: 'thumbnail', label: 'Thumbnail', minWidth: 100 },
@@ -157,9 +190,8 @@ const HEADER_COLUMNS = [
   { id: 'ldv_appr', label: 'LDV Appr', minWidth: 100 },
   { id: 'ldv_submitted', label: 'LDV Submitted At', minWidth: 140 },
   { id: 'relation', label: 'Relation', minWidth: 90 },
-] as const;
+];
 
-/** Helper to generate mock workflow data for an asset */
 const generateMockData = (id: string, name: string) => ({
   id,
   name,
@@ -218,15 +250,15 @@ const MOCK_GROUPS = [
   },
 ];
 
-type AssetRow = ReturnType<typeof generateMockData>;
-type ColumnId = typeof HEADER_COLUMNS[number]['id'];
-
-// --- Main Component ---
+// ---------------------------------------------------------------------------
+// Main Component
+// ---------------------------------------------------------------------------
 
 const AssetsRowTablePanel: React.FC = () => {
   const [search, setSearch] = React.useState('');
   const [barView, setBarView] = React.useState<'list' | 'group'>('group');
   const [leftOpen, setLeftOpen] = React.useState(true);
+
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>({
     camera: true,
     character: true,
@@ -234,30 +266,52 @@ const AssetsRowTablePanel: React.FC = () => {
     other: true,
   });
 
+  // ---- scroll sync refs
+  const leftScrollRef = React.useRef<HTMLDivElement | null>(null);
+  const tableScrollRef = React.useRef<HTMLDivElement | null>(null);
+  const syncingRef = React.useRef<'left' | 'table' | null>(null);
+
+  const syncScroll = React.useCallback((from: 'left' | 'table') => {
+    if (syncingRef.current && syncingRef.current !== from) return;
+
+    syncingRef.current = from;
+
+    const leftEl = leftScrollRef.current;
+    const tableEl = tableScrollRef.current;
+    if (!leftEl || !tableEl) return;
+
+    if (from === 'left') {
+      tableEl.scrollTop = leftEl.scrollTop;
+    } else {
+      leftEl.scrollTop = tableEl.scrollTop;
+    }
+
+    // release lock next frame
+    requestAnimationFrame(() => {
+      syncingRef.current = null;
+    });
+  }, []);
+
   const toggleGroup = (id: string) => {
     setOpenGroups((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  // Columns:
-  // - In GROUP view (with left panel), hide thumbnail + name in table.
+  // Filter columns based on view mode (your original rule)
   const headerColumns = React.useMemo(() => {
     if (barView !== 'group') return HEADER_COLUMNS;
     return HEADER_COLUMNS.filter((c) => c.id !== 'thumbnail' && c.id !== 'name');
   }, [barView]);
 
-  // Filter assets by search (applied inside each group)
+  // mock search filter (optional)
   const groupsFiltered = React.useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return MOCK_GROUPS;
 
-    return MOCK_GROUPS.map((g) => ({
-      ...g,
-      assets: g.assets.filter((a) => a.name.toLowerCase().includes(q)),
-      count: g.assets.filter((a) => a.name.toLowerCase().includes(q)).length,
-    })).filter((g) => g.assets.length > 0);
+    return MOCK_GROUPS.map((g) => {
+      const assets = g.assets.filter((a) => a.name.toLowerCase().includes(q));
+      return { ...g, assets, count: assets.length };
+    }).filter((g) => g.assets.length > 0);
   }, [search]);
-
-  const showLeftPanel = barView === 'group' && leftOpen;
 
   return (
     <Root maxWidth={false}>
@@ -289,10 +343,8 @@ const AssetsRowTablePanel: React.FC = () => {
               placeholder="Search Assets..."
               variant="outlined"
               size="small"
-              InputProps={{
-                style: { height: 30, color: '#fff', fontSize: 12, backgroundColor: '#444' },
-              }}
-              style={{ width: 200 }}
+              InputProps={{ style: { height: 30, color: '#fff', fontSize: 12, backgroundColor: '#444' } }}
+              style={{ width: 220 }}
             />
             <IconButton style={{ padding: 6 }}>
               <FilterListIcon style={{ fontSize: 18, color: '#b0b0b0' }} />
@@ -301,8 +353,8 @@ const AssetsRowTablePanel: React.FC = () => {
         </Toolbar>
 
         <ContentRow>
-          {/* LEFT PANEL: Group Tree */}
-          {showLeftPanel && (
+          {/* LEFT PANEL */}
+          {barView === 'group' && leftOpen && (
             <LeftPanel>
               <LeftPanelHeader>
                 <Typography variant="caption" style={{ color: '#fff', fontWeight: 600 }}>
@@ -313,13 +365,18 @@ const AssetsRowTablePanel: React.FC = () => {
                 </Typography>
               </LeftPanelHeader>
 
-              <LeftPanelBody>
+              <LeftPanelBody ref={leftScrollRef} onScroll={() => syncScroll('left')}>
                 <List dense disablePadding>
                   {groupsFiltered.map((g) => {
                     const isOpen = !!openGroups[g.id];
                     return (
                       <React.Fragment key={g.id}>
-                        <ListItem button onClick={() => toggleGroup(g.id)} style={{ height: GROUP_ROW_H }}>
+                        {/* Group header (height fixed) */}
+                        <ListItem
+                          button
+                          onClick={() => toggleGroup(g.id)}
+                          style={{ height: GROUP_ROW_H }}
+                        >
                           <ListItemText
                             primary={`${g.label} (${g.count})`}
                             primaryTypographyProps={{
@@ -333,9 +390,14 @@ const AssetsRowTablePanel: React.FC = () => {
                           )}
                         </ListItem>
 
+                        {/* Asset rows (height fixed to match table) */}
                         <Collapse in={isOpen} timeout="auto" unmountOnExit>
                           {g.assets.map((a) => (
-                            <ListItem key={a.id} button style={{ paddingLeft: 24, height: ASSET_ROW_H }}>
+                            <ListItem
+                              key={a.id}
+                              button
+                              style={{ paddingLeft: 24, height: ASSET_ROW_H }}
+                            >
                               <RowItem>
                                 <Thumb />
                                 <Typography style={{ color: '#ddd', fontSize: 12 }}>{a.name}</Typography>
@@ -351,83 +413,61 @@ const AssetsRowTablePanel: React.FC = () => {
             </LeftPanel>
           )}
 
-          {/* RIGHT PANEL: Data Table */}
-          <TableWrap>
-            <Table stickyHeader size="small">
-              <TableHead>
-                <TableRow>
-                  {headerColumns.map((c) => (
-                    <HeaderCell key={c.id} style={{ minWidth: c.minWidth }}>
-                      {c.label}
-                    </HeaderCell>
-                  ))}
-                </TableRow>
-              </TableHead>
+          {/* RIGHT PANEL */}
+          <TableShell>
+            <TableScroller ref={tableScrollRef} onScroll={() => syncScroll('table')}>
+              <Table stickyHeader size="small">
+                <TableHead>
+                  <TableRow>
+                    {headerColumns.map((c) => (
+                      <HeaderCell key={c.id} style={{ minWidth: c.minWidth }}>
+                        {c.label}
+                      </HeaderCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
 
-              <TableBody>
-                {groupsFiltered.map((group) => {
-                  const isOpen = barView === 'list' || openGroups[group.id];
+                <TableBody>
+                  {groupsFiltered.map((group) => {
+                    const isOpen = barView === 'list' || openGroups[group.id];
 
-                  // In group view, we always render a group spacer row
-                  // so table rows align with the left panel group row height.
-                  const showGroupLabelInTable =
-                    barView === 'list' || (barView === 'group' && !leftOpen);
+                    return (
+                      <React.Fragment key={group.id}>
+                        {/* GROUP HEADER ROW (ALWAYS rendered => top group never missing) */}
+                        <TableRow>
+                          <GroupRowCell colSpan={headerColumns.length}>
+                            {group.label}
+                          </GroupRowCell>
+                        </TableRow>
 
-                  const groupRow = (
-                    <TableRow key={`${group.id}-group`} style={{ height: GROUP_ROW_H, backgroundColor: '#252525' }}>
-                      <DataCell
-                        colSpan={headerColumns.length}
-                        style={{
-                          height: GROUP_ROW_H,
-                          paddingTop: 0,
-                          paddingBottom: 0,
-                          display: 'flex',
-                          alignItems: 'center',
-                          fontWeight: 700,
-                          color: showGroupLabelInTable ? '#00b7ff' : 'transparent',
-                          userSelect: 'none',
-                        }}
-                      >
-                        {showGroupLabelInTable ? group.label.toUpperCase() : '—'}
-                      </DataCell>
-                    </TableRow>
-                  );
-
-                  return (
-                    <React.Fragment key={group.id}>
-                      {/* Always render group row for alignment */}
-                      {groupRow}
-
-                      {/* Asset rows */}
-                      {isOpen &&
-                        group.assets.map((asset) => (
-                          <TableRow key={asset.id} hover style={{ height: ASSET_ROW_H }}>
-                            {headerColumns.map((col) => {
-                              const val = (asset as any)[col.id as ColumnId] as string;
-
-                              // Optional: show thumbnail box if you keep thumbnail column in list view
-                              if (col.id === 'thumbnail') {
+                        {/* ASSET ROWS */}
+                        {isOpen &&
+                          group.assets.map((asset) => (
+                            <TableRow key={asset.id} hover style={{ height: ASSET_ROW_H }}>
+                              {headerColumns.map((col) => {
+                                const val = asset[col.id as keyof typeof asset];
                                 return (
-                                  <DataCell key={col.id} style={{ height: ASSET_ROW_H }}>
-                                    <Thumb />
+                                  <DataCell key={col.id}>
+                                    {val === '—' ? <span style={{ opacity: 0.3 }}>—</span> : val}
                                   </DataCell>
                                 );
-                              }
+                              })}
+                            </TableRow>
+                          ))}
 
-                              return (
-                                <DataCell key={col.id} style={{ height: ASSET_ROW_H }}>
-                                  {val === '—' ? <span style={{ opacity: 0.3 }}>—</span> : val}
-                                </DataCell>
-                              );
-                            })}
+                        {/* When collapsed, keep alignment by not adding random spacer heights */}
+                        {!isOpen && (
+                          <TableRow style={{ height: 0 }}>
+                            <TableCell style={{ padding: 0, border: 0 }} colSpan={headerColumns.length} />
                           </TableRow>
-                        ))}
-                    </React.Fragment>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </TableWrap>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TableScroller>
+          </TableShell>
         </ContentRow>
       </Box>
     </Root>
