@@ -7,7 +7,7 @@
       - Dark theme table
       - Two modes:
           1) List  : flat rows (NO group header rows)
-          2) Group : group header rows inside the table (like your screenshot)
+          2) Group : group header rows inside the table
       - No extra "MDL / RIG / ..." top header row
       - Workflow columns have "box" borders per group (MDL/RIG/BLD/DSN/LDV)
 ─────────────────────────────────────────────────────────────────────────── */
@@ -47,6 +47,7 @@ const GRID = 'rgba(255,255,255,0.06)';
 const ACCENT = '#00b7ff';
 
 const GROUP_BORDER = 'rgba(255,255,255,0.28)'; // box border color for workflow groups
+const GROUP_BORDER_SOFT = 'rgba(255,255,255,0.14)'; // softer top/bottom for "box"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Styled Components
@@ -83,8 +84,8 @@ const TableWrap = styled(Paper)({
 const HeaderCell = styled(TableCell)({
   fontWeight: 700,
   textTransform: 'uppercase',
-  fontSize: 11,
-  letterSpacing: 0.5,
+  fontSize: 12,
+  letterSpacing: 0.1,
   whiteSpace: 'nowrap',
   padding: '8px 10px',
   backgroundColor: `${HEADER_BG} !important`,
@@ -102,28 +103,19 @@ const DataCell = styled(TableCell)({
   verticalAlign: 'middle',
 });
 
+// Thumbnail box
 const Thumb = styled('div')({
-  width: 28,
-  height: 22,
+  width: 50,
+  height: 25,
   borderRadius: 2,
   background: 'rgba(255,255,255,0.10)',
   border: '1px solid rgba(255,255,255,0.18)',
-  flex: '0 0 auto',
 });
 
+// Name cell row layout
 const NameCellRow = styled('div')({
   display: 'flex',
   alignItems: 'center',
-  gap: 10, // gap between thumbnail and name
-});
-
-const GroupNameRow = styled('div')({
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  fontWeight: 800,
-  letterSpacing: 0.3,
-  color: ACCENT,
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -151,30 +143,30 @@ type GroupRow = {
 };
 
 const HEADER_COLUMNS: Array<{ id: ColumnId; label: string; minWidth: number }> = [
-  { id: 'thumbnail', label: 'Thumbe', minWidth: 120 },
-  { id: 'name', label: 'Name', minWidth: 180 },
+  { id: 'thumbnail', label: 'Thumb', minWidth: 90 },
+  { id: 'name', label: 'Name', minWidth: 170 },
 
-  { id: 'mdl_work', label: 'MDL Work', minWidth: 120 },
-  { id: 'mdl_appr', label: 'MDL Appr', minWidth: 120 },
-  { id: 'mdl_submitted', label: 'MDL Submitted At', minWidth: 150 },
+  { id: 'mdl_work', label: 'MDL Work', minWidth: 85 },
+  { id: 'mdl_appr', label: 'MDL Appr', minWidth: 85 },
+  { id: 'mdl_submitted', label: 'MDL Submitted At', minWidth: 120 },
 
-  { id: 'rig_work', label: 'RIG Work', minWidth: 120 },
-  { id: 'rig_appr', label: 'RIG Appr', minWidth: 120 },
-  { id: 'rig_submitted', label: 'RIG Submitted At', minWidth: 150 },
+  { id: 'rig_work', label: 'RIG Work', minWidth: 85 },
+  { id: 'rig_appr', label: 'RIG Appr', minWidth: 85 },
+  { id: 'rig_submitted', label: 'RIG Submitted At', minWidth: 120 },
 
-  { id: 'bld_work', label: 'BLD Work', minWidth: 120 },
-  { id: 'bld_appr', label: 'BLD Appr', minWidth: 120 },
-  { id: 'bld_submitted', label: 'BLD Submitted At', minWidth: 150 },
+  { id: 'bld_work', label: 'BLD Work', minWidth: 85 },
+  { id: 'bld_appr', label: 'BLD Appr', minWidth: 85 },
+  { id: 'bld_submitted', label: 'BLD Submitted At', minWidth: 120 },
 
-  { id: 'dsn_work', label: 'DSN Work', minWidth: 120 },
-  { id: 'dsn_appr', label: 'DSN Appr', minWidth: 120 },
-  { id: 'dsn_submitted', label: 'DSN Submitted At', minWidth: 150 },
+  { id: 'dsn_work', label: 'DSN Work', minWidth: 85 },
+  { id: 'dsn_appr', label: 'DSN Appr', minWidth: 85 },
+  { id: 'dsn_submitted', label: 'DSN Submitted At', minWidth: 120 },
 
-  { id: 'ldv_work', label: 'LDV Work', minWidth: 120 },
-  { id: 'ldv_appr', label: 'LDV Appr', minWidth: 120 },
-  { id: 'ldv_submitted', label: 'LDV Submitted At', minWidth: 150 },
+  { id: 'ldv_work', label: 'LDV Work', minWidth: 85 },
+  { id: 'ldv_appr', label: 'LDV Appr', minWidth: 85 },
+  { id: 'ldv_submitted', label: 'LDV Submitted At', minWidth: 120 },
 
-  { id: 'relation', label: 'Relation', minWidth: 110 },
+  { id: 'relation', label: 'Relation', minWidth: 80 },
 ];
 
 const generateMockData = (id: string, name: string): AssetRow => ({
@@ -250,18 +242,23 @@ const workflowStartCols = new Set<string>(WORKFLOW_GROUPS.map((g) => g.start));
 const workflowEndCols = new Set<string>(WORKFLOW_GROUPS.map((g) => g.end));
 const workflowCols = new Set<string>(
   WORKFLOW_GROUPS.flatMap((g) => {
-    const keys: string[] = [];
     const prefix = g.start.split('_')[0]; // mdl, rig, ...
-    keys.push(`${prefix}_work`, `${prefix}_appr`, `${prefix}_submitted`);
-    return keys;
+    return [`${prefix}_work`, `${prefix}_appr`, `${prefix}_submitted`];
   })
 );
 
-const getWorkflowBoxStyle = (colId: ColumnId): React.CSSProperties => {
+const getWorkflowBoxStyle = (
+  colId: ColumnId,
+  opts?: { top?: boolean; bottom?: boolean }
+): React.CSSProperties => {
   if (!workflowCols.has(colId)) return {};
   return {
     borderLeft: workflowStartCols.has(colId) ? `2px solid ${GROUP_BORDER}` : undefined,
     borderRight: workflowEndCols.has(colId) ? `2px solid ${GROUP_BORDER}` : undefined,
+
+    // subtle "box" feel (top/bottom lines) without making grid too heavy
+    borderTop: opts?.top ? `1px solid ${GROUP_BORDER_SOFT}` : undefined,
+    borderBottom: opts?.bottom ? `1px solid ${GROUP_BORDER_SOFT}` : undefined,
   };
 };
 
@@ -272,7 +269,6 @@ const AssetsRowTablePanel: React.FC = () => {
   const [search, setSearch] = React.useState('');
   const [barView, setBarView] = React.useState<'list' | 'group'>('group');
 
-  // Used only in group mode
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>({
     camera: true,
     character: true,
@@ -288,14 +284,15 @@ const AssetsRowTablePanel: React.FC = () => {
     const q = search.trim().toLowerCase();
     if (!q) return MOCK_GROUPS;
 
-    return MOCK_GROUPS.map((g) => ({
-      ...g,
-      assets: g.assets.filter((a) => a.name.toLowerCase().includes(q)),
-    })).filter((g) => g.assets.length > 0);
+    return MOCK_GROUPS
+      .map((g) => ({
+        ...g,
+        assets: g.assets.filter((a) => a.name.toLowerCase().includes(q)),
+      }))
+      .filter((g) => g.assets.length > 0);
   }, [search]);
 
   const flatRows = React.useMemo(() => {
-    // list mode should be flat (no group headers)
     return filteredGroups.flatMap((g) => g.assets);
   }, [filteredGroups]);
 
@@ -322,7 +319,6 @@ const AssetsRowTablePanel: React.FC = () => {
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search Assets..."
               variant="outlined"
-              size="small"
               InputProps={{
                 style: { height: 30, color: TEXT, fontSize: 12, backgroundColor: '#3a3a3a' },
               }}
@@ -346,9 +342,10 @@ const AssetsRowTablePanel: React.FC = () => {
                     key={c.id}
                     style={{
                       minWidth: c.minWidth,
-                      ...getWorkflowBoxStyle(c.id),
-                      // a little stronger divider after NAME like your screenshot
+                      ...getWorkflowBoxStyle(c.id, { top: true }),
                       borderRight: c.id === 'name' ? `2px solid ${GROUP_BORDER}` : undefined,
+                      paddingLeft: c.id === 'thumbnail' ? 14 : undefined,
+                      paddingRight: c.id === 'thumbnail' ? 14 : undefined,
                     }}
                   >
                     {c.label}
@@ -358,9 +355,10 @@ const AssetsRowTablePanel: React.FC = () => {
             </TableHead>
 
             <TableBody>
+              {/* LIST MODE (flat) */}
               {barView === 'list' && (
                 <>
-                  {flatRows.map((asset) => (
+                  {flatRows.map((asset, idx) => (
                     <TableRow key={asset.id} hover>
                       {HEADER_COLUMNS.map((col) => {
                         const v = (asset as any)[col.id] as string | undefined;
@@ -371,8 +369,12 @@ const AssetsRowTablePanel: React.FC = () => {
                           <DataCell
                             key={col.id}
                             style={{
-                              ...getWorkflowBoxStyle(col.id),
+                              ...getWorkflowBoxStyle(col.id, { bottom: idx === flatRows.length - 1 }),
                               borderRight: col.id === 'name' ? `2px solid ${GROUP_BORDER}` : undefined,
+
+                              // ✅ cleaner spacing between thumb col and name col
+                              paddingLeft: isThumb ? 14 : isName ? 12 : 10,
+                              paddingRight: isThumb ? 14 : 10,
                             }}
                           >
                             {isThumb ? (
@@ -394,6 +396,7 @@ const AssetsRowTablePanel: React.FC = () => {
                 </>
               )}
 
+              {/* GROUP MODE */}
               {barView === 'group' && (
                 <>
                   {filteredGroups.map((group) => {
@@ -406,9 +409,9 @@ const AssetsRowTablePanel: React.FC = () => {
                           {/* THUMB column */}
                           <DataCell
                             style={{
-                              padding: '6px 8px',
-                              background: PANEL,
-                              borderBottom: `1px solid rgba(255,255,255,0.10)`,
+                              padding: '6px 8px 6px 10px',
+                              background: BG,
+                              borderBottom: `2px solid rgba(255,255,255,0.10)`,
                             }}
                           >
                             <IconButton
@@ -428,71 +431,85 @@ const AssetsRowTablePanel: React.FC = () => {
                           <DataCell
                             style={{
                               background: PANEL,
-                              borderBottom: `1px solid rgba(255,255,255,0.10)`,
+                              borderBottom: `2px solid rgba(255,255,255,0.10)`,
                               borderRight: `2px solid ${GROUP_BORDER}`,
-                              paddingLeft: 6,
+                              paddingLeft: 12, // ✅ group title a bit left (no negative margin hacks)
                             }}
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ color: ACCENT, fontWeight: 800 }}>{group.label}</span>
-                              <span style={{ color: '#666', fontSize: 11 }}>(mock)</span>
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                              <span style={{ color: ACCENT, fontWeight: 800, letterSpacing: 0.3 }}>
+                                {group.label}
+                              </span>
+                              {/* <span style={{ marginLeft: 8, color: TEXT_DIM, fontSize: 11 }}>({group.assets.length})</span> */}
                             </div>
                           </DataCell>
 
-                          {/* Remaining columns: render as group spans to avoid extra inner vertical lines */}
+                          {/* Remaining columns: render as group spans (3 each) */}
                           {WORKFLOW_GROUPS.map((g) => (
                             <DataCell
                               key={g.id}
                               colSpan={3}
                               style={{
                                 background: PANEL,
-                                borderBottom: `1px solid rgba(255,255,255,0.10)`,
+                                borderBottom: `2px solid rgba(255,255,255,0.10)`,
                                 borderLeft: `2px solid ${GROUP_BORDER}`,
                                 borderRight: `2px solid ${GROUP_BORDER}`,
+                                borderTop: `1px solid ${GROUP_BORDER_SOFT}`, // slight box top
                               }}
                             />
                           ))}
+
                           <DataCell
                             style={{
                               background: PANEL,
-                              borderBottom: `1px solid rgba(255,255,255,0.10)`,
+                              borderBottom: `2px solid rgba(255,255,255,0.10)`,
                             }}
                           />
                         </TableRow>
 
                         {/* Group assets */}
                         {isOpen &&
-                          group.assets.map((asset) => (
-                            <TableRow key={asset.id} hover>
-                              {HEADER_COLUMNS.map((col) => {
-                                const v = (asset as any)[col.id] as string | undefined;
-                                const isThumb = col.id === 'thumbnail';
-                                const isName = col.id === 'name';
+                          group.assets.map((asset, aIdx) => {
+                            const isLastInThisGroup = aIdx === group.assets.length - 1;
 
-                                return (
-                                  <DataCell
-                                    key={col.id}
-                                    style={{
-                                      ...getWorkflowBoxStyle(col.id),
-                                      borderRight: col.id === 'name' ? `2px solid ${GROUP_BORDER}` : undefined,
-                                    }}
-                                  >
-                                    {isThumb ? (
-                                      <Thumb />
-                                    ) : isName ? (
-                                      <NameCellRow>
-                                        <span style={{ color: TEXT, fontWeight: 600 }}>{asset.name}</span>
-                                      </NameCellRow>
-                                    ) : v === '—' || v === undefined ? (
-                                      <span style={{ opacity: 0.3 }}>—</span>
-                                    ) : (
-                                      v
-                                    )}
-                                  </DataCell>
-                                );
-                              })}
-                            </TableRow>
-                          ))}
+                            return (
+                              <TableRow key={asset.id} hover>
+                                {HEADER_COLUMNS.map((col) => {
+                                  const v = (asset as any)[col.id] as string | undefined;
+                                  const isThumb = col.id === 'thumbnail';
+                                  const isName = col.id === 'name';
+
+                                  return (
+                                    <DataCell
+                                      key={col.id}
+                                      style={{
+                                        ...getWorkflowBoxStyle(col.id, {
+                                          bottom: isLastInThisGroup, // ✅ bottom line to finish the "box"
+                                        }),
+                                        borderRight: col.id === 'name' ? `2px solid ${GROUP_BORDER}` : undefined,
+
+                                        // ✅ consistent spacing between thumb & name columns
+                                        paddingLeft: isThumb ? 14 : isName ? 12 : 10,
+                                        paddingRight: isThumb ? 14 : 10,
+                                      }}
+                                    >
+                                      {isThumb ? (
+                                        <Thumb />
+                                      ) : isName ? (
+                                        <NameCellRow>
+                                          <span style={{ color: TEXT, fontWeight: 600 }}>{asset.name}</span>
+                                        </NameCellRow>
+                                      ) : v === '—' || v === undefined ? (
+                                        <span style={{ opacity: 0.3 }}>—</span>
+                                      ) : (
+                                        v
+                                      )}
+                                    </DataCell>
+                                  );
+                                })}
+                              </TableRow>
+                            );
+                          })}
                       </React.Fragment>
                     );
                   })}
