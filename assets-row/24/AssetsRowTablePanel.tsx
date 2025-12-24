@@ -3,8 +3,8 @@
     AssetsRowTablePanel.tsx
 
   Module Description:
-    Fixed compilation error by removing optional chaining and updated with 
-    colored vertical department borders and status-based text colors.
+    Synchronized group sidebar + table with colored department containers
+    and white node group headers. Fixes optional chaining syntax errors.
 ─────────────────────────────────────────────────────────────────────────── */
 
 import React from 'react';
@@ -35,7 +35,7 @@ import ExpandLessIcon from '@material-ui/icons/ExpandLess';
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
 
 // ---------------------------------------------------------------------------
-// Layout constants
+// Layout constants (MUST match between sidebar + table)
 // ---------------------------------------------------------------------------
 const GROUP_ROW_H = 32;
 const ASSET_ROW_H = 44;
@@ -61,7 +61,9 @@ const Root = styled(Container)(({ theme }) => ({
   padding: 0,
   backgroundColor: '#1e1e1e',
   minHeight: '100vh',
-  '& > *': { padding: theme.spacing(1) },
+  '& > *': {
+    padding: theme.spacing(1),
+  },
 }));
 
 const Toolbar = styled('div')(({ theme }) => ({
@@ -131,7 +133,16 @@ interface GroupedCellProps {
   statusColor?: string;
 }
 
-const GroupedDataCell = styled(TableCell)<GroupedCellProps>(({ borderColor, isFirstInDept, isLastInDept, statusColor }) => ({
+/**
+ * Custom Data Cell with vertical colored borders for department grouping.
+ * Props are destructured to avoid TS2339 errors in MUI v4.
+ */
+const GroupedDataCell = styled(TableCell)<GroupedCellProps>(({ 
+  borderColor, 
+  isFirstInDept, 
+  isLastInDept, 
+  statusColor 
+}) => ({
   fontSize: 12,
   borderBottom: '1px solid rgba(255,255,255,0.05)',
   padding: '0 10px',
@@ -139,12 +150,12 @@ const GroupedDataCell = styled(TableCell)<GroupedCellProps>(({ borderColor, isFi
   whiteSpace: 'nowrap',
   boxSizing: 'border-box',
   color: statusColor || '#b0b0b0',
+  // Create the "container" look with colored borders
   borderLeft: isFirstInDept && borderColor ? `1px solid ${borderColor}` : 'none',
   borderRight: isLastInDept && borderColor ? `1px solid ${borderColor}` : 'none',
   backgroundColor: isFirstInDept || isLastInDept ? 'rgba(255,255,255,0.01)' : 'transparent',
 }));
 
-// ✅ White Label for "Top Node" Group Headers in Table
 const GroupTitleLabel = styled('div')({
   backgroundColor: '#ffffff',
   color: '#000000',
@@ -192,8 +203,6 @@ const AssetsRowTablePanel: React.FC = () => {
 
   const headerColumns = React.useMemo(() => {
     const base = [
-      { id: 'thumbnail', label: 'Thumbnail', minWidth: 100 },
-      { id: 'name', label: 'Name', minWidth: 150 },
       { id: 'mdl_work', label: 'MDL Work', minWidth: 80 },
       { id: 'mdl_appr', label: 'MDL Appr', minWidth: 80 },
       { id: 'mdl_submitted', label: 'MDL Submitted At', minWidth: 110 },
@@ -211,9 +220,8 @@ const AssetsRowTablePanel: React.FC = () => {
       { id: 'ldv_submitted', label: 'LDV Submitted At', minWidth: 110 },
       { id: 'relation', label: 'Relation', minWidth: 90 },
     ];
-    if (barView !== 'group') return base;
-    return base.filter((c) => c.id !== 'thumbnail' && c.id !== 'name');
-  }, [barView]);
+    return base;
+  }, []);
 
   return (
     <Root maxWidth={false}>
@@ -242,12 +250,12 @@ const AssetsRowTablePanel: React.FC = () => {
                 <List dense disablePadding>
                   {MOCK_GROUPS.map((g) => (
                     <React.Fragment key={g.id}>
-                      <ListItem button onClick={() => setOpenGroups(p => {
-                        const next = {...p};
-                        next[g.id] = !p[g.id];
-                        return next;
-                      })} style={{ height: GROUP_ROW_H }}>
-                        <ListItemText primary={`${g.label} (${g.count})`} primaryTypographyProps={{ style: { fontSize: 12, color: '#fff', fontWeight: 600 } }} />
+                      <ListItem button onClick={() => {
+                        const next = {...openGroups};
+                        next[g.id] = !openGroups[g.id];
+                        setOpenGroups(next);
+                      }} style={{ height: GROUP_ROW_H }}>
+                        <ListItemText primary={g.label + " (" + g.count + ")"} primaryTypographyProps={{ style: { fontSize: 12, color: '#fff', fontWeight: 600 } }} />
                         {openGroups[g.id] ? <ExpandLessIcon style={{ color: '#666' }} /> : <ExpandMoreIcon style={{ color: '#666' }} />}
                       </ListItem>
                       <Collapse in={openGroups[g.id]}>
@@ -272,7 +280,7 @@ const AssetsRowTablePanel: React.FC = () => {
               <Table stickyHeader size="small">
                 <TableHead>
                   <TableRow>
-                    {headerColumns.map((c) => (
+                    {activeCols.map((c) => (
                       <HeaderCell key={c.id} style={{ minWidth: c.minWidth }}>{c.label}</HeaderCell>
                     ))}
                   </TableRow>
@@ -280,20 +288,22 @@ const AssetsRowTablePanel: React.FC = () => {
                 <TableBody>
                   {MOCK_GROUPS.map((group) => (
                     <React.Fragment key={group.id}>
-                      {/* ✅ FIX: Table Header Group Row */}
-                      <TableRow>
-                        <TableCell colSpan={headerColumns.length} style={{ borderBottom: 'none', paddingTop: 16, backgroundColor: '#1e1e1e' }}>
+                      <TableRow style={{ backgroundColor: '#1e1e1e' }}>
+                        <TableCell colSpan={activeCols.length} style={{ borderBottom: 'none', paddingTop: 16 }}>
                           <GroupTitleLabel>{group.label}</GroupTitleLabel>
                         </TableCell>
                       </TableRow>
                       
                       {(barView === 'list' || openGroups[group.id]) && group.assets.map((asset) => (
                         <TableRow key={asset.id} hover style={{ height: ASSET_ROW_H }}>
-                          {headerColumns.map((col) => {
+                          {activeCols.map((col) => {
                             const val = (asset as any)[col.id];
                             
-                            // ✅ FIX: Removed optional chaining to resolve compilation error
-                            const dept = DEPT_GROUPS.find(d => d.cols.indexOf(col.id) !== -1);
+                            // Standard syntax find to avoid optional chaining error
+                            const dept = DEPT_GROUPS.find(function(d) { 
+                              return d.cols.indexOf(col.id) !== -1; 
+                            });
+
                             const isFirst = dept && dept.cols[0] === col.id;
                             const isLast = dept && dept.cols[dept.cols.length - 1] === col.id;
 
@@ -305,7 +315,7 @@ const AssetsRowTablePanel: React.FC = () => {
                                 isLastInDept={!!isLast}
                                 statusColor={getStatusColor(val)}
                               >
-                                {val === '—' ? <span style={{ opacity: 0.3 }}>—</span> : val}
+                                {val || '—'}
                               </GroupedDataCell>
                             );
                           })}
@@ -323,22 +333,19 @@ const AssetsRowTablePanel: React.FC = () => {
   );
 };
 
-// ---------------------------------------------------------------------------
-// Mock Data
-// ---------------------------------------------------------------------------
+// --- Mock Data ---
 const generateMockData = (id: string, name: string) => ({
-  id, name, thumbnail: '—',
-  mdl_work: Math.random() > 0.5 ? 'In Progress' : 'Done', mdl_appr: 'Approved', mdl_submitted: '2023-11-20',
+  id: id, name: name,
+  mdl_work: 'Done', mdl_appr: 'Approved', mdl_submitted: '2023-11-20',
   rig_work: 'In Progress', rig_appr: '—', rig_submitted: '—',
   bld_work: 'Waiting', bld_appr: '—', bld_submitted: '—',
   dsn_work: 'Done', dsn_appr: 'Approved', dsn_submitted: '2023-10-15',
-  ldv_work: '—', ldv_appr: '—', ldv_submitted: '—',
   relation: 'Master',
 });
 
 const MOCK_GROUPS = [
-  { id: 'camera', label: 'camera', count: 3, assets: [generateMockData('camAim', 'camAim'), generateMockData('camHero', 'camHero'), generateMockData('camWide', 'camWide')] },
-  { id: 'character', label: 'character', count: 4, assets: [generateMockData('ando', 'ando'), generateMockData('baseFemale', 'baseFemale'), generateMockData('baseMale', 'baseMale'), generateMockData('chris', 'chris')] },
+  { id: 'camera', label: 'camera', count: 3, assets: [generateMockData('c1', 'camAim'), generateMockData('c2', 'camHero'), generateMockData('c3', 'camWide')] },
+  { id: 'character', label: 'character', count: 4, assets: [generateMockData('ch1', 'ando'), generateMockData('ch2', 'baseFemale'), generateMockData('ch3', 'baseMale'), generateMockData('ch4', 'chris')] },
 ];
 
 export default AssetsRowTablePanel;
