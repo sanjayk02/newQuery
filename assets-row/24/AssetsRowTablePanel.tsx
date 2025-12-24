@@ -6,7 +6,7 @@
     "Assets Row" page with:
       - Group sidebar (tree) + table scroll sync (group mode)
       - List mode (flat list, no group header rows)
-      - Single table header row (no top group header row)
+      - Single table header row (removed the top "MDL / RIG / ..." header row)
       - Column group borders (box look)
       - Better thumbnail/name spacing
 ─────────────────────────────────────────────────────────────────────────── */
@@ -269,15 +269,15 @@ const MOCK_GROUPS = [
 ];
 
 // ---------------------------------------------------------------------------
-// Column grouping (box borders)
+// Column grouping (box borders)  (NO top group header row rendered)
 // ---------------------------------------------------------------------------
 
 const WORKFLOW_GROUPS = [
-  { key: 'mdl', label: 'MDL', cols: ['mdl_work', 'mdl_appr', 'mdl_submitted'] },
-  { key: 'rig', label: 'RIG', cols: ['rig_work', 'rig_appr', 'rig_submitted'] },
-  { key: 'bld', label: 'BLD', cols: ['bld_work', 'bld_appr', 'bld_submitted'] },
-  { key: 'dsn', label: 'DSN', cols: ['dsn_work', 'dsn_appr', 'dsn_submitted'] },
-  { key: 'ldv', label: 'LDV', cols: ['ldv_work', 'ldv_appr', 'ldv_submitted'] },
+  { key: 'mdl', cols: ['mdl_work', 'mdl_appr', 'mdl_submitted'] },
+  { key: 'rig', cols: ['rig_work', 'rig_appr', 'rig_submitted'] },
+  { key: 'bld', cols: ['bld_work', 'bld_appr', 'bld_submitted'] },
+  { key: 'dsn', cols: ['dsn_work', 'dsn_appr', 'dsn_submitted'] },
+  { key: 'ldv', cols: ['ldv_work', 'ldv_appr', 'ldv_submitted'] },
 ] as const;
 
 const GROUP_START = new Set(WORKFLOW_GROUPS.map((g) => g.cols[0]));
@@ -458,7 +458,7 @@ const AssetsRowTablePanel: React.FC = () => {
             <TableScroller ref={tableScrollRef} onScroll={() => syncScroll('table')}>
               <Table stickyHeader size="small">
                 <TableHead>
-                  {/* SINGLE HEADER ROW (TOP GROUP HEADER REMOVED) */}
+                  {/* ONLY ONE HEADER ROW (no MDL/RIG/.. top row) */}
                   <TableRow>
                     {headerColumns.map((c) => {
                       const extra = borderForCol(c.id);
