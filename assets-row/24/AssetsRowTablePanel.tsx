@@ -117,6 +117,15 @@ const NameCellRow = styled('div')({
   gap: 10, // gap between thumbnail and name
 });
 
+const GroupNameRow = styled('div')({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  fontWeight: 800,
+  letterSpacing: 0.3,
+  color: ACCENT,
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types & Data
 
@@ -338,7 +347,7 @@ const AssetsRowTablePanel: React.FC = () => {
                     style={{
                       minWidth: c.minWidth,
                       ...getWorkflowBoxStyle(c.id),
-                      // stronger divider after NAME like your screenshot
+                      // a little stronger divider after NAME like your screenshot
                       borderRight: c.id === 'name' ? `2px solid ${GROUP_BORDER}` : undefined,
                     }}
                   >
@@ -421,24 +430,34 @@ const AssetsRowTablePanel: React.FC = () => {
                               background: PANEL,
                               borderBottom: `1px solid rgba(255,255,255,0.10)`,
                               borderRight: `2px solid ${GROUP_BORDER}`,
+                              paddingLeft: 6,
                             }}
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                               <span style={{ color: ACCENT, fontWeight: 800 }}>{group.label}</span>
                               <span style={{ color: '#666', fontSize: 11 }}>(mock)</span>
                             </div>
                           </DataCell>
 
-                          {/* Remaining columns are empty (keep box borders) */}
-                          {HEADER_COLUMNS.slice(2).map((c) => (
+                          {/* Remaining columns: render as group spans to avoid extra inner vertical lines */}
+                          {WORKFLOW_GROUPS.map((g) => (
                             <DataCell
-                              key={c.id}
+                              key={g.id}
+                              colSpan={3}
                               style={{
                                 background: PANEL,
-                                ...getWorkflowBoxStyle(c.id),
+                                borderBottom: `1px solid rgba(255,255,255,0.10)`,
+                                borderLeft: `2px solid ${GROUP_BORDER}`,
+                                borderRight: `2px solid ${GROUP_BORDER}`,
                               }}
                             />
                           ))}
+                          <DataCell
+                            style={{
+                              background: PANEL,
+                              borderBottom: `1px solid rgba(255,255,255,0.10)`,
+                            }}
+                          />
                         </TableRow>
 
                         {/* Group assets */}
