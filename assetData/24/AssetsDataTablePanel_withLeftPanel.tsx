@@ -17,11 +17,34 @@
   * - 07-11-2025 - SanjayK PSI - Column visibility toggling implementation.
   * - 20-11-2025 - SanjayK PSI - Fixed typo in filter property names handling.
   * - 24-11-2025 - SanjayK PSI - Added detailed doc comments for functions and types.
+
+  Functions:
+  * - resolveServerSort: Resolves column key to server-side sort and phase. 
+  * - persistHiddenColumnsLocal: Persists hidden columns to localStorage.
+  * - saveHiddenColumnsToPipelineSetting: Saves hidden columns to pipeline settings.
+  * - persistHiddenColumns: Persists hidden columns to both localStorage and pipeline settings.
+  * - CsvDownloadComponent: Component for downloading asset data as CSV.
+  * - AssetsDataTablePanel: Main panel component for asset data table management.
+  * - toggleColumn: Toggles visibility of a column by ID.
+  * - showAll: Shows all columns by clearing hidden columns.
+  * - handleSortChange: Handles sort order changes from UI.
+  * - handleSaveColumns: Saves hidden columns to pipeline settings.
+  * - filteredAssets: Computes filtered and sorted assets based on current state.
+  * - effectivePhase: Computes effective phase based on filters and selection.
+  * - filtersActive: Determines if any filters are currently active.
+  * - approvalArray: Extracts approval statuses from filter properties.
+  * - workArray: Extracts work statuses from filter properties.
+  * - visibleCount: Computes count of currently visible togglable columns.
+  * - COLUMN_META: Metadata describing columns for the asset data table.
+  * - FIXED_VISIBLE: Set of always-visible column IDs.
+  * - PIPE_KEY: Settings key for hidden columns in pipeline settings.
+  * - lsKeyForProject: Generates localStorage key for hidden columns per project.
+  * - initPageProps: Initial pagination properties.
+  * - initFilterProps: Initial filter properties.
   * 
   * ───────────────────────────────────────────────────────────────────────── */
 
 import React, {
-  FC,
   useCallback,
   useEffect,
   useRef,
@@ -40,6 +63,13 @@ import DialogContent from '@material-ui/core/DialogContent';
 import DialogContentText from '@material-ui/core/DialogContentText';
 import DialogTitle from '@material-ui/core/DialogTitle';
 import Button from '@material-ui/core/Button';
+
+import IconButton from '@material-ui/core/IconButton';
+import ViewModuleIcon from '@material-ui/icons/ViewModule';
+import ViewComfyIcon from '@material-ui/icons/ViewComfy';
+import ViewListIcon from '@material-ui/icons/ViewList';
+import FilterListIcon from '@material-ui/icons/FilterList';
+
 import { fetchGenerateAssetCsv } from './api';
 import {
   useFetchAssetsPivot,
@@ -48,22 +78,16 @@ import {
   useFetchPipelineSettingAssetComponents
 } from './hooks';
 import { FilterProps, PageProps, SortDir } from './types';
-import AssetsDataTable from './AssetsDataTable'
+import AssetsDataTable from './AssetsDataTable';
 import AssetTableFilter from './AssetDataTableFilter';
 import AssetsDataTableFooter from './AssetsDataTableFooter';
 import DownloadFab from './DownloadFab';
+
 import { useCurrentProject } from '../hooks';
 import { Project } from '../types';
 import { useCurrentStudio } from '../../studio/hooks';
 import { queryConfig } from '../../new-pipeline-setting/api';
 import { theme } from '../../theme';
-
-// Add IconButton import for icon buttons listView and gridView
-import IconButton from '@material-ui/core/IconButton';
-import ViewModuleIcon from '@material-ui/icons/ViewModule';
-import ViewComfyIcon  from '@material-ui/icons/ViewComfy';
-import ViewListIcon from '@material-ui/icons/ViewList';
-import FilterListIcon from '@material-ui/icons/FilterList';
 
 const StyledContainer = styled(Container)(({ theme }) => ({
   position: 'relative',
@@ -94,9 +118,9 @@ const StyledContentDiv = styled('div')(({ theme }) => ({
   flexDirection: 'row',
 }));
 
-const StyledTableDiv = styled('div')(({
+const StyledTableDiv = styled('div')({
   paddingBottom: 8,
-}));
+});
 
 /* ──────────────────────────────────────────────────────────────────────────
  * LEFT GROUP PANEL (step-1 UI only)
@@ -312,41 +336,25 @@ const lsKeyForProject = (projectKeyName?: string) => {
 };
 
 const AssetsDataTablePanel: React.FC<RouteComponentProps> = () => {
-  const initPageProps = {
-    page: 0,
-    rowsPerPage: 15,
-  };
-
-  const initFilterProps = {
-    assetNameKey: '',
-    applovalStatues: [],
-    workStatues: [],
-
-    selectPhasePriority: '',
-    selectApprovalStatus: '',
-    selectWorkStatus: '',
-    onPhasePriorityChange: undefined,
-    onApprovalStatusChange: undefined,
-    onWorkStatusChange: undefined,
-  };
-
-  const [pageProps, setPageProps]     = useState<PageProps>(initPageProps);
+  const [pageProps, setPageProps] = useState<PageProps>(initPageProps);
   const [filterProps, setFilterProps] = useState<FilterProps>(initFilterProps);
-  const { currentProject }            = useCurrentProject();
-  const { assets: rawAssets, total: rawTotal } = useFetchAssets(
+
+  const { currentProject } = useCurrentProject();
+  const { assets: rawAssets } = useFetchAssets(
     currentProject,
     pageProps.page,
     pageProps.rowsPerPage,
   );
-  const { phaseComponents }     = useFetchPipelineSettingAssetComponents(currentProject);
-  const { currentStudio }       = useCurrentStudio();
+
+  const { phaseComponents } = useFetchPipelineSettingAssetComponents(currentProject);
+  const { currentStudio } = useCurrentStudio();
   const [timeZone, setTimeZone] = useState<string | undefined>();
-  const { latestComponents }    = useFetchLatestAssetComponents(currentProject, rawAssets, phaseComponents);
+  const { latestComponents } = useFetchLatestAssetComponents(currentProject, rawAssets, phaseComponents);
 
   const [sortKey, setSortKey] = useState<string>('group_1');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
-  const [phasePriority, setPhasePriority] = useState<string>('none');
+  const [phasePriority] = useState<string>('none');
 
   const [uiSortKey, setUiSortKey] = useState<string>('group_1');
   const [uiSortDir, setUiSortDir] = useState<SortDir>('asc');
@@ -402,11 +410,11 @@ const AssetsDataTablePanel: React.FC<RouteComponentProps> = () => {
 
   const approvalArray =
     ((filterProps as any).approvalStatuses ||
-    filterProps.applovalStatues || []) as string[];
+      filterProps.applovalStatues || []) as string[];
 
   const workArray =
     ((filterProps as any).workStatuses ||
-    filterProps.workStatues || []) as string[];
+      filterProps.workStatues || []) as string[];
 
   const effectivePhase = useMemo(() => {
     const nameFilterActive = !!(filterProps.assetNameKey || '').trim();
@@ -448,10 +456,9 @@ const AssetsDataTablePanel: React.FC<RouteComponentProps> = () => {
   const filteredAssets = useMemo(() => {
     if (!assets) return [];
 
-    const nameFilter      = (filterProps.assetNameKey || '').trim().toLowerCase();
+    const nameFilter = (filterProps.assetNameKey || '').trim().toLowerCase();
     const approvalFilters = approvalArray.map((s) => s.toLowerCase());
-    const workFilters     = workArray.map((s) => s.toLowerCase());
-
+    const workFilters = workArray.map((s) => s.toLowerCase());
     const phases = ['mdl', 'rig', 'bld', 'dsn', 'ldv'] as const;
 
     const compareDates = (a: any, b: any, dir: SortDir) => {
@@ -569,7 +576,7 @@ const AssetsDataTablePanel: React.FC<RouteComponentProps> = () => {
     uiSortDir,
   ]);
 
-  const effectiveCount = filteredAssets.length;
+  const effectiveCount = filtersActive ? filteredAssets.length : total;
 
   const pagedAssets = useMemo(() => {
     const start = pageProps.page * pageProps.rowsPerPage;
@@ -966,12 +973,10 @@ const AssetsDataTablePanel: React.FC<RouteComponentProps> = () => {
               latestComponents={latestComponents}
               tableFooter={tableFooter}
               dateTimeFormat={dateTimeFormat}
-
               currentSortKey={uiSortKey}
               currentSortDir={uiSortDir}
               hiddenColumns={hiddenColumns}
               onSortChange={handleSortChange}
-
               assetNameKey={filterProps.assetNameKey}
               approvalStatuses={filterProps.applovalStatues}
               workStatuses={filterProps.workStatues}
