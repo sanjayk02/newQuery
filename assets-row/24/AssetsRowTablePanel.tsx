@@ -3,7 +3,8 @@
     AssetsRowTablePanel.tsx
 
   Module Description:
-    Updated with colored vertical department borders and status-based text colors.
+    Fixed compilation error by removing optional chaining and updated with 
+    colored vertical department borders and status-based text colors.
 ─────────────────────────────────────────────────────────────────────────── */
 
 import React from 'react';
@@ -41,7 +42,7 @@ const ASSET_ROW_H = 44;
 const LEFT_W = 260;
 
 // ---------------------------------------------------------------------------
-// Department Grouping Configuration (Colors matching the reference images)
+// Department Grouping Configuration
 // ---------------------------------------------------------------------------
 const DEPT_GROUPS = [
   { id: 'mdl', label: 'MDL', color: '#e53935', cols: ['mdl_work', 'mdl_appr', 'mdl_submitted'] },
@@ -123,7 +124,6 @@ const HeaderCell = styled(TableCell)({
   borderBottom: '1px solid rgba(255,255,255,0.12)',
 });
 
-// Component to handle the colored container borders
 interface GroupedCellProps {
   borderColor?: string;
   isFirstInDept?: boolean;
@@ -139,30 +139,21 @@ const GroupedDataCell = styled(TableCell)<GroupedCellProps>(({ borderColor, isFi
   whiteSpace: 'nowrap',
   boxSizing: 'border-box',
   color: statusColor || '#b0b0b0',
-  // Vertical colored borders for the group container
   borderLeft: isFirstInDept && borderColor ? `1px solid ${borderColor}` : 'none',
   borderRight: isLastInDept && borderColor ? `1px solid ${borderColor}` : 'none',
   backgroundColor: isFirstInDept || isLastInDept ? 'rgba(255,255,255,0.01)' : 'transparent',
 }));
 
-const GroupRowCell = styled(TableCell)({
-  padding: '0 10px',
-  height: GROUP_ROW_H,
-  lineHeight: `${GROUP_ROW_H}px`,
-  fontSize: 12,
-  fontWeight: 700,
-  textTransform: 'uppercase',
-  color: '#00b7ff',
-  backgroundColor: '#1e1e1e',
-  borderBottom: '1px solid rgba(255,255,255,0.05)',
-});
-
-const Thumb = styled('div')({
-  width: 32,
-  height: 24,
-  borderRadius: 2,
-  background: 'rgba(255,255,255,0.1)',
-  border: '1px solid rgba(255,255,255,0.2)',
+// ✅ White Label for "Top Node" Group Headers in Table
+const GroupTitleLabel = styled('div')({
+  backgroundColor: '#ffffff',
+  color: '#000000',
+  display: 'inline-block',
+  padding: '2px 14px',
+  borderRadius: '2px',
+  fontWeight: 800,
+  fontSize: 13,
+  textTransform: 'capitalize',
 });
 
 // ---------------------------------------------------------------------------
@@ -170,9 +161,9 @@ const Thumb = styled('div')({
 // ---------------------------------------------------------------------------
 
 const getStatusColor = (val: any) => {
-  if (val === 'Done' || val === 'Approved') return '#4caf50'; // Green
-  if (val === 'In Progress') return '#ff9800'; // Orange
-  if (val === 'Waiting') return '#2196f3'; // Blue
+  if (val === 'Done' || val === 'Approved') return '#4caf50';
+  if (val === 'In Progress') return '#ff9800';
+  if (val === 'Waiting') return '#2196f3';
   return undefined;
 };
 
@@ -251,14 +242,21 @@ const AssetsRowTablePanel: React.FC = () => {
                 <List dense disablePadding>
                   {MOCK_GROUPS.map((g) => (
                     <React.Fragment key={g.id}>
-                      <ListItem button onClick={() => setOpenGroups(p => ({ ...p, [g.id]: !p[g.id] }))} style={{ height: GROUP_ROW_H }}>
+                      <ListItem button onClick={() => setOpenGroups(p => {
+                        const next = {...p};
+                        next[g.id] = !p[g.id];
+                        return next;
+                      })} style={{ height: GROUP_ROW_H }}>
                         <ListItemText primary={`${g.label} (${g.count})`} primaryTypographyProps={{ style: { fontSize: 12, color: '#fff', fontWeight: 600 } }} />
                         {openGroups[g.id] ? <ExpandLessIcon style={{ color: '#666' }} /> : <ExpandMoreIcon style={{ color: '#666' }} />}
                       </ListItem>
                       <Collapse in={openGroups[g.id]}>
                         {g.assets.map((a) => (
                           <ListItem key={a.id} button style={{ paddingLeft: 24, height: ASSET_ROW_H }}>
-                            <Box display="flex" alignItems="center" gap={1.5}><Thumb /><Typography style={{ color: '#ddd', fontSize: 12 }}>{a.name}</Typography></Box>
+                            <Box display="flex" alignItems="center" gap={1.5}>
+                              <Box width={32} height={24} bgcolor="rgba(255,255,255,0.1)" borderRadius={1} />
+                              <Typography style={{ color: '#ddd', fontSize: 12 }}>{a.name}</Typography>
+                            </Box>
                           </ListItem>
                         ))}
                       </Collapse>
@@ -282,22 +280,29 @@ const AssetsRowTablePanel: React.FC = () => {
                 <TableBody>
                   {MOCK_GROUPS.map((group) => (
                     <React.Fragment key={group.id}>
-                      <TableRow><GroupRowCell colSpan={headerColumns.length}>{group.label}</GroupRowCell></TableRow>
+                      {/* ✅ FIX: Table Header Group Row */}
+                      <TableRow>
+                        <TableCell colSpan={headerColumns.length} style={{ borderBottom: 'none', paddingTop: 16, backgroundColor: '#1e1e1e' }}>
+                          <GroupTitleLabel>{group.label}</GroupTitleLabel>
+                        </TableCell>
+                      </TableRow>
+                      
                       {(barView === 'list' || openGroups[group.id]) && group.assets.map((asset) => (
                         <TableRow key={asset.id} hover style={{ height: ASSET_ROW_H }}>
                           {headerColumns.map((col) => {
                             const val = (asset as any)[col.id];
-                            // Logic to determine if cell is at start/end of a department group
-                            const dept = DEPT_GROUPS.find(d => d.cols.includes(col.id));
-                            const isFirst = dept?.cols[0] === col.id;
-                            const isLast = dept?.cols[dept.cols.length - 1] === col.id;
+                            
+                            // ✅ FIX: Removed optional chaining to resolve compilation error
+                            const dept = DEPT_GROUPS.find(d => d.cols.indexOf(col.id) !== -1);
+                            const isFirst = dept && dept.cols[0] === col.id;
+                            const isLast = dept && dept.cols[dept.cols.length - 1] === col.id;
 
                             return (
                               <GroupedDataCell 
                                 key={col.id} 
-                                borderColor={dept?.color} 
-                                isFirstInDept={isFirst} 
-                                isLastInDept={isLast}
+                                borderColor={dept ? dept.color : undefined} 
+                                isFirstInDept={!!isFirst} 
+                                isLastInDept={!!isLast}
                                 statusColor={getStatusColor(val)}
                               >
                                 {val === '—' ? <span style={{ opacity: 0.3 }}>—</span> : val}
@@ -319,7 +324,7 @@ const AssetsRowTablePanel: React.FC = () => {
 };
 
 // ---------------------------------------------------------------------------
-// Mock Data Generation
+// Mock Data
 // ---------------------------------------------------------------------------
 const generateMockData = (id: string, name: string) => ({
   id, name, thumbnail: '—',
@@ -334,8 +339,6 @@ const generateMockData = (id: string, name: string) => ({
 const MOCK_GROUPS = [
   { id: 'camera', label: 'camera', count: 3, assets: [generateMockData('camAim', 'camAim'), generateMockData('camHero', 'camHero'), generateMockData('camWide', 'camWide')] },
   { id: 'character', label: 'character', count: 4, assets: [generateMockData('ando', 'ando'), generateMockData('baseFemale', 'baseFemale'), generateMockData('baseMale', 'baseMale'), generateMockData('chris', 'chris')] },
-  { id: 'fx', label: 'fx', count: 1, assets: [generateMockData('fx_smoke', 'fx_smoke')] },
-  { id: 'other', label: 'other', count: 1, assets: [generateMockData('env_prop', 'env_prop')] },
 ];
 
 export default AssetsRowTablePanel;
