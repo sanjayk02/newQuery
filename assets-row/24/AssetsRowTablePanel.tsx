@@ -6,7 +6,7 @@
     "Assets Row" page with:
       - Group sidebar (tree) + table scroll sync (group mode)
       - List mode (flat list, no group header rows)
-      - 2-level table header with workflow group boxes (MDL/RIG/BLD/DSN/LDV)
+      - Single table header row (no top group header row)
       - Column group borders (box look)
       - Better thumbnail/name spacing
 ─────────────────────────────────────────────────────────────────────────── */
@@ -46,7 +46,6 @@ const ASSET_ROW_H = 44;
 const LEFT_W = 260;
 
 const BOX_BORDER = '2px solid rgba(255,255,255,0.25)';
-const BOX_BORDER_SOFT = '1px solid rgba(255,255,255,0.18)';
 const HEADER_BG = '#2d2d2d';
 const PANEL_BG = '#1e1e1e';
 
@@ -137,19 +136,6 @@ const HeaderCell = styled(TableCell)({
   borderBottom: '1px solid rgba(255,255,255,0.12)',
 });
 
-const GroupHeaderCell = styled(TableCell)({
-  fontWeight: 700,
-  textTransform: 'uppercase',
-  fontSize: 11,
-  letterSpacing: 0.7,
-  whiteSpace: 'nowrap',
-  padding: '6px 10px',
-  backgroundColor: `${HEADER_BG} !important`,
-  color: '#fff',
-  textAlign: 'center',
-  borderBottom: '1px solid rgba(255,255,255,0.12)',
-});
-
 const DataCell = styled(TableCell)({
   color: '#b0b0b0',
   fontSize: 12,
@@ -187,7 +173,7 @@ const Thumb = styled('div')({
 const RowItem = styled('div')({
   display: 'flex',
   alignItems: 'center',
-  gap: 18,
+  gap: 18, // gap between thumb and name
   height: 28,
 });
 
@@ -375,10 +361,8 @@ const AssetsRowTablePanel: React.FC = () => {
 
   const listRows = React.useMemo(() => {
     // list mode is a flat array => NO GROUP HEADER ROWS
-    return groupsFiltered.flatMap((g) => g.assets.map((a) => ({ ...a, __group: g.id })));
+    return groupsFiltered.flatMap((g) => g.assets);
   }, [groupsFiltered]);
-
-  const renderTopGroupHeader = barView === 'list';
 
   return (
     <Root maxWidth={false}>
@@ -437,7 +421,6 @@ const AssetsRowTablePanel: React.FC = () => {
                     const isOpen = !!openGroups[g.id];
                     return (
                       <React.Fragment key={g.id}>
-                        {/* Group header (height fixed) */}
                         <ListItem button onClick={() => toggleGroup(g.id)} style={{ height: GROUP_ROW_H }}>
                           <ListItemText
                             primary={`${g.label} (${g.count})`}
@@ -452,7 +435,6 @@ const AssetsRowTablePanel: React.FC = () => {
                           )}
                         </ListItem>
 
-                        {/* Asset rows (height fixed to match table) */}
                         <Collapse in={isOpen} timeout="auto" unmountOnExit>
                           {g.assets.map((a) => (
                             <ListItem key={a.id} button style={{ paddingLeft: 24, height: ASSET_ROW_H }}>
@@ -476,41 +458,14 @@ const AssetsRowTablePanel: React.FC = () => {
             <TableScroller ref={tableScrollRef} onScroll={() => syncScroll('table')}>
               <Table stickyHeader size="small">
                 <TableHead>
-                  {/* TOP GROUP BOX HEADER (MDL/RIG/BLD/DSN/LDV) */}
-                  <TableRow>
-                    {renderTopGroupHeader && (
-                      <>
-                        <GroupHeaderCell style={{ minWidth: 110 }} />
-                        <GroupHeaderCell style={{ minWidth: 170 }} />
-                      </>
-                    )}
-
-                    {WORKFLOW_GROUPS.map((g) => (
-                      <GroupHeaderCell
-                        key={g.key}
-                        colSpan={g.cols.length}
-                        style={{
-                          borderLeft: BOX_BORDER,
-                          borderRight: BOX_BORDER,
-                          borderTop: BOX_BORDER,
-                          borderBottom: BOX_BORDER_SOFT,
-                        }}
-                      >
-                        {g.label}
-                      </GroupHeaderCell>
-                    ))}
-
-                    <GroupHeaderCell style={{ borderTop: BOX_BORDER, borderBottom: BOX_BORDER_SOFT }}>
-                      Relation
-                    </GroupHeaderCell>
-                  </TableRow>
-
-                  {/* SECOND HEADER ROW (actual columns) */}
+                  {/* SINGLE HEADER ROW (TOP GROUP HEADER REMOVED) */}
                   <TableRow>
                     {headerColumns.map((c) => {
                       const extra = borderForCol(c.id);
                       const isThumb = c.id === 'thumbnail';
                       const isName = c.id === 'name';
+                      const isWorkflow = ALL_GROUP_COLS.has(c.id);
+                      const isRelation = c.id === 'relation';
 
                       return (
                         <HeaderCell
@@ -518,6 +473,8 @@ const AssetsRowTablePanel: React.FC = () => {
                           style={{
                             minWidth: c.minWidth,
                             ...(extra || {}),
+                            ...(isWorkflow ? { borderTop: BOX_BORDER } : null),
+                            ...(isRelation ? { borderTop: BOX_BORDER } : null),
                             ...(isThumb ? { paddingRight: 18 } : null),
                             ...(isName ? { paddingLeft: 18 } : null),
                           }}
@@ -547,7 +504,6 @@ const AssetsRowTablePanel: React.FC = () => {
                                 {headerColumns.map((col) => {
                                   const val = (asset as any)[col.id];
                                   const extra = borderForCol(col.id);
-
                                   const isThumb = col.id === 'thumbnail';
                                   const isName = col.id === 'name';
 
@@ -576,14 +532,13 @@ const AssetsRowTablePanel: React.FC = () => {
                       );
                     })}
 
-                  {/* LIST MODE (NO GROUP HEADER ROWS) */}
+                  {/* LIST MODE (flat, no group name rows) */}
                   {barView === 'list' &&
                     listRows.map((asset) => (
                       <TableRow key={asset.id} hover style={{ height: ASSET_ROW_H }}>
                         {headerColumns.map((col) => {
                           const val = (asset as any)[col.id];
                           const extra = borderForCol(col.id);
-
                           const isThumb = col.id === 'thumbnail';
                           const isName = col.id === 'name';
 
