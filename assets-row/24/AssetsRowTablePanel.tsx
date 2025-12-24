@@ -136,7 +136,7 @@ const DataCell = styled(TableCell)({
   lineHeight: `${ASSET_ROW_H}px`, // IMPORTANT: consistent vertical centering
   whiteSpace: 'nowrap',
   boxSizing: 'border-box',
-  paddingLeft: 25,
+  paddingLeft: 10,
 });
 
 // Column group ("box") separators (end of each workflow group)
@@ -305,7 +305,6 @@ const AssetsRowTablePanel: React.FC = () => {
       leftEl.scrollTop = tableEl.scrollTop;
     }
 
-    // release lock next frame
     requestAnimationFrame(() => {
       syncingRef.current = null;
     });
@@ -315,10 +314,14 @@ const AssetsRowTablePanel: React.FC = () => {
     setOpenGroups((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  // Filter columns based on view mode (your original rule)
+  // Columns:
+  // - list mode: show Thumbnail + Name inside the table (no sidebar)
+  // - group mode: hide Thumbnail + Name (because sidebar shows those)
   const headerColumns = React.useMemo(() => {
-    if (barView !== 'group') return HEADER_COLUMNS;
-    return HEADER_COLUMNS.filter((c) => c.id !== 'thumbnail' && c.id !== 'name');
+    if (barView === 'group') {
+      return HEADER_COLUMNS.filter((c) => c.id !== 'thumbnail' && c.id !== 'name');
+    }
+    return HEADER_COLUMNS;
   }, [barView]);
 
   // mock search filter (optional)
@@ -326,12 +329,10 @@ const AssetsRowTablePanel: React.FC = () => {
     const q = search.trim().toLowerCase();
     if (!q) return MOCK_GROUPS;
 
-    return MOCK_GROUPS
-      .map((g) => {
-        const assets = g.assets.filter((a) => a.name.toLowerCase().includes(q));
-        return { ...g, assets, count: assets.length };
-      })
-      .filter((g) => g.assets.length > 0);
+    return MOCK_GROUPS.map((g) => {
+      const assets = g.assets.filter((a) => a.name.toLowerCase().includes(q));
+      return { ...g, assets, count: assets.length };
+    }).filter((g) => g.assets.length > 0);
   }, [search]);
 
   return (
@@ -373,7 +374,7 @@ const AssetsRowTablePanel: React.FC = () => {
         </Toolbar>
 
         <ContentRow>
-          {/* LEFT PANEL */}
+          {/* LEFT PANEL (only group mode) */}
           {barView === 'group' && leftOpen && (
             <LeftPanel>
               <LeftPanelHeader>
@@ -391,7 +392,6 @@ const AssetsRowTablePanel: React.FC = () => {
                     const isOpen = !!openGroups[g.id];
                     return (
                       <React.Fragment key={g.id}>
-                        {/* Group header (height fixed) */}
                         <ListItem button onClick={() => toggleGroup(g.id)} style={{ height: GROUP_ROW_H }}>
                           <ListItemText
                             primary={`${g.label} (${g.count})`}
@@ -399,10 +399,13 @@ const AssetsRowTablePanel: React.FC = () => {
                               style: { fontSize: 12, color: '#fff', fontWeight: 600 },
                             }}
                           />
-                          {isOpen ? <ExpandLessIcon style={{ color: '#666' }} /> : <ExpandMoreIcon style={{ color: '#666' }} />}
+                          {isOpen ? (
+                            <ExpandLessIcon style={{ color: '#666' }} />
+                          ) : (
+                            <ExpandMoreIcon style={{ color: '#666' }} />
+                          )}
                         </ListItem>
 
-                        {/* Asset rows (height fixed to match table) */}
                         <Collapse in={isOpen} timeout="auto" unmountOnExit>
                           {g.assets.map((a) => (
                             <ListItem key={a.id} button style={{ paddingLeft: 24, height: ASSET_ROW_H }}>
@@ -425,6 +428,7 @@ const AssetsRowTablePanel: React.FC = () => {
           <TableShell>
             <TableScroller ref={tableScrollRef} onScroll={() => syncScroll('table')}>
               <Table stickyHeader size="small">
+                {/* ✅ Only ONE header row (no MDL/RIG/BLD top header) */}
                 <TableHead>
                   <TableRow>
                     {headerColumns.map((c) => (
@@ -441,10 +445,20 @@ const AssetsRowTablePanel: React.FC = () => {
 
                     return (
                       <React.Fragment key={group.id}>
-                        {/* GROUP HEADER ROW (only in group mode; list mode should NOT show group names) */}
-                        {barView === 'group' && (
+                        {/* ✅ LIST MODE: group category inside THUMB+NAME area */}
+                        {barView === 'list' && (
                           <TableRow>
-                            <GroupRowCell colSpan={headerColumns.length}>{group.label}</GroupRowCell>
+                            <GroupRowCell colSpan={2} style={{ ...getColStyle('name'), paddingLeft: 10 }}>
+                              {group.label.toUpperCase()}
+                            </GroupRowCell>
+
+                            {headerColumns
+                              .filter((c) => c.id !== 'thumbnail' && c.id !== 'name')
+                              .map((c) => (
+                                <GroupRowCell key={c.id} style={{ ...getColStyle(c.id), opacity: 0 }}>
+                                  &nbsp;
+                                </GroupRowCell>
+                              ))}
                           </TableRow>
                         )}
 
@@ -453,7 +467,31 @@ const AssetsRowTablePanel: React.FC = () => {
                           group.assets.map((asset) => (
                             <TableRow key={asset.id} hover style={{ height: ASSET_ROW_H }}>
                               {headerColumns.map((col) => {
-                                const val = asset[col.id as keyof typeof asset];
+                                if (barView === 'list' && col.id === 'thumbnail') {
+                                  return (
+                                    <DataCell
+                                      key={col.id}
+                                      style={{ ...getColStyle(col.id), paddingLeft: 10, paddingRight: 14 }}
+                                    >
+                                      <span style={{ display: 'inline-flex', alignItems: 'center', height: ASSET_ROW_H }}>
+                                        <Thumb />
+                                      </span>
+                                    </DataCell>
+                                  );
+                                }
+
+                                if (barView === 'list' && col.id === 'name') {
+                                  return (
+                                    <DataCell
+                                      key={col.id}
+                                      style={{ ...getColStyle(col.id), paddingLeft: 12, lineHeight: `${ASSET_ROW_H}px` }}
+                                    >
+                                      {(asset as any).name}
+                                    </DataCell>
+                                  );
+                                }
+
+                                const val = (asset as any)[col.id];
                                 return (
                                   <DataCell key={col.id} style={getColStyle(col.id)}>
                                     {val === '—' ? <span style={{ opacity: 0.3 }}>—</span> : val}
@@ -463,7 +501,6 @@ const AssetsRowTablePanel: React.FC = () => {
                             </TableRow>
                           ))}
 
-                        {/* When collapsed, keep alignment by not adding random spacer heights */}
                         {!isOpen && (
                           <TableRow style={{ height: 0 }}>
                             <TableCell style={{ padding: 0, border: 0 }} colSpan={headerColumns.length} />
