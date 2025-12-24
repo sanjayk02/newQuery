@@ -1,3 +1,14 @@
+/* ──────────────────────────────────────────────────────────────────────────
+  Module Name:
+    AssetsRowTablePanel.tsx
+
+  Description:
+    High-density asset management table featuring:
+    - Integrated Blue Category Rows (spanning full width)
+    - Box-bordered workflow groups (MDL, RIG, etc.)
+    - Synchronized Expand/Collapse logic
+─────────────────────────────────────────────────────────────────────────── */
+
 import React from 'react';
 import {
   Box,
@@ -25,7 +36,7 @@ import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
 const PANEL_BG = '#1e1e1e';
 const HEADER_BG = '#2d2d2d';
 const BORDER_COLOR = 'rgba(255,255,255,0.12)';
-const BLUE_ACCENT = '#00b7ff'; // The specific blue from your image
+const BLUE_ACCENT = '#00b7ff'; // Bright blue for categories
 const BOX_BORDER = '2px solid rgba(255,255,255,0.28)';
 
 // ---------------------------------------------------------------------------
@@ -60,9 +71,12 @@ const StyledHeaderCell = styled(TableCell)({
 });
 
 const GroupTitleRow = styled(TableRow)({
-  backgroundColor: '#1a1a1a', // Slightly darker than panel for the header row
+  backgroundColor: '#1a1a1a', 
   height: 32,
   cursor: 'pointer',
+  '&:hover': {
+    backgroundColor: '#252525',
+  },
 });
 
 const GroupTitleCell = styled(TableCell)({
@@ -102,15 +116,16 @@ export default function AssetsRowTablePanel() {
     setOpenGroups(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
+  // Define column groups for box borders
   const COLUMNS = [
     { id: 'thumb', label: 'THUMBE', width: 70 },
     { id: 'name', label: 'NAME', width: 180 },
-    { id: 'mdl_work', label: 'MDL WORK', width: 100, groupStart: true },
+    { id: 'mdl_work', label: 'MDL WORK', width: 100, isGroupStart: true },
     { id: 'mdl_appr', label: 'MDL APPR', width: 100 },
-    { id: 'mdl_sub', label: 'MDL SUBMITTED AT', width: 140, groupEnd: true },
-    { id: 'rig_work', label: 'RIG WORK', width: 100, groupStart: true },
+    { id: 'mdl_sub', label: 'MDL SUBMITTED AT', width: 150, isGroupEnd: true },
+    { id: 'rig_work', label: 'RIG WORK', width: 100, isGroupStart: true },
     { id: 'rig_appr', label: 'RIG APPR', width: 100 },
-    { id: 'rig_sub', label: 'RIG SUBMITTED AT', width: 140, groupEnd: true },
+    { id: 'rig_sub', label: 'RIG SUBMITTED AT', width: 150, isGroupEnd: true },
     { id: 'relation', label: 'RELATION', width: 100 },
   ];
 
@@ -119,22 +134,23 @@ export default function AssetsRowTablePanel() {
       id: 'camera',
       label: 'CAMERA',
       assets: [
-        { id: '1', name: 'camAim', mdl: 'Done', rig: 'In Progress' },
-        { id: '2', name: 'camHero', mdl: 'Done', rig: 'In Progress' },
+        { id: 'c1', name: 'camAim', mdl: 'In Progress', rig: 'Done' },
+        { id: 'c2', name: 'camHero', mdl: 'Approved', rig: 'In Progress' },
       ],
     },
     {
       id: 'character',
       label: 'CHARACTER',
       assets: [
-        { id: '3', name: 'ando', mdl: 'In Progress', rig: 'Waiting' },
+        { id: 'ch1', name: 'ando', mdl: 'Done', rig: 'Waiting' },
       ],
     },
   ];
 
-  const getBorderStyle = (col: any) => ({
-    borderLeft: col.groupStart ? BOX_BORDER : 'none',
-    borderRight: col.groupEnd ? BOX_BORDER : 'none',
+  // Helper to apply the "box" borders requested
+  const getBoxStyle = (col: any) => ({
+    borderLeft: col.isGroupStart ? BOX_BORDER : 'none',
+    borderRight: col.isGroupEnd ? BOX_BORDER : 'none',
   });
 
   return (
@@ -142,15 +158,18 @@ export default function AssetsRowTablePanel() {
       <Toolbar>
         <Box display="flex" alignItems="center">
           <IconButton size="small" style={{ color: '#fff' }}><ViewListIcon fontSize="small" /></IconButton>
-          <IconButton size="small" style={{ color: BLUE_ACCENT }}><ViewModuleIcon fontSize="small" /></IconButton>
-          <Typography variant="subtitle2" style={{ marginLeft: 8 }}>Assets Row Table</Typography>
+          <IconButton size="small" style={{ color: BLUE_ACCENT, marginLeft: 4 }}><ViewModuleIcon fontSize="small" /></IconButton>
+          <Typography variant="subtitle2" style={{ marginLeft: 12, fontWeight: 600 }}>Assets Row Table</Typography>
         </Box>
-        <TextField 
-          placeholder="Search Assets..." 
-          variant="outlined" 
-          size="small"
-          InputProps={{ style: { height: 28, color: '#fff', backgroundColor: '#333', fontSize: 12 }}}
-        />
+        <Box display="flex" alignItems="center">
+          <TextField 
+            placeholder="Search Assets..." 
+            variant="outlined" 
+            size="small"
+            InputProps={{ style: { height: 28, color: '#fff', backgroundColor: '#333', fontSize: 12, width: 220 }}}
+          />
+          <IconButton size="small" style={{ color: '#aaa', marginLeft: 8 }}><FilterListIcon fontSize="small" /></IconButton>
+        </Box>
       </Toolbar>
 
       <Box overflow="auto" height="calc(100vh - 48px)">
@@ -158,7 +177,7 @@ export default function AssetsRowTablePanel() {
           <TableHead>
             <TableRow>
               {COLUMNS.map(col => (
-                <StyledHeaderCell key={col.id} style={{ minWidth: col.width, ...getBorderStyle(col) }}>
+                <StyledHeaderCell key={col.id} style={{ minWidth: col.width, ...getBoxStyle(col) }}>
                   {col.label}
                 </StyledHeaderCell>
               ))}
@@ -167,27 +186,35 @@ export default function AssetsRowTablePanel() {
           <TableBody>
             {MOCK_DATA.map((group) => (
               <React.Fragment key={group.id}>
-                {/* THIS IS THE BLUE CATEGORY ROW FROM YOUR IMAGE */}
+                {/* BLUE CATEGORY DIVIDER ROW */}
                 <GroupTitleRow onClick={() => toggleGroup(group.id)}>
                   <GroupTitleCell colSpan={COLUMNS.length}>
                     <Box display="flex" alignItems="center">
-                      {openGroups[group.id] ? <ExpandLessIcon style={{fontSize: 16, color: '#666'}}/> : <ExpandMoreIcon style={{fontSize: 16, color: '#666'}}/>}
-                      <span style={{ marginLeft: 4 }}>{group.label}</span>
+                      {openGroups[group.id] ? 
+                        <ExpandLessIcon style={{ fontSize: 18, color: '#666', marginRight: 6 }} /> : 
+                        <ExpandMoreIcon style={{ fontSize: 18, color: '#666', marginRight: 6 }} />
+                      }
+                      {group.label}
                     </Box>
                   </GroupTitleCell>
                 </GroupTitleRow>
 
                 {/* ASSET DATA ROWS */}
                 {openGroups[group.id] && group.assets.map((asset) => (
-                  <TableRow key={asset.id}>
+                  <TableRow key={asset.id} hover>
                     <DataCell><Thumb /></DataCell>
                     <DataCell style={{ color: '#ddd' }}>{asset.name}</DataCell>
-                    <DataCell style={getBorderStyle(COLUMNS[2])}>{asset.mdl}</DataCell>
+                    
+                    {/* MDL GROUP */}
+                    <DataCell style={getBoxStyle(COLUMNS[2])}>{asset.mdl}</DataCell>
                     <DataCell>Approved</DataCell>
-                    <DataCell style={getBorderStyle(COLUMNS[4])}>2023-11-20</DataCell>
-                    <DataCell style={getBorderStyle(COLUMNS[5])}>{asset.rig}</DataCell>
+                    <DataCell style={getBoxStyle(COLUMNS[4])}>2023-11-20</DataCell>
+                    
+                    {/* RIG GROUP */}
+                    <DataCell style={getBoxStyle(COLUMNS[5])}>{asset.rig}</DataCell>
                     <DataCell>—</DataCell>
-                    <DataCell style={getBorderStyle(COLUMNS[7])}>—</DataCell>
+                    <DataCell style={getBoxStyle(COLUMNS[7])}>—</DataCell>
+                    
                     <DataCell>Master</DataCell>
                   </TableRow>
                 ))}
