@@ -1,0 +1,16 @@
+<TableRow>
+  <GroupHeaderCell colSpan={2}>
+    <div style={{ display: 'flex', alignItems: 'center' }}>
+      {/* your expand/collapse icon here if you have */}
+      <span style={{ marginLeft: -6 /* <-- moves CAMERA a bit left */ }}>
+        {group.label.toUpperCase()}
+      </span>
+      <span style={{ color: '#666', fontWeight: 500, marginLeft: 6 }}>(mock)</span>
+    </div>
+  </GroupHeaderCell>
+
+  {/* IMPORTANT: fill the rest columns so layout stays aligned */}
+  {headerColumns.slice(2).map((c) => (
+    <DataCell key={c.id} />
+  ))}
+</TableRow>
