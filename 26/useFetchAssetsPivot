@@ -1,0 +1,77 @@
+// hooks.ts
+
+type PivotGroup = {
+  top_group_node: string;
+  items: Asset[];
+};
+
+export function useFetchAssetsPivot(
+  project: Project | null | undefined,
+  page: number,
+  rowsPerPage: number,
+  sortKey: string,
+  sortDir: SortDir,
+  phase: string,
+  assetNameKey: string,
+  approvalStatuses: string[],
+  workStatuses: string[],
+  viewMode: 'list' | 'grouped',     // ✅ add
+): { assets: Asset[]; total: number; groups: PivotGroup[] } {
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [groups, setGroups] = useState<PivotGroup[]>([]);
+  const [total, setTotal] = useState(0);
+
+  useEffect(() => {
+    if (project == null) return;
+    if (sortDir === 'none') return;
+
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const res = await fetchAssetsPivot(
+          project.key_name,
+          page,
+          rowsPerPage,
+          sortKey,
+          sortDir,
+          phase,
+          assetNameKey,
+          approvalStatuses,
+          workStatuses,
+          viewMode,                 // ✅ pass view
+          controller.signal,
+        );
+
+        const list =
+          (res as any)?.assets ?? (res as any)?.data ?? [];
+        const count =
+          (res as any)?.total ?? 0;
+
+        const serverGroups: PivotGroup[] =
+          Array.isArray((res as any)?.groups) ? (res as any).groups : [];
+
+        setAssets(list);
+        setTotal(count);
+        setGroups(serverGroups);
+
+        console.log('[HOOK][pivot] view:', viewMode);
+        console.log('[HOOK][pivot] assets:', list.length);
+        console.log('[HOOK][pivot] groups:', serverGroups.length);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        if ((err as any)?.name === 'AbortError') return;
+        console.error(err);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [
+    project, page, rowsPerPage,
+    sortKey, sortDir, phase,
+    assetNameKey, approvalStatuses, workStatuses,
+    viewMode, // ✅ important dependency
+  ]);
+
+  return { assets, total, groups };
+}
