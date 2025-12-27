@@ -1,0 +1,49 @@
+import { AssetsGroupedPivotResponse } from './types';
+
+export const fetchAssetsPivotGrouped = async (
+  project: string,
+  page: number,
+  rowsPerPage: number,
+  phase: string,
+  assetNameKey: string,
+  approvalStatuses: string[],
+  workStatuses: string[],
+  signal?: AbortSignal | null,
+): Promise<AssetsGroupedPivotResponse> => {
+  const headers = getAuthHeader();
+  let url = `/api/projects/${project}/reviews/assets/pivot`;
+
+  const params = new URLSearchParams();
+  params.set('view', 'grouped');                 // IMPORTANT
+  params.set('per_page', String(rowsPerPage));
+  params.set('page', String(page + 1));
+  if (phase) params.set('phase', phase);
+
+  const trimmed = (typeof assetNameKey === 'string' ? assetNameKey : '').trim();
+  if (trimmed) {
+    params.set('name', trimmed);
+    params.set('name_mode', 'prefix');
+  }
+
+  if (workStatuses?.length) {
+    params.set('work_status', workStatuses.join(','));
+  }
+  if (approvalStatuses?.length) {
+    params.set('approval_status', approvalStatuses.join(','));
+  }
+
+  url += `?${params.toString()}`;
+
+  const res = await fetch(url, {
+    method: 'GET',
+    headers,
+    mode: 'cors',
+    signal: signal || undefined,
+  });
+
+  if (res.status === 401) throw new AuthorizationError();
+  if (!res.ok) throw new Error('Failed to fetch grouped pivoted assets.');
+
+  setNewToken(res);
+  return (await res.json()) as AssetsGroupedPivotResponse;
+};
