@@ -1,0 +1,43 @@
+export function useFetchAssetsPivotGrouped(
+  project: Project | null | undefined,
+  page: number,
+  rowsPerPage: number,
+  phase: string,
+  assetNameKey: string,
+  approvalStatuses: string[],
+  workStatuses: string[],
+) {
+  const [groups, setGroups] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+
+  useEffect(() => {
+    if (!project) return;
+
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await fetchAssetsPivotGrouped(
+          project.key_name,
+          page,
+          rowsPerPage,
+          phase,
+          assetNameKey,
+          approvalStatuses,
+          workStatuses,
+          controller.signal
+        );
+
+        setGroups(res.groups ?? []);
+        setTotal(res.total ?? 0);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        if ((err as any)?.name === 'AbortError') return;
+        console.error(err);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [project, page, rowsPerPage, phase, assetNameKey, approvalStatuses, workStatuses]);
+
+  return { groups, total };
+}
