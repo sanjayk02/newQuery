@@ -1,230 +1,87 @@
-import React, { useMemo, useState, useCallback } from 'react';
-import { Box, Typography, IconButton } from '@material-ui/core';
-import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
-import ChevronRightIcon from '@material-ui/icons/ChevronRight';
+import React, { useMemo } from 'react';
+import { Box, Typography } from '@material-ui/core';
 import { Asset } from './types';
 
-type PivotGroup = {
-  top_group_node: string;
-  items: Asset[];
-};
-
 type Props = {
-  /**
-   * Groups returned by the backend when view=grouped.
-   * Each group contains items for the *current page*.
-   */
-  groups?: PivotGroup[];
-
-  /**
-   * Fallback legacy path (if you ever pass a flat list).
-   * If `groups` is provided, this is ignored.
-   */
-  assets?: Asset[];
-
-  /**
-   * 0-based UI page index (MUI).
-   */
-  page?: number;
-
-  /**
-   * Pinned top nodes to show in a fixed order.
-   * Default: Camera / Character / Prop / Set.
-   */
-  pinnedTopGroups?: string[];
-
-  /**
-   * How pinned groups behave when they have 0 items for the current page:
-   * - 'firstPageOnly' (default): show pinned groups as empty only on page 0 (ShotGrid-ish)
-   * - 'always': always show pinned groups even if empty
-   * - 'never': never show empty pinned groups (only show if they have items)
-   */
-  pinnedEmptyVisibility?: 'firstPageOnly' | 'always' | 'never';
+  assets: Asset[];
 };
 
-const normalizeKey = (s: string) => (s || '').trim().toLowerCase();
-const titleCase = (s: string) => {
-  const t = (s || '').trim();
-  if (!t) return '';
-  return t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
-};
-
-const AssetsGroupedDataTable: React.FC<Props> = ({
-  groups,
-  assets,
-  page = 0,
-  pinnedTopGroups = ['camera', 'character', 'prop', 'set'],
-  pinnedEmptyVisibility = 'firstPageOnly',
-}) => {
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-
-  const toggle = useCallback((key: string) => {
-    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
-  }, []);
-
-  const displayGroups = useMemo(() => {
-    // Authoritative path: backend groups (already paginated)
-    if (groups && groups.length) {
-      const byKey = new Map<string, PivotGroup>();
-      groups.forEach((g) => {
-        const k = normalizeKey(g.top_group_node || 'other');
-        byKey.set(k || 'other', {
-          top_group_node: g.top_group_node || 'other',
-          items: g.items || [],
-        });
-      });
-
-      // Anything not in pinned list should appear after pinned, in alphabetical order
-      const pinnedKeys = pinnedTopGroups.map(normalizeKey).filter(Boolean);
-      const otherKeys = Array.from(byKey.keys()).filter((k) => !pinnedKeys.includes(k));
-      otherKeys.sort((a, b) => a.localeCompare(b));
-
-      const keysInOrder = [...pinnedKeys, ...otherKeys];
-
-      const shouldShowEmptyPinned = (k: string, itemsLen: number) => {
-        if (itemsLen > 0) return true;
-        const isPinned = pinnedKeys.includes(k);
-        if (!isPinned) return false;
-
-        if (pinnedEmptyVisibility === 'always') return true;
-        if (pinnedEmptyVisibility === 'never') return false;
-        // firstPageOnly
-        return page === 0;
-      };
-
-      return keysInOrder
-        .map((k) => {
-          const g = byKey.get(k);
-          const itemsLen = g?.items?.length ?? 0;
-
-          if (!g) {
-            // group not present in backend response for this page
-            if (shouldShowEmptyPinned(k, 0)) {
-              return {
-                key: k,
-                title: titleCase(k),
-                items: [] as Asset[],
-              };
-            }
-            return null;
-          }
-
-          if (!shouldShowEmptyPinned(k, itemsLen)) return null;
-
-          return {
-            key: k,
-            title: titleCase(g.top_group_node || k),
-            items: g.items || [],
-          };
-        })
-        .filter(Boolean) as Array<{ key: string; title: string; items: Asset[] }>;
-    }
-
-    // Fallback path: local grouping from flat assets (not ideal for server pagination)
+const AssetsGroupedDataTable: React.FC<Props> = ({ assets }) => {
+  const grouped = useMemo(() => {
+    // 1. Define the priority order for groups
+    const priorityOrder = ['CAMERA', 'CHARACTER', 'PROP', 'SET'];
+    
+    // 2. Initialize the map
     const map: Record<string, Asset[]> = {};
-    (assets || []).forEach((asset) => {
-      const k = normalizeKey(asset.top_group_node || 'other') || 'other';
-      if (!map[k]) map[k] = [];
-      map[k].push(asset);
+
+    // 3. Group the assets currently on this page
+    assets.forEach((asset) => {
+      let rawNode = (asset.top_group_node || '').trim().toUpperCase();
+      
+      // If the node isn't in our known priority list, categorize as 'OTHER' or 'UNASSIGNED'
+      if (!priorityOrder.includes(rawNode)) {
+        rawNode = 'UNASSIGNED';
+      }
+
+      if (!map[rawNode]) {
+        map[rawNode] = [];
+      }
+      map[rawNode].push(asset);
     });
 
-    const pinnedKeys = pinnedTopGroups.map(normalizeKey).filter(Boolean);
-    const keys = Array.from(new Set([...pinnedKeys, ...Object.keys(map)]));
-
-    const shouldShowEmptyPinned = (k: string, itemsLen: number) => {
-      if (itemsLen > 0) return true;
-      const isPinned = pinnedKeys.includes(k);
-      if (!isPinned) return false;
-      if (pinnedEmptyVisibility === 'always') return true;
-      if (pinnedEmptyVisibility === 'never') return false;
-      return page === 0;
-    };
-
-    const otherKeys = keys.filter((k) => !pinnedKeys.includes(k)).sort((a, b) => a.localeCompare(b));
-    const keysInOrder = [...pinnedKeys, ...otherKeys];
-
-    return keysInOrder
-      .map((k) => {
-        const items = map[k] || [];
-        if (!shouldShowEmptyPinned(k, items.length)) return null;
-        return {
-          key: k,
-          title: titleCase(k),
-          items,
-        };
-      })
-      .filter(Boolean) as Array<{ key: string; title: string; items: Asset[] }>;
-  }, [assets, groups, page, pinnedEmptyVisibility, pinnedTopGroups]);
+    // 4. Sort headers based on priorityOrder, placing UNASSIGNED at the end
+    return Object.entries(map).sort(([a], [b]) => {
+      const indexA = priorityOrder.indexOf(a);
+      const indexB = priorityOrder.indexOf(b);
+      
+      const sortA = indexA === -1 ? 999 : indexA;
+      const sortB = indexB === -1 ? 999 : indexB;
+      
+      return sortA - sortB;
+    });
+  }, [assets]);
 
   return (
-    <Box>
-      {displayGroups.map(({ key, title, items }) => {
-        const isCollapsed = !!collapsed[key];
-        return (
-          <Box key={key} mb={1.5}>
-            {/* Group Header */}
+    <Box width="100%">
+      {grouped.map(([groupName, groupAssets]) => (
+        <Box key={groupName} mb={1}>
+          {/* Group Header - Only renders if items exist for this page */}
+          <Box
+            px={1}
+            py={0.5}
+            style={{
+              background: 'rgba(255,255,255,0.08)',
+              borderBottom: '1px solid rgba(255,255,255,0.12)',
+              display: 'flex',
+              alignItems: 'center'
+            }}
+          >
+            <Typography
+              variant="subtitle2"
+              style={{ fontWeight: 700, fontSize: '0.75rem', letterSpacing: '0.05em' }}
+            >
+              ▾ {groupName} ({groupAssets.length})
+            </Typography>
+          </Box>
+
+          {/* Asset rows for this group on this page */}
+          {groupAssets.map((asset) => (
             <Box
-              px={1}
-              py={0.75}
-              display="flex"
-              alignItems="center"
-              justifyContent="space-between"
+              key={`${asset.group_1}-${asset.relation}`}
+              px={3}
+              py={0.5}
               style={{
-                background: 'rgba(255,255,255,0.06)',
-                borderBottom: '1px solid rgba(255,255,255,0.12)',
-                borderRadius: 6,
+                borderBottom: '1px solid rgba(255,255,255,0.04)',
+                cursor: 'pointer'
               }}
             >
-              <Box display="flex" alignItems="center">
-                <IconButton
-                  size="small"
-                  onClick={() => toggle(key)}
-                  style={{ marginRight: 6 }}
-                >
-                  {isCollapsed ? <ChevronRightIcon /> : <ExpandMoreIcon />}
-                </IconButton>
-
-                <Typography variant="subtitle2" style={{ fontWeight: 800, letterSpacing: 0.4 }}>
-                  {title.toUpperCase()} ({items.length})
-                </Typography>
-              </Box>
+              <Typography variant="body2" style={{ fontSize: '0.85rem' }}>
+                {asset.group_1}
+              </Typography>
             </Box>
-
-            {/* Items */}
-            {!isCollapsed && (
-              <Box
-                mt={0.5}
-                style={{
-                  border: '1px solid rgba(255,255,255,0.06)',
-                  borderTop: 'none',
-                  borderBottomLeftRadius: 6,
-                  borderBottomRightRadius: 6,
-                  overflow: 'hidden',
-                }}
-              >
-                {items.length === 0 ? (
-                  <Box px={2} py={1} style={{ opacity: 0.7 }}>
-                    <Typography variant="body2">No assets</Typography>
-                  </Box>
-                ) : (
-                  items.map((asset) => (
-                    <Box
-                      key={`${asset.group_1}-${asset.relation}-${asset.leaf_group_name || ''}`}
-                      px={2}
-                      py={0.75}
-                      style={{
-                        borderBottom: '1px solid rgba(255,255,255,0.04)',
-                      }}
-                    >
-                      <Typography variant="body2">{asset.group_1}</Typography>
-                    </Box>
-                  ))
-                )}
-              </Box>
-            )}
-          </Box>
-        );
-      })}
+          ))}
+        </Box>
+      ))}
     </Box>
   );
 };
