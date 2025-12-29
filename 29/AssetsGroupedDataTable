@@ -1,129 +1,175 @@
-import React, { useMemo, useState } from 'react';
-import { Box, Collapse, IconButton, Typography } from '@material-ui/core';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Box, IconButton, Typography } from '@material-ui/core';
 import KeyboardArrowDownIcon from '@material-ui/icons/KeyboardArrowDown';
+import KeyboardArrowRightIcon from '@material-ui/icons/KeyboardArrowRight';
+
 import { Asset } from './types';
 
 type Props = {
   assets: Asset[];
 };
 
-const AssetsGroupedDataTable: React.FC<Props> = ({ assets }) => {
-  // Always show these groups (in this order) in Grid view, even if empty.
-  const PINNED_GROUPS = useMemo(() => ['Camera', 'Character', 'Prop', 'Set'], []);
+type GroupRow = {
+  key: string;   // normalized key for state
+  label: string; // display label (CAMERA)
+  assets: Asset[];
+};
 
-  const grouped = useMemo(() => {
+// These groups should always be visible at the top (even if empty).
+const PINNED_GROUPS: Array<{ key: string; label: string }> = [
+  { key: 'camera', label: 'CAMERA' },
+  { key: 'character', label: 'CHARACTER' },
+  { key: 'prop', label: 'PROP' },
+  { key: 'set', label: 'SET' },
+];
+
+const UNASSIGNED_KEY = 'unassigned';
+
+function normalizeGroupKey(value: string | null | undefined): string {
+  const v = (value ?? '').trim().toLowerCase();
+  return v.length ? v : UNASSIGNED_KEY;
+}
+
+function toDisplayLabelFromKey(key: string): string {
+  if (key === UNASSIGNED_KEY) return 'UNASSIGNED';
+  return key.toUpperCase();
+}
+
+const AssetsGroupedDataTable: React.FC<Props> = ({ assets }) => {
+  const groups: GroupRow[] = useMemo(() => {
     const map: Record<string, Asset[]> = {};
 
-    const canonicalize = (raw?: string | null) => {
-      const v = (raw ?? '').trim();
-      if (!v) return 'Unassigned';
-
-      // Canonicalize common top nodes (case-insensitive).
-      const lower = v.toLowerCase();
-      const pinned = PINNED_GROUPS.find((g) => g.toLowerCase() === lower);
-      return pinned ?? v;
-    };
-
-    assets.forEach((asset) => {
-      const key = canonicalize(asset.top_group_node);
+    for (const asset of assets) {
+      const key = normalizeGroupKey(asset.top_group_node);
       if (!map[key]) map[key] = [];
       map[key].push(asset);
-    });
+    }
 
-    // Ensure pinned groups exist even when empty
-    PINNED_GROUPS.forEach((g) => {
-      if (!map[g]) map[g] = [];
-    });
+    // 1) Pinned groups first (always present)
+    const rows: GroupRow[] = PINNED_GROUPS.map(({ key, label }) => ({
+      key,
+      label,
+      assets: map[key] ?? [],
+    }));
 
-    // Order: pinned groups first, then the rest (alpha), keep Unassigned at the end.
-    const keys = Object.keys(map);
-    const pinnedLower = new Set(PINNED_GROUPS.map((g) => g.toLowerCase()));
-
-    const pinned = PINNED_GROUPS.filter((g) => map[g]);
-    const others = keys
-      .filter((k) => !pinnedLower.has(k.toLowerCase()) && k !== 'Unassigned')
+    // 2) Other groups (alphabetical), excluding pinned + unassigned
+    const pinnedSet = new Set(PINNED_GROUPS.map((g) => g.key));
+    const otherKeys = Object.keys(map)
+      .filter((k) => !pinnedSet.has(k) && k !== UNASSIGNED_KEY)
       .sort((a, b) => a.localeCompare(b));
 
-    const ordered = [...pinned, ...others];
-    if (map.Unassigned) ordered.push('Unassigned');
+    for (const key of otherKeys) {
+      rows.push({ key, label: toDisplayLabelFromKey(key), assets: map[key] ?? [] });
+    }
 
-    return ordered.map((k) => [k, map[k]] as const);
-  }, [assets, PINNED_GROUPS]);
+    // 3) Unassigned at the end (only if present)
+    if (map[UNASSIGNED_KEY] && map[UNASSIGNED_KEY].length > 0) {
+      rows.push({
+        key: UNASSIGNED_KEY,
+        label: toDisplayLabelFromKey(UNASSIGNED_KEY),
+        assets: map[UNASSIGNED_KEY],
+      });
+    }
 
-  // Collapsible group headers (ShotGrid-like).
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+    return rows;
+  }, [assets]);
 
-  const toggle = (groupName: string) => {
-    setCollapsed((prev) => ({
-      ...prev,
-      [groupName]: !prev[groupName],
-    }));
+  // Collapsible state per group.
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    // Ensure new groups get a default expanded state.
+    setExpanded((prev) => {
+      const next: Record<string, boolean> = { ...prev };
+      for (const g of groups) {
+        if (next[g.key] === undefined) {
+          // Default: pinned groups are expanded even when empty.
+          // Others: expanded only when they have items.
+          const isPinned = PINNED_GROUPS.some((pg) => pg.key === g.key);
+          next[g.key] = isPinned ? true : g.assets.length > 0;
+        }
+      }
+      return next;
+    });
+  }, [groups]);
+
+  const toggle = (key: string) => {
+    setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   return (
     <Box>
-      {grouped.map(([groupName, groupAssets]) => (
-        <Box key={groupName} mb={2}>
-          {/* Group Header */}
-          <Box
-            px={1}
-            py={0.5}
-            display="flex"
-            alignItems="center"
-            style={{
-              background: 'rgba(255,255,255,0.06)',
-              borderBottom: '1px solid rgba(255,255,255,0.12)',
-              userSelect: 'none',
-            }}
-            onClick={() => toggle(groupName)}
-            role="button"
-            aria-label={`Toggle ${groupName}`}
-          >
-            <IconButton
-              size="small"
-              disableRipple
-              onClick={(e) => {
-                e.stopPropagation();
-                toggle(groupName);
+      {groups.map((group) => {
+        const isExpanded = expanded[group.key] ?? false;
+
+        return (
+          <Box key={group.key} mb={2}>
+            {/* Group Header (ShotGrid-like collapse arrow) */}
+            <Box
+              px={1}
+              py={0.5}
+              onClick={() => toggle(group.key)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') toggle(group.key);
               }}
               style={{
-                padding: 2,
-                marginRight: 6,
-                transform: collapsed[groupName] ? 'rotate(-90deg)' : 'rotate(0deg)',
-                transition: 'transform 120ms ease',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                cursor: 'pointer',
+                userSelect: 'none',
+                background: 'rgba(255,255,255,0.06)',
+                borderBottom: '1px solid rgba(255,255,255,0.12)',
               }}
             >
-              <KeyboardArrowDownIcon fontSize="small" />
-            </IconButton>
+              <IconButton
+                size="small"
+                style={{ padding: 2, color: 'rgba(255,255,255,0.72)' }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggle(group.key);
+                }}
+              >
+                {isExpanded ? (
+                  <KeyboardArrowDownIcon fontSize="small" />
+                ) : (
+                  <KeyboardArrowRightIcon fontSize="small" />
+                )}
+              </IconButton>
 
-            <Typography variant="subtitle2" style={{ fontWeight: 700 }}>
-              {groupName.toUpperCase()} ({groupAssets.length})
-            </Typography>
-          </Box>
+              <Typography variant="subtitle2" style={{ fontWeight: 700 }}>
+                {group.label} ({group.assets.length})
+              </Typography>
+            </Box>
 
-          <Collapse in={!collapsed[groupName]} timeout="auto" unmountOnExit>
             {/* Asset rows */}
-            {groupAssets.length === 0 ? (
-              <Box px={2} py={0.75} style={{ opacity: 0.6 }}>
-                <Typography variant="body2">No assets</Typography>
+            {isExpanded && (
+              <Box>
+                {group.assets.length === 0 ? (
+                  <Box px={2} py={0.75} style={{ opacity: 0.65 }}>
+                    <Typography variant="body2">No assets</Typography>
+                  </Box>
+                ) : (
+                  group.assets.map((asset) => (
+                    <Box
+                      key={`${asset.group_1}-${asset.relation}`}
+                      px={2}
+                      py={0.75}
+                      style={{
+                        borderBottom: '1px solid rgba(255,255,255,0.04)',
+                      }}
+                    >
+                      <Typography variant="body2">{asset.group_1}</Typography>
+                    </Box>
+                  ))
+                )}
               </Box>
-            ) : (
-              groupAssets.map((asset) => (
-                <Box
-                  key={`${asset.root}-${asset.relation}`}
-                  px={2}
-                  py={0.75}
-                  style={{
-                    borderBottom: '1px solid rgba(255,255,255,0.04)',
-                  }}
-                >
-                  <Typography variant="body2">{asset.group_1}</Typography>
-                </Box>
-              ))
             )}
-          </Collapse>
-        </Box>
-      ))}
+          </Box>
+        );
+      })}
     </Box>
   );
 };
