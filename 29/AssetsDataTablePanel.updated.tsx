@@ -1230,6 +1230,17 @@ const AssetsDataTablePanel: React.FC<RouteComponentProps> = () => {
         <StyledPaper>
           <StyledContentDiv>
             {isGrouped ? (
+              <AssetsGroupedDataTable 
+                assets={pagedAssets} // fallback (older path)
+                groups={groups}      // grouped API response (authoritative for pagination)
+                page={pageProps.page}
+                // ShotGrid-ish: show empty Camera/Character/Prop/Set only on page 1
+                pinnedEmptyVisibility="firstPageOnly"
+                // Merge all non-pinned groups into a single "Other" section
+                mergeNonPinnedIntoOther
+                otherLabel="Other"
+              />
+            ) : (
               <AssetsDataTable
                 project={currentProject}
                 assets={pagedAssets} // Use pagedAssets for client-side pagination
@@ -1250,14 +1261,6 @@ const AssetsDataTablePanel: React.FC<RouteComponentProps> = () => {
                 workStatuses={filterProps.workStatues}
                 page={pageProps.page}
                 rowsPerPage={pageProps.rowsPerPage}
-              />
-            ) : (
-              <AssetsGroupedDataTable 
-                assets={pagedAssets}// fallback (older path)
-                groups={groups}      // grouped API response (authoritative for pagination)
-                page={pageProps.page}
-                // ShotGrid-ish: show empty Camera/Character/Prop/Set only on page 1
-                pinnedEmptyVisibility="firstPageOnly"
               />
             )}
 

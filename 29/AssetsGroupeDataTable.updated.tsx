@@ -39,6 +39,15 @@ type Props = {
    * - 'never': never show empty pinned groups (only show if they have items)
    */
   pinnedEmptyVisibility?: 'firstPageOnly' | 'always' | 'never';
+
+  /**
+   * If true (default), any top_group_node that is not in pinnedTopGroups
+   * will be merged under a single "Other" section (ShotGrid-ish).
+   */
+  mergeNonPinnedIntoOther?: boolean;
+
+  /** Label used when mergeNonPinnedIntoOther=true */
+  otherLabel?: string;
 };
 
 const DEFAULT_PINNED_TOP_GROUPS = ['camera', 'character', 'prop', 'set'];
@@ -52,6 +61,8 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
   page = 0,
   pinnedTopGroups = DEFAULT_PINNED_TOP_GROUPS,
   pinnedEmptyVisibility = 'firstPageOnly',
+  mergeNonPinnedIntoOther = true,
+  otherLabel = 'Other',
 }) => {
   // Collapsed state keyed by normalized top group node.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -76,7 +87,8 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
       clientMap[k].push(asset);
     });
 
-    const map = Object.keys(serverMap).length > 0 ? serverMap : clientMap;
+    let map: Record<string, Asset[]> =
+      Object.keys(serverMap).length > 0 ? serverMap : clientMap;
 
     const pinned = (pinnedTopGroups || []).map(normalizeKey).filter(Boolean);
 
@@ -87,6 +99,30 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
       // firstPageOnly
       return page === 0;
     };
+
+    // If requested, merge all non-pinned into a single "other" bucket.
+    if (mergeNonPinnedIntoOther) {
+      const otherKey = normalizeKey(otherLabel) || 'other';
+
+      // Keep "unassigned" separate (so it can behave like ShotGrid's Unassigned)
+      const unassignedKey = 'unassigned';
+
+      const otherItems: Asset[] = [];
+      Object.entries(map)
+        .filter(([k]) => !pinned.includes(k) && k !== unassignedKey)
+        .forEach(([, v]) => otherItems.push(...(v || [])));
+
+      // Replace map with only pinned + (optional) unassigned + other
+      const merged: Record<string, Asset[]> = {};
+      pinned.forEach((k) => {
+        merged[k] = map[k] || [];
+      });
+
+      if (map[unassignedKey]) merged[unassignedKey] = map[unassignedKey];
+
+      merged[otherKey] = otherItems;
+      map = merged;
+    }
 
     // Build entries in fixed order for pinned groups
     const entries: Array<[string, Asset[]]> = [];
@@ -102,7 +138,15 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
       .forEach(([k, v]) => entries.push([k, v]));
 
     return entries;
-  }, [assets, groups, page, pinnedTopGroups, pinnedEmptyVisibility]);
+  }, [
+    assets,
+    groups,
+    page,
+    pinnedTopGroups,
+    pinnedEmptyVisibility,
+    mergeNonPinnedIntoOther,
+    otherLabel,
+  ]);
 
   return (
     <Box>
