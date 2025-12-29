@@ -1,0 +1,45 @@
+<StyledContentDiv>
+  {isGrouped ? (
+    <AssetsGroupedDataTable
+      assets={pagedAssets}     // fallback path
+      groups={groups}          // grouped API response for current page
+      page={pageProps.page}
+
+      // ✅ ShotGrid-ish pinned groups
+      pinnedTopGroups={['camera', 'character', 'prop', 'set']}
+      alwaysShowPinned={true}
+
+      // ✅ merge extra top nodes (creature/fx/light/etc) into OTHER
+      mergeNonPinnedIntoOther={true}
+      otherLabel="Other"
+
+      // ✅ keep unassigned visible
+      alwaysShowUnassigned={true}
+
+      // Optional: if you add totals in API later
+      // groupTotals={pivotTotals}
+
+      // Sidebar sizing (tune this)
+      sidebarWidth={320}
+      maxHeight="calc(100vh - 280px)"
+    />
+  ) : (
+    <AssetsDataTable
+      project={currentProject}
+      assets={pagedAssets}
+      phaseComponents={phaseComponents}
+      latestComponents={latestComponents}
+      tableFooter={tableFooter}
+      dateTimeFormat={dateTimeFormat}
+      currentSortKey={uiSortKey}
+      currentSortDir={uiSortDir}
+      hiddenColumns={hiddenColumns}
+      onSortChange={handleSortChange}
+      assetNameKey={filterProps.assetNameKey}
+      approvalStatuses={filterProps.applovalStatues}
+      workStatuses={filterProps.workStatues}
+      page={pageProps.page}
+      rowsPerPage={pageProps.rowsPerPage}
+    />
+  )}
+</StyledContentDiv>
