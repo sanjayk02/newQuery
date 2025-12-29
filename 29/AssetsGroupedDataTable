@@ -1,0 +1,131 @@
+import React, { useMemo, useState } from 'react';
+import { Box, Collapse, IconButton, Typography } from '@material-ui/core';
+import KeyboardArrowDownIcon from '@material-ui/icons/KeyboardArrowDown';
+import { Asset } from './types';
+
+type Props = {
+  assets: Asset[];
+};
+
+const AssetsGroupedDataTable: React.FC<Props> = ({ assets }) => {
+  // Always show these groups (in this order) in Grid view, even if empty.
+  const PINNED_GROUPS = useMemo(() => ['Camera', 'Character', 'Prop', 'Set'], []);
+
+  const grouped = useMemo(() => {
+    const map: Record<string, Asset[]> = {};
+
+    const canonicalize = (raw?: string | null) => {
+      const v = (raw ?? '').trim();
+      if (!v) return 'Unassigned';
+
+      // Canonicalize common top nodes (case-insensitive).
+      const lower = v.toLowerCase();
+      const pinned = PINNED_GROUPS.find((g) => g.toLowerCase() === lower);
+      return pinned ?? v;
+    };
+
+    assets.forEach((asset) => {
+      const key = canonicalize(asset.top_group_node);
+      if (!map[key]) map[key] = [];
+      map[key].push(asset);
+    });
+
+    // Ensure pinned groups exist even when empty
+    PINNED_GROUPS.forEach((g) => {
+      if (!map[g]) map[g] = [];
+    });
+
+    // Order: pinned groups first, then the rest (alpha), keep Unassigned at the end.
+    const keys = Object.keys(map);
+    const pinnedLower = new Set(PINNED_GROUPS.map((g) => g.toLowerCase()));
+
+    const pinned = PINNED_GROUPS.filter((g) => map[g]);
+    const others = keys
+      .filter((k) => !pinnedLower.has(k.toLowerCase()) && k !== 'Unassigned')
+      .sort((a, b) => a.localeCompare(b));
+
+    const ordered = [...pinned, ...others];
+    if (map.Unassigned) ordered.push('Unassigned');
+
+    return ordered.map((k) => [k, map[k]] as const);
+  }, [assets, PINNED_GROUPS]);
+
+  // Collapsible group headers (ShotGrid-like).
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  const toggle = (groupName: string) => {
+    setCollapsed((prev) => ({
+      ...prev,
+      [groupName]: !prev[groupName],
+    }));
+  };
+
+  return (
+    <Box>
+      {grouped.map(([groupName, groupAssets]) => (
+        <Box key={groupName} mb={2}>
+          {/* Group Header */}
+          <Box
+            px={1}
+            py={0.5}
+            display="flex"
+            alignItems="center"
+            style={{
+              background: 'rgba(255,255,255,0.06)',
+              borderBottom: '1px solid rgba(255,255,255,0.12)',
+              userSelect: 'none',
+            }}
+            onClick={() => toggle(groupName)}
+            role="button"
+            aria-label={`Toggle ${groupName}`}
+          >
+            <IconButton
+              size="small"
+              disableRipple
+              onClick={(e) => {
+                e.stopPropagation();
+                toggle(groupName);
+              }}
+              style={{
+                padding: 2,
+                marginRight: 6,
+                transform: collapsed[groupName] ? 'rotate(-90deg)' : 'rotate(0deg)',
+                transition: 'transform 120ms ease',
+              }}
+            >
+              <KeyboardArrowDownIcon fontSize="small" />
+            </IconButton>
+
+            <Typography variant="subtitle2" style={{ fontWeight: 700 }}>
+              {groupName.toUpperCase()} ({groupAssets.length})
+            </Typography>
+          </Box>
+
+          <Collapse in={!collapsed[groupName]} timeout="auto" unmountOnExit>
+            {/* Asset rows */}
+            {groupAssets.length === 0 ? (
+              <Box px={2} py={0.75} style={{ opacity: 0.6 }}>
+                <Typography variant="body2">No assets</Typography>
+              </Box>
+            ) : (
+              groupAssets.map((asset) => (
+                <Box
+                  key={`${asset.root}-${asset.relation}`}
+                  px={2}
+                  py={0.75}
+                  style={{
+                    borderBottom: '1px solid rgba(255,255,255,0.04)',
+                  }}
+                >
+                  <Typography variant="body2">{asset.group_1}</Typography>
+                </Box>
+              ))
+            )}
+          </Collapse>
+        </Box>
+      ))}
+    </Box>
+  );
+};
+
+export default AssetsGroupedDataTable;
