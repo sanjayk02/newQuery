@@ -1,160 +1,215 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Box, IconButton, Typography } from '@material-ui/core';
-import KeyboardArrowDownIcon from '@material-ui/icons/KeyboardArrowDown';
-import KeyboardArrowRightIcon from '@material-ui/icons/KeyboardArrowRight';
-
+import React, { useMemo, useState, useCallback } from 'react';
+import { Box, Typography, IconButton } from '@material-ui/core';
+import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
+import ChevronRightIcon from '@material-ui/icons/ChevronRight';
 import { Asset } from './types';
 
+type PivotGroup = {
+  top_group_node: string;
+  items: Asset[];
+};
+
 type Props = {
-  assets: Asset[];
+  /**
+   * Groups returned by the backend when view=grouped.
+   * Each group contains items for the *current page*.
+   */
+  groups?: PivotGroup[];
+
+  /**
+   * Fallback legacy path (if you ever pass a flat list).
+   * If `groups` is provided, this is ignored.
+   */
+  assets?: Asset[];
+
+  /**
+   * 0-based UI page index (MUI).
+   */
+  page?: number;
+
+  /**
+   * Pinned top nodes to show in a fixed order.
+   * Default: Camera / Character / Prop / Set.
+   */
+  pinnedTopGroups?: string[];
+
+  /**
+   * How pinned groups behave when they have 0 items for the current page:
+   * - 'firstPageOnly' (default): show pinned groups as empty only on page 0 (ShotGrid-ish)
+   * - 'always': always show pinned groups even if empty
+   * - 'never': never show empty pinned groups (only show if they have items)
+   */
+  pinnedEmptyVisibility?: 'firstPageOnly' | 'always' | 'never';
 };
 
-type GroupRow = {
-  key: string;   // normalized key for state
-  label: string; // display label (CAMERA)
-  assets: Asset[];
+const normalizeKey = (s: string) => (s || '').trim().toLowerCase();
+const titleCase = (s: string) => {
+  const t = (s || '').trim();
+  if (!t) return '';
+  return t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
 };
 
-// These groups should always be visible at the top (even if empty).
-const PINNED_GROUPS: Array<{ key: string; label: string }> = [
-  { key: 'camera', label: 'CAMERA' },
-  { key: 'character', label: 'CHARACTER' },
-  { key: 'prop', label: 'PROP' },
-  { key: 'set', label: 'SET' },
-];
+const AssetsGroupedDataTable: React.FC<Props> = ({
+  groups,
+  assets,
+  page = 0,
+  pinnedTopGroups = ['camera', 'character', 'prop', 'set'],
+  pinnedEmptyVisibility = 'firstPageOnly',
+}) => {
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
-const UNASSIGNED_KEY = 'unassigned';
+  const toggle = useCallback((key: string) => {
+    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
 
-function normalizeGroupKey(value: string | null | undefined): string {
-  const v = (value ?? '').trim().toLowerCase();
-  return v.length ? v : UNASSIGNED_KEY;
-}
-
-function toDisplayLabelFromKey(key: string): string {
-  if (key === UNASSIGNED_KEY) return 'UNASSIGNED';
-  return key.toUpperCase();
-}
-
-const AssetsGroupedDataTable: React.FC<Props> = ({ assets }) => {
-  const groups: GroupRow[] = useMemo(() => {
-    const map: Record<string, Asset[]> = {};
-
-    for (const asset of assets) {
-      const key = normalizeGroupKey(asset.top_group_node);
-      if (!map[key]) map[key] = [];
-      map[key].push(asset);
-    }
-
-    // 1) Pinned groups first (always present)
-    const rows: GroupRow[] = PINNED_GROUPS.map(({ key, label }) => ({
-      key,
-      label,
-      assets: map[key] ?? [],
-    }));
-
-    // 2) Other groups (alphabetical), excluding pinned + unassigned
-    const pinnedSet = new Set(PINNED_GROUPS.map((g) => g.key));
-    const otherKeys = Object.keys(map)
-      .filter((k) => !pinnedSet.has(k) && k !== UNASSIGNED_KEY)
-      .sort((a, b) => a.localeCompare(b));
-
-    for (const key of otherKeys) {
-      rows.push({ key, label: toDisplayLabelFromKey(key), assets: map[key] ?? [] });
-    }
-
-    // 3) Unassigned at the end (only if present)
-    if (map[UNASSIGNED_KEY] && map[UNASSIGNED_KEY].length > 0) {
-      rows.push({
-        key: UNASSIGNED_KEY,
-        label: toDisplayLabelFromKey(UNASSIGNED_KEY),
-        assets: map[UNASSIGNED_KEY],
+  const displayGroups = useMemo(() => {
+    // Authoritative path: backend groups (already paginated)
+    if (groups && groups.length) {
+      const byKey = new Map<string, PivotGroup>();
+      groups.forEach((g) => {
+        const k = normalizeKey(g.top_group_node || 'other');
+        byKey.set(k || 'other', {
+          top_group_node: g.top_group_node || 'other',
+          items: g.items || [],
+        });
       });
+
+      // Anything not in pinned list should appear after pinned, in alphabetical order
+      const pinnedKeys = pinnedTopGroups.map(normalizeKey).filter(Boolean);
+      const otherKeys = Array.from(byKey.keys()).filter((k) => !pinnedKeys.includes(k));
+      otherKeys.sort((a, b) => a.localeCompare(b));
+
+      const keysInOrder = [...pinnedKeys, ...otherKeys];
+
+      const shouldShowEmptyPinned = (k: string, itemsLen: number) => {
+        if (itemsLen > 0) return true;
+        const isPinned = pinnedKeys.includes(k);
+        if (!isPinned) return false;
+
+        if (pinnedEmptyVisibility === 'always') return true;
+        if (pinnedEmptyVisibility === 'never') return false;
+        // firstPageOnly
+        return page === 0;
+      };
+
+      return keysInOrder
+        .map((k) => {
+          const g = byKey.get(k);
+          const itemsLen = g?.items?.length ?? 0;
+
+          if (!g) {
+            // group not present in backend response for this page
+            if (shouldShowEmptyPinned(k, 0)) {
+              return {
+                key: k,
+                title: titleCase(k),
+                items: [] as Asset[],
+              };
+            }
+            return null;
+          }
+
+          if (!shouldShowEmptyPinned(k, itemsLen)) return null;
+
+          return {
+            key: k,
+            title: titleCase(g.top_group_node || k),
+            items: g.items || [],
+          };
+        })
+        .filter(Boolean) as Array<{ key: string; title: string; items: Asset[] }>;
     }
 
-    return rows;
-  }, [assets]);
-
-  // Collapsible state per group.
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    // Ensure new groups get a default expanded state.
-    setExpanded((prev) => {
-      const next: Record<string, boolean> = { ...prev };
-      for (const g of groups) {
-        if (next[g.key] === undefined) {
-          // Default: pinned groups are expanded even when empty.
-          // Others: expanded only when they have items.
-          const isPinned = PINNED_GROUPS.some((pg) => pg.key === g.key);
-          next[g.key] = isPinned ? true : g.assets.length > 0;
-        }
-      }
-      return next;
+    // Fallback path: local grouping from flat assets (not ideal for server pagination)
+    const map: Record<string, Asset[]> = {};
+    (assets || []).forEach((asset) => {
+      const k = normalizeKey(asset.top_group_node || 'other') || 'other';
+      if (!map[k]) map[k] = [];
+      map[k].push(asset);
     });
-  }, [groups]);
 
-  const toggle = (key: string) => {
-    setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
+    const pinnedKeys = pinnedTopGroups.map(normalizeKey).filter(Boolean);
+    const keys = Array.from(new Set([...pinnedKeys, ...Object.keys(map)]));
+
+    const shouldShowEmptyPinned = (k: string, itemsLen: number) => {
+      if (itemsLen > 0) return true;
+      const isPinned = pinnedKeys.includes(k);
+      if (!isPinned) return false;
+      if (pinnedEmptyVisibility === 'always') return true;
+      if (pinnedEmptyVisibility === 'never') return false;
+      return page === 0;
+    };
+
+    const otherKeys = keys.filter((k) => !pinnedKeys.includes(k)).sort((a, b) => a.localeCompare(b));
+    const keysInOrder = [...pinnedKeys, ...otherKeys];
+
+    return keysInOrder
+      .map((k) => {
+        const items = map[k] || [];
+        if (!shouldShowEmptyPinned(k, items.length)) return null;
+        return {
+          key: k,
+          title: titleCase(k),
+          items,
+        };
+      })
+      .filter(Boolean) as Array<{ key: string; title: string; items: Asset[] }>;
+  }, [assets, groups, page, pinnedEmptyVisibility, pinnedTopGroups]);
 
   return (
     <Box>
-      {groups.map((group) => {
-        const isExpanded = expanded[group.key] ?? false;
-
+      {displayGroups.map(({ key, title, items }) => {
+        const isCollapsed = !!collapsed[key];
         return (
-          <Box key={group.key} mb={2}>
-            {/* Group Header (ShotGrid-like collapse arrow) */}
+          <Box key={key} mb={1.5}>
+            {/* Group Header */}
             <Box
               px={1}
-              py={0.5}
-              onClick={() => toggle(group.key)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') toggle(group.key);
-              }}
+              py={0.75}
+              display="flex"
+              alignItems="center"
+              justifyContent="space-between"
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                cursor: 'pointer',
-                userSelect: 'none',
                 background: 'rgba(255,255,255,0.06)',
                 borderBottom: '1px solid rgba(255,255,255,0.12)',
+                borderRadius: 6,
               }}
             >
-              <IconButton
-                size="small"
-                style={{ padding: 2, color: 'rgba(255,255,255,0.72)' }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggle(group.key);
-                }}
-              >
-                {isExpanded ? (
-                  <KeyboardArrowDownIcon fontSize="small" />
-                ) : (
-                  <KeyboardArrowRightIcon fontSize="small" />
-                )}
-              </IconButton>
+              <Box display="flex" alignItems="center">
+                <IconButton
+                  size="small"
+                  onClick={() => toggle(key)}
+                  style={{ marginRight: 6 }}
+                >
+                  {isCollapsed ? <ChevronRightIcon /> : <ExpandMoreIcon />}
+                </IconButton>
 
-              <Typography variant="subtitle2" style={{ fontWeight: 700 }}>
-                {group.label} ({group.assets.length})
-              </Typography>
+                <Typography variant="subtitle2" style={{ fontWeight: 800, letterSpacing: 0.4 }}>
+                  {title.toUpperCase()} ({items.length})
+                </Typography>
+              </Box>
             </Box>
 
-            {/* Asset rows */}
-            {isExpanded && (
-              <Box>
-                {group.assets.length === 0 ? (
-                  <Box px={2} py={0.75} style={{ opacity: 0.65 }}>
+            {/* Items */}
+            {!isCollapsed && (
+              <Box
+                mt={0.5}
+                style={{
+                  border: '1px solid rgba(255,255,255,0.06)',
+                  borderTop: 'none',
+                  borderBottomLeftRadius: 6,
+                  borderBottomRightRadius: 6,
+                  overflow: 'hidden',
+                }}
+              >
+                {items.length === 0 ? (
+                  <Box px={2} py={1} style={{ opacity: 0.7 }}>
                     <Typography variant="body2">No assets</Typography>
                   </Box>
                 ) : (
-                  group.assets.map((asset) => (
+                  items.map((asset) => (
                     <Box
-                      key={`${asset.group_1}-${asset.relation}`}
+                      key={`${asset.group_1}-${asset.relation}-${asset.leaf_group_name || ''}`}
                       px={2}
                       py={0.75}
                       style={{
