@@ -1,272 +1,149 @@
 import React, { useMemo, useState, useCallback } from 'react';
-import { Box, Typography, IconButton } from '@material-ui/core';
-import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
-import ChevronRightIcon from '@material-ui/icons/ChevronRight';
+import { Box, Typography } from '@material-ui/core';
 import { Asset } from './types';
 
-type PivotGroup = {
-  top_group_node: string;
-  items: Asset[];
-};
+type GroupKey = 'camera' | 'character' | 'prop' | 'set' | 'other' | 'unassigned';
 
 type Props = {
-  /**
-   * Groups returned by the backend when view=grouped.
-   * Each group contains items for the *current page*.
-   */
-  groups?: PivotGroup[];
-
-  /**
-   * Fallback if groups are not provided (older code path).
-   */
-  assets?: Asset[];
-
-  /**
-   * 0-based UI page index (MUI TablePagination).
-   */
-  page?: number;
-
-  /**
-   * Pinned top nodes to show in a fixed order.
-   * Default: camera / character / prop / set
-   */
-  pinnedTopGroups?: string[];
-
-  /**
-   * Always show pinned groups even if empty on the current page.
-   * Default: true
-   */
-  alwaysShowPinned?: boolean;
-
-  /**
-   * Merge all non-pinned groups into a single "Other" bucket.
-   * Default: true
-   */
-  mergeNonPinnedIntoOther?: boolean;
-
-  /**
-   * Label for the "Other" bucket.
-   * Default: "Other"
-   */
-  otherLabel?: string;
-
-  /**
-   * Show Unassigned group even if empty (current page).
-   * Default: true
-   */
-  alwaysShowUnassigned?: boolean;
-
-  /**
-   * Optional totals per top group node for ShotGrid-like headers.
-   * If provided, header count uses totals instead of current-page length.
-   *
-   * Example:
-   * { camera: 2, character: 18, prop: 5, set: 0, other: 8, unassigned: 5 }
-   */
-  groupTotals?: Record<string, number>;
-
-  /**
-   * UI sizing (ShotGrid-like left tree)
-   */
-  sidebarWidth?: number; // default 280
-  maxHeight?: number | string; // default "calc(100vh - 260px)" (override from parent if needed)
+  /** Items for the CURRENT PAGE (15 rows etc.) */
+  assets: Asset[];
+  /** Total counts for ALL rows (entire result set, not per-page). */
+  totalCounts?: Partial<Record<GroupKey, number>>;
 };
 
-const DEFAULT_PINNED = ['camera', 'character', 'prop', 'set'];
+const PINNED_ORDER: GroupKey[] = ['camera', 'character', 'prop', 'set', 'other', 'unassigned'];
 
-const normalizeKey = (v: string) => (v || '').trim().toLowerCase();
-const displayKey = (v: string) => (v || '').trim().toUpperCase();
+const labelFor = (k: GroupKey) => {
+  switch (k) {
+    case 'camera': return 'CAMERA';
+    case 'character': return 'CHARACTER';
+    case 'prop': return 'PROP';
+    case 'set': return 'SET';
+    case 'other': return 'OTHER';
+    case 'unassigned': return 'UNASSIGNED';
+    default: return k.toUpperCase();
+  }
+};
 
-const AssetsGroupedDataTable: React.FC<Props> = ({
-  assets = [],
-  groups = [],
-  page = 0,
-  pinnedTopGroups = DEFAULT_PINNED,
-  alwaysShowPinned = true,
-  mergeNonPinnedIntoOther = true,
-  otherLabel = 'Other',
-  alwaysShowUnassigned = true,
-  groupTotals,
-  sidebarWidth = 280,
-  maxHeight = 'calc(100vh - 260px)',
-}) => {
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+const normalizeTopNode = (raw: string | null | undefined): GroupKey => {
+  const v = (raw || '').trim().toLowerCase();
+  if (!v) return 'unassigned';
+  if (v === 'camera') return 'camera';
+  if (v === 'character') return 'character';
+  if (v === 'prop') return 'prop';
+  if (v === 'set') return 'set';
+  return 'other';
+};
 
-  const toggle = useCallback((key: string) => {
-    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
+const AssetsGroupedDataTable: React.FC<Props> = ({ assets, totalCounts }) => {
+  // Group CURRENT-PAGE items.
+  const pageGroups = useMemo(() => {
+    const map: Record<GroupKey, Asset[]> = {
+      camera: [],
+      character: [],
+      prop: [],
+      set: [],
+      other: [],
+      unassigned: [],
+    };
+
+    for (const a of assets || []) {
+      map[normalizeTopNode(a.top_group_node)].push(a);
+    }
+    return map;
+  }, [assets]);
+
+  // Collapsed/expanded state (ShotGrid-like).
+  const [collapsed, setCollapsed] = useState<Record<GroupKey, boolean>>({
+    camera: false,
+    character: false,
+    prop: false,
+    set: false,
+    other: false,
+    unassigned: false,
+  });
+
+  const toggle = useCallback((k: GroupKey) => {
+    setCollapsed((prev) => ({ ...prev, [k]: !prev[k] }));
   }, []);
-
-  const groupedEntries = useMemo(() => {
-    // Prefer server groups (authoritative for pagination)
-    const serverMap: Record<string, Asset[]> = {};
-    (groups || []).forEach((g) => {
-      const k = normalizeKey(g.top_group_node || 'unassigned') || 'unassigned';
-      serverMap[k] = Array.isArray(g.items) ? g.items : [];
-    });
-
-    // Fallback: group flat assets list
-    const clientMap: Record<string, Asset[]> = {};
-    (assets || []).forEach((a) => {
-      const k = normalizeKey(a.top_group_node || 'unassigned') || 'unassigned';
-      if (!clientMap[k]) clientMap[k] = [];
-      clientMap[k].push(a);
-    });
-
-    let map: Record<string, Asset[]> =
-      Object.keys(serverMap).length > 0 ? serverMap : clientMap;
-
-    const pinned = (pinnedTopGroups || []).map(normalizeKey).filter(Boolean);
-    const unassignedKey = 'unassigned';
-    const otherKey = normalizeKey(otherLabel) || 'other';
-
-    if (mergeNonPinnedIntoOther) {
-      const otherItems: Asset[] = [];
-
-      Object.entries(map)
-        .filter(([k]) => !pinned.includes(k) && k !== unassignedKey)
-        .forEach(([, v]) => otherItems.push(...(v || [])));
-
-      const merged: Record<string, Asset[]> = {};
-      pinned.forEach((k) => {
-        merged[k] = map[k] || [];
-      });
-
-      // keep unassigned separate
-      merged[unassignedKey] = map[unassignedKey] || [];
-      merged[otherKey] = otherItems;
-
-      map = merged;
-    }
-
-    // Build list in fixed order:
-    const entries: Array<[string, Asset[]]> = [];
-
-    // pinned groups
-    pinned.forEach((k) => {
-      const items = map[k] || [];
-      if (alwaysShowPinned || items.length > 0) entries.push([k, items]);
-    });
-
-    // other + unassigned (and any remaining groups if mergeNonPinnedIntoOther=false)
-    const remainingKeys = Object.keys(map).filter((k) => !pinned.includes(k));
-
-    // Put "other" before "unassigned" (ShotGrid-ish), then alphabetical
-    remainingKeys
-      .sort((a, b) => {
-        if (a === otherKey) return -1;
-        if (b === otherKey) return 1;
-        if (a === unassignedKey) return 1;
-        if (b === unassignedKey) return -1;
-        return a.localeCompare(b);
-      })
-      .forEach((k) => {
-        if (k === unassignedKey && !alwaysShowUnassigned && (map[k] || []).length === 0) return;
-        entries.push([k, map[k] || []]);
-      });
-
-    return entries;
-  }, [
-    assets,
-    groups,
-    pinnedTopGroups,
-    alwaysShowPinned,
-    mergeNonPinnedIntoOther,
-    otherLabel,
-    alwaysShowUnassigned,
-  ]);
-
-  const getHeaderCount = (key: string, itemsLen: number) => {
-    const nKey = normalizeKey(key);
-    if (groupTotals && Object.prototype.hasOwnProperty.call(groupTotals, nKey)) {
-      return groupTotals[nKey] ?? itemsLen;
-    }
-    return itemsLen; // fallback: current page count
-  };
 
   return (
     <Box
       style={{
-        width: sidebarWidth,
-        minWidth: sidebarWidth,
-        maxWidth: sidebarWidth,
-        borderRight: '1px solid rgba(255,255,255,0.08)',
-        overflow: 'hidden',
         display: 'flex',
-        flexDirection: 'column',
+        flexDirection: 'row',
+        width: '100%',
+        minHeight: 520,
       }}
     >
-      <Box style={{ overflowY: 'auto', maxHeight }}>
-        {groupedEntries.map(([groupName, groupAssets]) => {
-          const key = normalizeKey(groupName || 'unassigned') || 'unassigned';
-          const isCollapsed = !!collapsed[key];
-          const headerCount = getHeaderCount(key, (groupAssets || []).length);
+      {/* LEFT: ShotGrid-like group sidebar */}
+      <Box
+        style={{
+          width: 300,
+          minWidth: 300,
+          maxWidth: 300,
+          borderRight: '1px solid rgba(255,255,255,0.10)',
+          background: 'rgba(0,0,0,0.10)',
+        }}
+      >
+        {PINNED_ORDER.map((k) => {
+          const itemsOnPage = pageGroups[k] || [];
+          const totalForGroup = (totalCounts && typeof totalCounts[k] === 'number')
+            ? (totalCounts[k] as number)
+            : itemsOnPage.length;
+
+          const isCollapsed = collapsed[k];
 
           return (
-            <Box key={key} style={{ marginBottom: 6 }}>
+            <Box key={k} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
               {/* Header */}
               <Box
+                onClick={() => toggle(k)}
                 px={1}
-                py={0.25}
-                display="flex"
-                alignItems="center"
+                py={0.75}
                 style={{
-                  height: 28,
-                  background: 'rgba(255,255,255,0.06)',
-                  borderBottom: '1px solid rgba(255,255,255,0.10)',
                   cursor: 'pointer',
                   userSelect: 'none',
+                  background: 'rgba(255,255,255,0.05)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
                 }}
-                onClick={() => toggle(key)}
-                role="button"
-                aria-label={`Toggle ${groupName}`}
               >
-                <IconButton
-                  size="small"
-                  style={{ padding: 2, marginRight: 6 }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggle(key);
+                <Box
+                  style={{
+                    width: 14,
+                    display: 'flex',
+                    justifyContent: 'center',
+                    fontSize: 14,
+                    opacity: 0.9,
                   }}
                 >
-                  {isCollapsed ? (
-                    <ChevronRightIcon fontSize="small" />
-                  ) : (
-                    <ExpandMoreIcon fontSize="small" />
-                  )}
-                </IconButton>
+                  {isCollapsed ? '▸' : '▾'}
+                </Box>
 
-                <Typography
-                  variant="subtitle2"
-                  style={{ fontWeight: 700, fontSize: 12 }}
-                >
-                  {displayKey(groupName)} ({headerCount})
+                <Typography variant="subtitle2" style={{ fontWeight: 700, fontSize: 12 }}>
+                  {labelFor(k)} ({totalForGroup})
                 </Typography>
               </Box>
 
-              {/* Rows */}
+              {/* Items */}
               {!isCollapsed && (
                 <Box>
-                  {(groupAssets || []).length === 0 ? (
-                    <Box
-                      px={2}
-                      py={0.75}
-                      style={{
-                        opacity: 0.7,
-                        borderBottom: '1px solid rgba(255,255,255,0.04)',
-                      }}
-                    >
+                  {itemsOnPage.length === 0 ? (
+                    <Box px={2} py={0.75} style={{ opacity: 0.65 }}>
                       <Typography variant="body2" style={{ fontSize: 12 }}>
                         No assets
                       </Typography>
                     </Box>
                   ) : (
-                    groupAssets.map((asset) => (
+                    itemsOnPage.map((asset) => (
                       <Box
                         key={`${asset.group_1}-${asset.relation}`}
                         px={2}
-                        py={0.75}
+                        py={0.7}
                         style={{
-                          borderBottom: '1px solid rgba(255,255,255,0.04)',
+                          borderTop: '1px solid rgba(255,255,255,0.04)',
                         }}
                       >
                         <Typography variant="body2" style={{ fontSize: 12 }}>
@@ -281,6 +158,9 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
           );
         })}
       </Box>
+
+      {/* RIGHT: keep empty for now (ShotGrid usually shows grid/table here) */}
+      <Box style={{ flex: 1 }} />
     </Box>
   );
 };
