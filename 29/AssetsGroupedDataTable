@@ -1,166 +1,203 @@
 import React, { useMemo, useState, useCallback } from 'react';
-import { Box, Typography } from '@material-ui/core';
+import { Box, Typography, IconButton } from '@material-ui/core';
+import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
+import ChevronRightIcon from '@material-ui/icons/ChevronRight';
 import { Asset } from './types';
 
-type GroupKey = 'camera' | 'character' | 'prop' | 'set' | 'other' | 'unassigned';
+type PivotGroup = {
+  top_group_node: string;
+  items: Asset[];
+};
 
 type Props = {
-  /** Items for the CURRENT PAGE (15 rows etc.) */
-  assets: Asset[];
-  /** Total counts for ALL rows (entire result set, not per-page). */
-  totalCounts?: Partial<Record<GroupKey, number>>;
+  /**
+   * Flat assets list (fallback path). Usually you will pass `pagedAssets`.
+   */
+  assets?: Asset[];
+
+  /**
+   * Groups returned by the backend when view=grouped.
+   * Each group contains items for the *current page*.
+   */
+  groups?: PivotGroup[];
+
+  /**
+   * Current page (0-index).
+   */
+  page?: number;
+
+  /**
+   * Pinned top nodes to show in a fixed order.
+   * Default: Camera / Character / Prop / Set.
+   */
+  pinnedTopGroups?: string[];
+
+  /**
+   * How pinned groups behave when they have 0 items for the current page:
+   * - 'always' (default here): always show pinned groups even if empty
+   * - 'firstPageOnly': show empty pinned groups only on page 0
+   * - 'never': never show empty pinned groups
+   */
+  pinnedEmptyVisibility?: 'firstPageOnly' | 'always' | 'never';
 };
 
-const PINNED_ORDER: GroupKey[] = ['camera', 'character', 'prop', 'set', 'other', 'unassigned'];
+const DEFAULT_PINNED_TOP_GROUPS = ['camera', 'character', 'prop', 'set'];
 
-const labelFor = (k: GroupKey) => {
-  switch (k) {
-    case 'camera': return 'CAMERA';
-    case 'character': return 'CHARACTER';
-    case 'prop': return 'PROP';
-    case 'set': return 'SET';
-    case 'other': return 'OTHER';
-    case 'unassigned': return 'UNASSIGNED';
-    default: return k.toUpperCase();
-  }
+const normalizeKey = (v: string) => (v || '').trim().toLowerCase();
+const displayName = (key: string) => {
+  const k = normalizeKey(key);
+  if (k === 'unassigned') return 'UNASSIGNED';
+  if (k === 'other') return 'OTHER';
+  return (key || '').trim().toUpperCase();
 };
 
-const normalizeTopNode = (raw: string | null | undefined): GroupKey => {
-  const v = (raw || '').trim().toLowerCase();
-  if (!v) return 'unassigned';
-  if (v === 'camera') return 'camera';
-  if (v === 'character') return 'character';
-  if (v === 'prop') return 'prop';
-  if (v === 'set') return 'set';
-  return 'other';
-};
+const AssetsGroupedDataTable: React.FC<Props> = ({
+  assets = [],
+  groups = [],
+  page = 0,
+  pinnedTopGroups = DEFAULT_PINNED_TOP_GROUPS,
+  pinnedEmptyVisibility = 'always',
+}) => {
+  // Collapsed state keyed by normalized top group node.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
-const AssetsGroupedDataTable: React.FC<Props> = ({ assets, totalCounts }) => {
-  // Group CURRENT-PAGE items.
-  const pageGroups = useMemo(() => {
-    const map: Record<GroupKey, Asset[]> = {
-      camera: [],
-      character: [],
-      prop: [],
-      set: [],
-      other: [],
-      unassigned: [],
-    };
-
-    for (const a of assets || []) {
-      map[normalizeTopNode(a.top_group_node)].push(a);
-    }
-    return map;
-  }, [assets]);
-
-  // Collapsed/expanded state (ShotGrid-like).
-  const [collapsed, setCollapsed] = useState<Record<GroupKey, boolean>>({
-    camera: false,
-    character: false,
-    prop: false,
-    set: false,
-    other: false,
-    unassigned: false,
-  });
-
-  const toggle = useCallback((k: GroupKey) => {
-    setCollapsed((prev) => ({ ...prev, [k]: !prev[k] }));
+  const toggle = useCallback((key: string) => {
+    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
+  const grouped = useMemo(() => {
+    // 1) Prefer server groups (authoritative for pagination)
+    const serverMap: Record<string, Asset[]> = {};
+    (groups || []).forEach((g) => {
+      const k = normalizeKey(g.top_group_node || 'unassigned') || 'unassigned';
+      serverMap[k] = Array.isArray(g.items) ? g.items : [];
+    });
+
+    // 2) Fallback: group a flat list of assets (older code path)
+    const clientMap: Record<string, Asset[]> = {};
+    (assets || []).forEach((asset) => {
+      const k = normalizeKey(asset.top_group_node || 'unassigned') || 'unassigned';
+      if (!clientMap[k]) clientMap[k] = [];
+      clientMap[k].push(asset);
+    });
+
+    const rawMap = Object.keys(serverMap).length > 0 ? serverMap : clientMap;
+
+    // 3) Normalize pinned top groups and ALWAYS show them in fixed order.
+    const pinned = (pinnedTopGroups || DEFAULT_PINNED_TOP_GROUPS).map(normalizeKey);
+
+    // 4) Fold any non-pinned, non-unassigned groups into "other"
+    const map: Record<string, Asset[]> = {};
+    const otherItems: Asset[] = [];
+
+    Object.entries(rawMap).forEach(([k, items]) => {
+      const key = normalizeKey(k);
+      const list = items || [];
+
+      if (!key || key === 'unassigned') {
+        map['unassigned'] = list;
+        return;
+      }
+
+      if (pinned.includes(key)) {
+        map[key] = list;
+        return;
+      }
+
+      // Everything else becomes OTHER (e.g. creature, fx, light, etc.)
+      otherItems.push(...list);
+    });
+
+    map['other'] = otherItems;
+
+    // Ensure pinned keys exist even if empty
+    pinned.forEach((k) => {
+      if (!map[k]) map[k] = [];
+    });
+
+    const shouldShowEmptyPinned = (count: number) => {
+      if (count > 0) return true;
+      if (pinnedEmptyVisibility === 'always') return true;
+      if (pinnedEmptyVisibility === 'never') return false;
+      // firstPageOnly
+      return page === 0;
+    };
+
+    const entries: Array<[string, Asset[]]> = [];
+
+    // Pinned first
+    pinned.forEach((k) => {
+      const items = map[k] || [];
+      if (shouldShowEmptyPinned(items.length)) entries.push([k, items]);
+    });
+
+    // OTHER always visible (even empty) to keep structure stable.
+    entries.push(['other', map.other || []]);
+
+    // UNASSIGNED only when present
+    if ((map.unassigned || []).length > 0) {
+      entries.push(['unassigned', map.unassigned || []]);
+    }
+
+    return entries;
+  }, [assets, groups, page, pinnedTopGroups, pinnedEmptyVisibility]);
+
   return (
-    <Box
-      style={{
-        display: 'flex',
-        flexDirection: 'row',
-        width: '100%',
-        minHeight: 520,
-      }}
-    >
-      {/* LEFT: ShotGrid-like group sidebar */}
-      <Box
-        style={{
-          width: 300,
-          minWidth: 300,
-          maxWidth: 300,
-          borderRight: '1px solid rgba(255,255,255,0.10)',
-          background: 'rgba(0,0,0,0.10)',
-        }}
-      >
-        {PINNED_ORDER.map((k) => {
-          const itemsOnPage = pageGroups[k] || [];
-          const totalForGroup = (totalCounts && typeof totalCounts[k] === 'number')
-            ? (totalCounts[k] as number)
-            : itemsOnPage.length;
+    <Box>
+      {grouped.map(([groupName, groupAssets]) => {
+        const key = normalizeKey(groupName || 'unassigned') || 'unassigned';
+        const isCollapsed = !!collapsed[key];
 
-          const isCollapsed = collapsed[k];
+        return (
+          <Box key={key} mb={0.5}>
+            {/* Group Header (ShotGrid-like) */}
+            <Box
+              px={1}
+              py={0.25}
+              display="flex"
+              alignItems="center"
+              style={{
+                background: 'rgba(255,255,255,0.06)',
+                borderBottom: '1px solid rgba(255,255,255,0.12)',
+                cursor: 'pointer',
+              }}
+              onClick={() => toggle(key)}
+            >
+              <IconButton size="small" style={{ padding: 2, marginRight: 6, color: 'rgba(255,255,255,0.8)' }}>
+                {isCollapsed ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+              </IconButton>
 
-          return (
-            <Box key={k} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-              {/* Header */}
-              <Box
-                onClick={() => toggle(k)}
-                px={1}
-                py={0.75}
-                style={{
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                  background: 'rgba(255,255,255,0.05)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                }}
-              >
-                <Box
-                  style={{
-                    width: 14,
-                    display: 'flex',
-                    justifyContent: 'center',
-                    fontSize: 14,
-                    opacity: 0.9,
-                  }}
-                >
-                  {isCollapsed ? '▸' : '▾'}
-                </Box>
-
-                <Typography variant="subtitle2" style={{ fontWeight: 700, fontSize: 12 }}>
-                  {labelFor(k)} ({totalForGroup})
-                </Typography>
-              </Box>
-
-              {/* Items */}
-              {!isCollapsed && (
-                <Box>
-                  {itemsOnPage.length === 0 ? (
-                    <Box px={2} py={0.75} style={{ opacity: 0.65 }}>
-                      <Typography variant="body2" style={{ fontSize: 12 }}>
-                        No assets
-                      </Typography>
-                    </Box>
-                  ) : (
-                    itemsOnPage.map((asset) => (
-                      <Box
-                        key={`${asset.group_1}-${asset.relation}`}
-                        px={2}
-                        py={0.7}
-                        style={{
-                          borderTop: '1px solid rgba(255,255,255,0.04)',
-                        }}
-                      >
-                        <Typography variant="body2" style={{ fontSize: 12 }}>
-                          {asset.group_1}
-                        </Typography>
-                      </Box>
-                    ))
-                  )}
-                </Box>
-              )}
+              <Typography variant="subtitle2" style={{ fontWeight: 700, userSelect: 'none' }}>
+                {displayName(groupName)} ({groupAssets.length})
+              </Typography>
             </Box>
-          );
-        })}
-      </Box>
 
-      {/* RIGHT: keep empty for now (ShotGrid usually shows grid/table here) */}
-      <Box style={{ flex: 1 }} />
+            {/* Items */}
+            {!isCollapsed && (
+              <>
+                {groupAssets.length === 0 ? (
+                  <Box px={2} py={0.75} style={{ opacity: 0.7 }}>
+                    <Typography variant="body2">No assets</Typography>
+                  </Box>
+                ) : (
+                  groupAssets.map((asset) => (
+                    <Box
+                      key={`${asset.group_1}-${asset.relation}`}
+                      px={2}
+                      py={0.75}
+                      style={{
+                        borderBottom: '1px solid rgba(255,255,255,0.04)',
+                      }}
+                    >
+                      <Typography variant="body2">{asset.group_1}</Typography>
+                    </Box>
+                  ))
+                )}
+              </>
+            )}
+          </Box>
+        );
+      })}
     </Box>
   );
 };
