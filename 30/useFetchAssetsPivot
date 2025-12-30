@@ -1,8 +1,12 @@
-/* hooks.ts */
-import { useEffect, useMemo, useState } from 'react';
-import { Asset, PivotGroup, SortDir } from './types';
+import { useEffect, useState } from 'react';
+import { Asset, SortDir } from './types';
 import { fetchAssetsPivot } from './api';
 import { Project } from '../types';
+
+type PivotGroup = {
+  top_group_node: string;
+  items: Asset[];
+};
 
 export function useFetchAssetsPivot(
   project: Project | null | undefined,
@@ -20,19 +24,17 @@ export function useFetchAssetsPivot(
   const [groups, setGroups] = useState<PivotGroup[]>([]);
   const [total, setTotal] = useState(0);
 
-  // Prevent re-fetch loops when arrays are recreated
-  const approvalKey = useMemo(() => approvalStatuses.join('|'), [approvalStatuses]);
-  const workKey = useMemo(() => workStatuses.join('|'), [workStatuses]);
+  const projectKey = project?.key_name;
 
   useEffect(() => {
-    if (!project || sortDir === 'none') return;
+    if (!projectKey || sortDir === 'none') return;
 
     const controller = new AbortController();
 
     (async () => {
       try {
-        const res: any = await fetchAssetsPivot(
-          project.key_name,
+        const res = await fetchAssetsPivot(
+          projectKey,
           page,
           rowsPerPage,
           sortKey,
@@ -45,43 +47,34 @@ export function useFetchAssetsPivot(
           controller.signal,
         );
 
-        const count =
-          res?.total ??
-          res?.count ??
-          0;
+        // list endpoint returns { assets: Asset[], total: number }
+        // grouped endpoint returns { groups: [{top_group_node, items}], total, ... } (or similar)
+        const list = (res as any).assets || (res as any).data || [];
+        const count = (res as any).total || 0;
 
-        setTotal(Number(count) || 0);
+        const serverGroups: PivotGroup[] =
+          Array.isArray((res as any).groups) ? (res as any).groups : [];
 
-        if (viewMode === 'grouped') {
-          const serverGroups: PivotGroup[] = Array.isArray(res?.groups) ? res.groups : [];
-          setGroups(serverGroups);
-          setAssets([]); // important: don’t keep old list rows
-        } else {
-          const list: Asset[] = Array.isArray(res?.assets)
-            ? res.assets
-            : Array.isArray(res?.data)
-              ? res.data
-              : [];
-          setAssets(list);
-          setGroups([]); // important: don’t keep old groups
-        }
-      } catch (err: any) {
-        if (err?.name === 'AbortError') return;
+        setAssets(list);
+        setTotal(count);
+        setGroups(serverGroups);
+      } catch (err) {
+        if ((err as any).name === 'AbortError') return;
         console.error(err);
       }
     })();
 
     return () => controller.abort();
   }, [
-    project?.key_name,
+    projectKey,
     page,
     rowsPerPage,
     sortKey,
     sortDir,
     phase,
     assetNameKey,
-    approvalKey,
-    workKey,
+    approvalStatuses,
+    workStatuses,
     viewMode,
   ]);
 
