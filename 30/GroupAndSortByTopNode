@@ -1,0 +1,67 @@
+func GroupAndSortByTopNode(rows []AssetPivot, dir SortDirection) []GroupedAssetBucket {
+	grouped := make(map[string][]AssetPivot)
+	order := make([]string, 0)
+
+	// group and collect TopGroupNode keys
+	for _, row := range rows {
+		key := strings.TrimSpace(row.TopGroupNode)
+		if key == "" {
+			key = "Unassigned" // represents NULL / no group
+		}
+		if _, exists := grouped[key]; !exists {
+			grouped[key] = []AssetPivot{}
+			order = append(order, key)
+		}
+		grouped[key] = append(grouped[key], row)
+	}
+
+	// Group header order:
+	// - ALWAYS alphabetical A→Z
+	// - "Unassigned" ALWAYS last (no more "unassignedFirst")
+	isUnassigned := func(s string) bool {
+		return strings.EqualFold(strings.TrimSpace(s), "unassigned")
+	}
+
+	sort.Slice(order, func(i, j int) bool {
+		ai := strings.TrimSpace(order[i])
+		aj := strings.TrimSpace(order[j])
+
+		aui := isUnassigned(ai)
+		auj := isUnassigned(aj)
+
+		// Unassigned always last
+		if aui && !auj {
+			return false
+		}
+		if !aui && auj {
+			return true
+		}
+
+		// Always A→Z (case-insensitive)
+		return strings.ToLower(ai) < strings.ToLower(aj)
+	})
+
+	// sort children inside each group by Group1 using requested dir
+	for _, key := range order {
+		children := grouped[key]
+		sort.SliceStable(children, func(i, j int) bool {
+			gi := strings.ToLower(children[i].Group1)
+			gj := strings.ToLower(children[j].Group1)
+
+			if dir == SortDESC {
+				return gi > gj
+			}
+			return gi < gj
+		})
+		grouped[key] = children
+	}
+
+	result := make([]GroupedAssetBucket, 0, len(order))
+	for _, key := range order {
+		result = append(result, GroupedAssetBucket{
+			TopGroupNode: key,
+			Items:        grouped[key],
+		})
+	}
+	return result
+}
