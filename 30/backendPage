@@ -1,0 +1,14 @@
+// In grouped view we want complete groups (ShotGrid-like), so fetch a big page.
+const backendPage = (filtersActive || isGrouped) ? 0 : pageProps.page;
+const backendRowsPerPage = (filtersActive || isGrouped) ? 5000 : pageProps.rowsPerPage;
+
+
+<AssetsGroupedDataTable
+  groups={groups}
+  page={pageProps.page}
+  rowsPerPage={pageProps.rowsPerPage}
+  sortKey={sortKey}
+  sortDir={sortDir}
+  groupSortDir={sortDir === 'desc' ? 'desc' : 'asc'}
+  unassignedFirst={false} // set true if you want UNASSIGNED always first
+/>
