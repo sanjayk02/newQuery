@@ -1,0 +1,43 @@
+const StyledContainer = styled(Container)(({ theme }) => ({
+  position: 'relative',
+  display: 'flex',
+  flexDirection: 'column',
+  padding: 0,
+
+  // ✅ add these
+  width: '100vw',
+  maxWidth: '100vw',
+  height: '100vh',
+}));
+
+const StyledPaper = styled(Paper)({
+  width: '100%',
+  display: 'flex',
+  flexDirection: 'column',
+
+  // ✅ add these
+  flex: 1,
+  minHeight: 0,     // important for nested scroll areas
+  overflow: 'hidden',
+});
+
+const StyledContentDiv = styled('div')(({ theme }) => ({
+  backgroundColor: theme.palette.background.paper,
+  display: 'flex',
+  flexDirection: 'row',
+
+  // ✅ add these
+  flex: 1,
+  minHeight: 0,
+  width: '100%',
+}));
+
+const StyledTableDiv = styled('div')({
+  paddingBottom: 8,
+
+  // ✅ add these
+  flex: 1,
+  minHeight: 0,
+  width: '100%',
+  overflow: 'auto',  // horizontal + vertical scroll stays inside
+});
