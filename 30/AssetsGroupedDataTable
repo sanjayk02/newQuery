@@ -1,192 +1,30 @@
-import React, { useMemo, useState, useCallback } from 'react';
-import { Box, Typography, IconButton } from '@material-ui/core';
-import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
-import ChevronRightIcon from '@material-ui/icons/ChevronRight';
-import { Asset, PivotGroup, SortDir } from './types';
+// Inside AssetsDataTablePanel component
+const [dynamicPinnedOrder, setDynamicPinnedOrder] = useState<string[]>([]);
 
-type Props = {
-  /** Groups returned by the backend when view=grouped */
-  groups?: PivotGroup[];
-  /** 0-based UI page index */
-  page: number;
-  /** Rows per page setting */
-  rowsPerPage: number;
-
-  /** Current UI sort key (same state as list view) */
-  sortKey: string;
-  /** Current UI sort direction */
-  sortDir: SortDir;
-
-  /** ShotGrid-like rule: keep UNASSIGNED first */
-  unassignedFirst?: boolean;
-};
-
-const normalizeGroupKey = (v: string | null | undefined) => {
-  const raw = (v || '').trim();
-  return raw ? raw.toLowerCase() : 'unassigned';
-};
-
-const displayGroupKey = (v: string | null | undefined) => {
-  const raw = (v || '').trim();
-  return raw ? raw.toUpperCase() : 'UNASSIGNED';
-};
-
-const isEmptySortVal = (v: unknown) => v == null || v === '' || v === '-';
-
-// Map UI sort keys to actual Asset keys.
-// - `group_1_name` in the UI is the asset name in this dataset (`group_1`)
-const resolveItemSortField = (uiKey: string): keyof Asset | null => {
-  if (!uiKey) return null;
-  if (uiKey === 'group_1_name') return 'group_1' as keyof Asset;
-  if (uiKey === 'group_1' || uiKey === 'relation') return uiKey as keyof Asset;
-  return uiKey as keyof Asset;
-};
-
-const compareStrings = (a: unknown, b: unknown, dir: SortDir) => {
-  const asc = dir === 'asc';
-  const aEmpty = isEmptySortVal(a);
-  const bEmpty = isEmptySortVal(b);
-  if (aEmpty && bEmpty) return 0;
-  if (aEmpty) return 1;
-  if (bEmpty) return -1;
-
-  const sa = String(a).toLowerCase();
-  const sb = String(b).toLowerCase();
-  const comp = sa.localeCompare(sb, undefined, { numeric: true });
-  return asc ? comp : -comp;
-};
-
-const AssetsGroupedDataTable: React.FC<Props> = ({
-  groups = [],
-  page,
-  rowsPerPage,
-  sortKey,
-  sortDir,
-  unassignedFirst = true,
-}) => {
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-
-  const toggle = useCallback((key: string) => {
-    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
-  }, []);
-
-  /**
-   * ShotGrid-like sorting:
-   * - Group headers: alphabetical A→Z or Z→A
-   * - Optional rule: UNASSIGNED always first
-   * - Items inside each group: sorted by current UI sortKey/sortDir
-   */
-  const processedGroups = useMemo(() => {
-    const effectiveGroupDir: SortDir = sortDir === 'desc' ? 'desc' : 'asc';
-
-    // 1) Sort GROUP HEADERS
-    const orderedGroups = [...groups].sort((ga, gb) => {
-      const aKey = normalizeGroupKey(ga.top_group_node);
-      const bKey = normalizeGroupKey(gb.top_group_node);
-
-      if (unassignedFirst) {
-        const aIsUnassigned = aKey === 'unassigned';
-        const bIsUnassigned = bKey === 'unassigned';
-        if (aIsUnassigned && !bIsUnassigned) return -1;
-        if (!aIsUnassigned && bIsUnassigned) return 1;
+useEffect(() => {
+  if (!currentProject) return;
+  (async () => {
+    try {
+      // Fetching dynamic order from a hypothetical pipeline setting key
+      const val = await queryConfig('project', currentProject.key_name, '/ppiTracker/assets/groupOrder');
+      if (val) {
+        const orderArray = Array.isArray(val) ? val : JSON.parse(val as string);
+        setDynamicPinnedOrder(orderArray.map((s: string) => s.toLowerCase()));
       }
+    } catch (e) {
+      console.warn('Failed to load dynamic group order, using defaults', e);
+      // Fallback to a default order if the setting doesn't exist
+      setDynamicPinnedOrder(['unassigned', 'camera', 'character', 'prop', 'set']);
+    }
+  })();
+}, [currentProject]);
 
-      const comp = aKey.localeCompare(bKey, undefined, { numeric: true });
-      return effectiveGroupDir === 'asc' ? comp : -comp;
-    });
-
-    // 2) Sort ITEMS WITHIN EACH GROUP (based on sortKey/sortDir)
-    const field = resolveItemSortField(sortKey);
-    const effectiveItemDir: SortDir = sortDir === 'desc' ? 'desc' : 'asc';
-
-    return orderedGroups.map((g) => {
-      const items = [...(g.items || [])];
-      if (!field || sortDir === 'none') return { ...g, items };
-
-      items.sort((a, b) => compareStrings((a as any)[field], (b as any)[field], effectiveItemDir));
-      return { ...g, items };
-    });
-  }, [groups, sortKey, sortDir, unassignedFirst]);
-
-  return (
-    <Box width="100%">
-      {processedGroups.map((group, index) => {
-        const groupKey = normalizeGroupKey(group.top_group_node); // stable key
-        const isCollapsed = !!collapsed[groupKey];
-        const groupItems = group.items || [];
-
-        // ShotGrid pagination hints
-        const isContinued = page > 0 && index === 0;
-        const willContinue = groupItems.length === rowsPerPage;
-
-        return (
-          <Box key={groupKey} mb={0.5}>
-            {/* Group Header */}
-            <Box
-              px={1}
-              py={0.5}
-              display="flex"
-              alignItems="center"
-              style={{
-                background: 'rgba(255,255,255,0.08)',
-                borderBottom: '1px solid rgba(255,255,255,0.12)',
-                cursor: 'pointer',
-                userSelect: 'none',
-              }}
-              onClick={() => toggle(groupKey)}
-            >
-              <IconButton size="small" style={{ padding: 4, marginRight: 8 }}>
-                {isCollapsed ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-              </IconButton>
-
-              <Typography variant="subtitle2" style={{ fontWeight: 700, fontSize: '0.75rem' }}>
-                {displayGroupKey(group.top_group_node)}
-                {isContinued && (
-                  <span style={{ opacity: 0.5, marginLeft: 8, fontWeight: 400 }}>(continued)</span>
-                )}
-                <span style={{ marginLeft: 8, color: '#00b7ff' }}>({groupItems.length})</span>
-              </Typography>
-            </Box>
-
-            {/* Rows */}
-            {!isCollapsed && (
-              <Box>
-                {groupItems.length === 0 ? (
-                  <Box px={6} py={0.5} style={{ opacity: 0.5 }}>
-                    <Typography variant="caption">No assets</Typography>
-                  </Box>
-                ) : (
-                  groupItems.map((asset) => (
-                    <Box
-                      key={`${asset.group_1}-${asset.relation}`}
-                      px={6}
-                      py={0.75}
-                      style={{
-                        borderBottom: '1px solid rgba(255,255,255,0.05)',
-                        backgroundColor: 'transparent',
-                      }}
-                    >
-                      <Typography variant="body2" style={{ fontSize: '0.85rem' }}>
-                        {asset.group_1}
-                      </Typography>
-                    </Box>
-                  ))
-                )}
-
-                {willContinue && (
-                  <Box px={6} py={0.5}>
-                    <Typography variant="caption" style={{ color: '#888', fontStyle: 'italic' }}>
-                      More assets in {displayGroupKey(group.top_group_node)} on next page...
-                    </Typography>
-                  </Box>
-                )}
-              </Box>
-            )}
-          </Box>
-        );
-      })}
-    </Box>
-  );
-};
-
-export default AssetsGroupedDataTable;
+// ... in the render section ...
+<AssetsGroupedDataTable
+  groups={groups}
+  page={pageProps.page}
+  rowsPerPage={pageProps.rowsPerPage}
+  sortKey={uiSortKey}
+  sortDir={uiSortDir}
+  pinnedTopGroups={dynamicPinnedOrder} // Pass the dynamic order here
+/>
