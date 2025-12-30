@@ -12,7 +12,9 @@ type Props = {
   sortDir: SortDir;
 };
 
-// Define your fixed order as seen in your "before sorted" image
+/** * FIXED ORDER: Defines the static sequence for top-level nodes.
+ * This prevents the groups themselves from re-sorting when column sorting is applied.
+ */
 const PINNED_ORDER = [
   'unassigned',
   'camera',
@@ -40,13 +42,8 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
     setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
-  /**
-   * Internal Sorting & Grouping Logic:
-   * 1. FIXED TOP NODES: Forces groups into the PINNED_ORDER.
-   * 2. ASSET SORTING: Sorts assets inside those groups by the chosen key/dir.
-   */
   const processedGroups = useMemo(() => {
-    // Reorder the groups based on the fixed list
+    // 1. PINNED SORTING: Reorder the groups to match PINNED_ORDER
     const orderedGroups = [...groups].sort((a, b) => {
       const nameA = (a.top_group_node || 'unassigned').toLowerCase();
       const nameB = (b.top_group_node || 'unassigned').toLowerCase();
@@ -54,14 +51,13 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
       const indexA = PINNED_ORDER.indexOf(nameA);
       const indexB = PINNED_ORDER.indexOf(nameB);
 
-      // If both in list, use list order; otherwise push unknowns to bottom
       if (indexA !== -1 && indexB !== -1) return indexA - indexB;
       if (indexA !== -1) return -1;
       if (indexB !== -1) return 1;
       return nameA.localeCompare(nameB);
     });
 
-    // Apply internal sorting to items within each fixed group
+    // 2. INTERNAL SORTING: Sort items inside those fixed groups
     return orderedGroups.map(group => {
       const sortedItems = [...(group.items || [])].sort((a: any, b: any) => {
         if (sortDir === 'none') return 0;
@@ -72,7 +68,6 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
         const valA = (a[key] || '').toString().toLowerCase();
         const valB = (b[key] || '').toString().toLowerCase();
 
-        // Null/Empty values always at the bottom
         if (valA === '' || valA === '-') return 1; 
         if (valB === '' || valB === '-') return -1;
 
@@ -93,7 +88,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
         
         return (
           <Box key={groupName} mb={0.5}>
-            {/* Fixed Group Header */}
+            {/* Pinned Group Header */}
             <Box
               px={1} py={0.5} display="flex" alignItems="center"
               style={{
@@ -109,12 +104,12 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
 
               <Typography variant="subtitle2" style={{ fontWeight: 700, fontSize: '0.75rem' }}>
                 {displayKey(groupName)} 
-                {/* Shows the total items count in brackets as requested */}
+                {/* Total item count display next to group name */}
                 <span style={{ marginLeft: 8, color: '#00b7ff' }}>({groupItems.length})</span>
               </Typography>
             </Box>
 
-            {/* Sorted Items within the group */}
+            {/* Sorted Asset Rows inside the group */}
             {!isCollapsed && (
               <Box>
                 {groupItems.map((asset) => (
