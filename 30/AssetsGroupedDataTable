@@ -2,23 +2,34 @@ import React, { useMemo, useState, useCallback } from 'react';
 import { Box, Typography, IconButton } from '@material-ui/core';
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
 import ChevronRightIcon from '@material-ui/icons/ChevronRight';
-import { Asset, PivotGroup } from './types';
+import { Asset } from './types';
 
-type Props = {
-  /** Groups returned by the backend when view=grouped */
-  groups?: PivotGroup[];
-  /** 0-based UI page index for pagination context */
-  page: number;
-  /** Number of rows currently displayed per page */
-  rowsPerPage: number;
+type PivotGroup = {
+  top_group_node: string;
+  items: Asset[];
 };
 
+type Props = {
+  groups?: PivotGroup[];
+  assets?: Asset[];
+  page?: number;
+
+  pinnedTopGroups?: string[];
+
+  pinnedEmptyVisibility?: 'firstPageOnly' | 'always' | 'never';
+};
+
+const DEFAULT_PINNED_TOP_GROUPS = ['camera', 'character', 'prop', 'set'];
+
+const normalizeKey = (v: string) => (v || '').trim().toLowerCase();
 const displayKey = (v: string) => (v || '').trim().toUpperCase();
 
 const AssetsGroupedDataTable: React.FC<Props> = ({
+  assets = [],
   groups = [],
-  page,
-  rowsPerPage,
+  page = 0,
+  pinnedTopGroups = DEFAULT_PINNED_TOP_GROUPS,
+  pinnedEmptyVisibility = 'firstPageOnly',
 }) => {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -26,92 +37,115 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
     setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
-  /**
-   * Internal Sorting Logic:
-   * Keeps top nodes fixed but sorts the child items inside each group alphabetically.
-   */
-  const processedGroups = useMemo(() => {
-    return groups.map(group => {
-      const sortedItems = [...(group.items || [])].sort((a, b) => {
-        const nameA = (a.group_1 || '').toLowerCase();
-        const nameB = (b.group_1 || '').toLowerCase();
-        return nameA.localeCompare(nameB);
-      });
-      return { ...group, items: sortedItems };
+  const grouped = useMemo(() => {
+    // Prefer server groups (authoritative for pagination)
+    const serverMap: Record<string, Asset[]> = {};
+    (groups || []).forEach((g) => {
+      const k = normalizeKey(g.top_group_node || 'unassigned') || 'unassigned';
+      serverMap[k] = Array.isArray(g.items) ? g.items : [];
     });
-  }, [groups]);
+
+    // Fallback: group a flat list of assets (older path)
+    const clientMap: Record<string, Asset[]> = {};
+    (assets || []).forEach((asset) => {
+      const k = normalizeKey(asset.top_group_node || 'unassigned') || 'unassigned';
+      if (!clientMap[k]) clientMap[k] = [];
+      clientMap[k].push(asset);
+    });
+
+    const map = Object.keys(serverMap).length > 0 ? serverMap : clientMap;
+
+    const pinned = (pinnedTopGroups || []).map(normalizeKey).filter(Boolean);
+
+    const shouldShowEmptyPinned = (itemsLen: number) => {
+      if (itemsLen > 0) return true;
+      if (pinnedEmptyVisibility === 'always') return true;
+      if (pinnedEmptyVisibility === 'never') return false;
+      // firstPageOnly
+      return page === 0;
+    };
+
+    const entries: Array<[string, Asset[]]> = [];
+
+    // Fixed order for pinned groups
+    pinned.forEach((k) => {
+      const items = map[k] || [];
+      if (shouldShowEmptyPinned(items.length)) entries.push([k, items]);
+    });
+
+    // Append remaining groups
+    Object.entries(map)
+      .filter(([k]) => !pinned.includes(k))
+      .sort(([a], [b]) => a.localeCompare(b))
+      .forEach(([k, v]) => entries.push([k, v]));
+
+    return entries;
+  }, [assets, groups, page, pinnedTopGroups, pinnedEmptyVisibility]);
 
   return (
-    <Box width="100%">
-      {processedGroups.map((group, index) => {
-        const groupName = group.top_group_node || 'unassigned';
-        const isCollapsed = !!collapsed[groupName];
-        const groupItems = group.items || [];
-        
-        /**
-         * ShotGrid Pagination Logic:
-         * - isContinued: Identifies if a group is splitting across pages.
-         * - willContinue: Adds a visual prompt if more assets exist on the next page.
-         */
-        const isContinued = page > 0 && index === 0;
-        const willContinue = groupItems.length === rowsPerPage;
+    <Box>
+      {grouped.map(([groupName, groupAssets]) => {
+        const key = normalizeKey(groupName || 'unassigned') || 'unassigned';
+        const isCollapsed = !!collapsed[key];
 
         return (
-          <Box key={groupName} mb={0.5}>
-            {/* Header: Fixed Top Node Group */}
+          <Box key={key} mb={1}>
+            {/* Group Header (ShotGrid-like) */}
             <Box
               px={1}
-              py={0.5}
+              py={0.25}
               display="flex"
               alignItems="center"
               style={{
-                background: 'rgba(255,255,255,0.08)',
+                background: 'rgba(255,255,255,0.06)',
                 borderBottom: '1px solid rgba(255,255,255,0.12)',
                 cursor: 'pointer',
                 userSelect: 'none',
               }}
-              onClick={() => toggle(groupName)}
+              onClick={() => toggle(key)}
+              role="button"
+              aria-label={`Toggle ${groupName}`}
             >
-              <IconButton size="small" style={{ padding: 4, marginRight: 8 }}>
-                {isCollapsed ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+              <IconButton
+                size="small"
+                style={{ padding: 4, marginRight: 4 }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggle(key);
+                }}
+              >
+                {isCollapsed ? (
+                  <ChevronRightIcon fontSize="small" />
+                ) : (
+                  <ExpandMoreIcon fontSize="small" />
+                )}
               </IconButton>
 
-              <Typography variant="subtitle2" style={{ fontWeight: 700, fontSize: '0.75rem' }}>
-                {displayKey(groupName)} 
-                {isContinued && (
-                  <span style={{ opacity: 0.5, marginLeft: 8, fontWeight: 400 }}>(continued)</span>
-                )}
-                <span style={{ marginLeft: 8, color: '#00b7ff' }}>({groupItems.length})</span>
+              <Typography variant="subtitle2" style={{ fontWeight: 700 }}>
+                {displayKey(groupName)} ({(groupAssets || []).length})
               </Typography>
             </Box>
 
-            {/* Content: Sorted Child Items */}
+            {/* Asset rows */}
             {!isCollapsed && (
               <Box>
-                {groupItems.length === 0 ? (
-                  <Box px={6} py={0.5} style={{ opacity: 0.5 }}>
-                    <Typography variant="caption">No assets</Typography>
+                {(groupAssets || []).length === 0 ? (
+                  <Box px={2} py={0.75} style={{ opacity: 0.7 }}>
+                    <Typography variant="body2">No assets</Typography>
                   </Box>
                 ) : (
-                  groupItems.map((asset) => (
+                  groupAssets.map((asset) => (
                     <Box
                       key={`${asset.group_1}-${asset.relation}`}
-                      px={6}
+                      px={2}
                       py={0.75}
-                      style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+                      style={{
+                        borderBottom: '1px solid rgba(255,255,255,0.04)',
+                      }}
                     >
-                      <Typography variant="body2" style={{ fontSize: '0.85rem' }}>
-                        {asset.group_1}
-                      </Typography>
+                      <Typography variant="body2">{asset.group_1}</Typography>
                     </Box>
                   ))
-                )}
-                {willContinue && (
-                  <Box px={6} py={0.5}>
-                    <Typography variant="caption" style={{ color: '#888', fontStyle: 'italic' }}>
-                      More assets in {displayKey(groupName)} on next page...
-                    </Typography>
-                  </Box>
                 )}
               </Box>
             )}
