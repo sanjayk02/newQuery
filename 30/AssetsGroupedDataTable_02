@@ -1,0 +1,171 @@
+import React, { useMemo, useState, useCallback } from 'react';
+import { 
+  Box, Typography, IconButton, Table, TableHead, 
+  TableRow, TableCell, TableBody 
+} from '@material-ui/core';
+import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
+import ChevronRightIcon from '@material-ui/icons/ChevronRight';
+import ArrowDropUpIcon from '@material-ui/icons/ArrowDropUp';
+import ArrowDropDownIcon from '@material-ui/icons/ArrowDropDown';
+import { PivotGroup, SortDir, Column, Asset } from './types';
+
+type Props = {
+  groups?: PivotGroup[];
+  sortKey: string;
+  sortDir: SortDir;
+  onSortChange: (key: string) => void;
+  dateTimeFormat: Intl.DateTimeFormat;
+  hiddenColumns?: Set<string>;
+};
+
+const COLUMNS: Column[] = [
+  { id: 'thumbnail', label: 'THUMBS' },
+  { id: 'group_1_name', label: 'NAME' },
+  { id: 'mdl_work', label: 'MDL WORK', groupColor: '#00b7ff', sortable: true },
+  { id: 'mdl_appr', label: 'MDL APPR', groupColor: '#00b7ff', sortable: true },
+  { id: 'mdl_submitted', label: 'MDL SUBMITTED AT', groupColor: '#00b7ff', sortable: true },
+  { id: 'rig_work', label: 'RIG WORK', groupColor: '#a333c8', sortable: true },
+  { id: 'rig_appr', label: 'RIG APPR', groupColor: '#a333c8', sortable: true },
+  { id: 'rig_submitted', label: 'RIG SUBMITTED AT', groupColor: '#a333c8', sortable: true },
+  { id: 'bld_work', label: 'BLD WORK', groupColor: '#e91e63', sortable: true },
+  { id: 'bld_appr', label: 'BLD APPR', groupColor: '#e91e63', sortable: true },
+  { id: 'bld_submitted', label: 'BLD SUBMITTED AT', groupColor: '#e91e63', sortable: true },
+  { id: 'relation', label: 'RELATION' },
+];
+
+const AssetsGroupedDataTable: React.FC<Props> = ({
+  groups = [],
+  sortKey,
+  sortDir,
+  onSortChange,
+  dateTimeFormat,
+  hiddenColumns = new Set(),
+}) => {
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const toggle = useCallback((key: string) => {
+    setCollapsed(prev => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+
+  const visibleColumns = COLUMNS.filter(c => !hiddenColumns.has(c.id));
+
+  return (
+    <Box width="100%" style={{ backgroundColor: '#1e1e1e' }}>
+      <Table size="small" stickyHeader>
+        <TableHead>
+          <TableRow>
+            {visibleColumns.map((col) => (
+              <TableCell
+                key={col.id}
+                align={col.id === 'group_1_name' ? "left" : "center"}
+                onClick={() => col.sortable && onSortChange(col.id)}
+                style={{
+                  backgroundColor: '#2d2d2d',
+                  color: '#fff',
+                  borderTop: col.groupColor ? `4px solid ${col.groupColor}` : 'none',
+                  borderBottom: '1px solid #444',
+                  cursor: col.sortable ? 'pointer' : 'default',
+                  padding: '10px 4px',
+                }}
+              >
+                <Box display="flex" alignItems="center" justifyContent={col.id === 'group_1_name' ? "flex-start" : "center"}>
+                  <Typography style={{ fontSize: '0.65rem', fontWeight: 800 }}>{col.label}</Typography>
+                  {sortKey === col.id && (
+                    sortDir === 'asc' ? <ArrowDropUpIcon fontSize="small" /> : <ArrowDropDownIcon fontSize="small" />
+                  )}
+                </Box>
+              </TableCell>
+            ))}
+          </TableRow>
+        </TableHead>
+
+        <TableBody>
+          {groups.map((group) => {
+            const groupName = group.top_group_node || 'UNASSIGNED';
+            const isCollapsed = !!collapsed[groupName];
+            
+            return (
+              <React.Fragment key={groupName}>
+                {/* Group Divider Row - matches image_d04229.png */}
+                <TableRow 
+                  onClick={() => toggle(groupName)}
+                  style={{ backgroundColor: '#333', cursor: 'pointer' }}
+                >
+                  <TableCell colSpan={visibleColumns.length} style={{ borderBottom: '1px solid #444', padding: '6px 8px' }}>
+                    <Box display="flex" alignItems="center">
+                      <IconButton size="small" style={{ color: '#00b7ff', padding: 0 }}>
+                        {isCollapsed ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                      </IconButton>
+                      <Typography style={{ color: '#00b7ff', fontSize: '0.75rem', fontWeight: 700, marginLeft: 8 }}>
+                        {groupName.toUpperCase()} <span style={{ color: '#00b7ff' }}>({group.items?.length || 0})</span>
+                      </Typography>
+                    </Box>
+                  </TableCell>
+                </TableRow>
+
+                {/* Data Rows - matches image_d03b22.jpg */}
+                {!isCollapsed && group.items.map((asset, idx) => (
+                  <TableRow key={`${groupName}-${idx}`} hover style={{ height: 35 }}>
+                    {visibleColumns.map(col => (
+                      <TableCell 
+                        key={col.id} 
+                        align={col.id === 'group_1_name' ? "left" : "center"}
+                        style={{ borderBottom: '1px solid #2a2a2a', color: '#e0e0e0', fontSize: '0.8rem', padding: '4px' }}
+                      >
+                        {renderAssetField(asset, col, dateTimeFormat)}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </React.Fragment>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </Box>
+  );
+};
+
+function renderAssetField(asset: any, col: Column, df: Intl.DateTimeFormat) {
+  // THUMBS Column rendering
+  if (col.id === 'thumbnail') {
+    return (
+      <Box 
+        width={38} 
+        height={26} 
+        bgcolor="#2a2a2a" 
+        style={{ border: '1px solid #444', margin: 'auto' }} 
+      />
+    );
+  }
+  
+  // NAME Column rendering
+  if (col.id === 'group_1_name') {
+    return (
+      <Typography style={{ fontSize: '0.85rem', fontWeight: 600, paddingLeft: 10 }}>
+        {asset.group_1 || ''}
+      </Typography>
+    );
+  }
+
+  // Pipeline status and date rendering
+  if (col.id.includes('submitted')) {
+    const phase = col.id.split('_')[0];
+    const val = asset[`${phase}_submitted_at_utc`];
+    return val ? val.split('T')[0] : '-';
+  }
+
+  const phase = col.id.split('_')[0];
+  const type = col.id.split('_')[1] === 'work' ? 'work_status' : 'approval_status';
+  const status = asset[`${phase}_${type}`];
+
+  return (
+    <Typography style={{ 
+      fontSize: '0.75rem', 
+      color: status === 'Approved' ? '#4caf50' : '#bdbdbd' 
+    }}>
+      {status || '-'}
+    </Typography>
+  );
+}
+
+export default AssetsGroupedDataTable;
