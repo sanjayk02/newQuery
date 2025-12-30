@@ -1,0 +1,88 @@
+/* AssetsGroupeDataTable.tsx */
+import React, { useMemo, useState, useCallback } from 'react';
+import { Box, Typography, IconButton } from '@material-ui/core';
+import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
+import ChevronRightIcon from '@material-ui/icons/ChevronRight';
+import { Asset, PivotGroup } from './types';
+
+type Props = {
+  groups?: PivotGroup[];
+  page: number;
+  rowsPerPage: number;
+  pinnedTopGroups?: string[];
+};
+
+const AssetsGroupedDataTable: React.FC<Props> = ({
+  groups = [],
+  page,
+  rowsPerPage,
+  pinnedTopGroups = ['camera', 'character', 'prop', 'set'],
+}) => {
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  const toggle = useCallback((key: string) => {
+    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+
+  const displayKey = (v: string) => (v || '').trim().toUpperCase();
+
+  return (
+    <Box width="100%">
+      {groups.map((group, index) => {
+        const groupName = group.top_group_node || 'unassigned';
+        const isCollapsed = !!collapsed[groupName];
+        const groupItems = group.items || [];
+        
+        // ShotGrid Logic: If we are not on page 0 and this is the first group, it's likely continued.
+        // Or if the group is full (matching rowsPerPage), it likely continues on the next page.
+        const isContinued = page > 0 && index === 0;
+        const willContinue = groupItems.length === rowsPerPage;
+
+        return (
+          <Box key={groupName} mb={1}>
+            <Box
+              px={1}
+              py={0.5}
+              display="flex"
+              alignItems="center"
+              style={{
+                background: 'rgba(255,255,255,0.08)',
+                borderBottom: '1px solid rgba(255,255,255,0.12)',
+                cursor: 'pointer'
+              }}
+              onClick={() => toggle(groupName)}
+            >
+              <IconButton size="small" style={{ marginRight: 8 }}>
+                {isCollapsed ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+              </IconButton>
+              <Typography variant="subtitle2" style={{ fontWeight: 700 }}>
+                {displayKey(groupName)} 
+                {isContinued && <span style={{ opacity: 0.6, marginLeft: 8 }}>(continued)</span>}
+                <span style={{ marginLeft: 8, color: '#00b7ff' }}>({groupItems.length})</span>
+              </Typography>
+            </Box>
+
+            {!isCollapsed && (
+              <Box>
+                {groupItems.map((asset) => (
+                  <Box key={`${asset.group_1}-${asset.relation}`} px={6} py={1} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                    <Typography variant="body2">{asset.group_1}</Typography>
+                  </Box>
+                ))}
+                {willContinue && (
+                  <Box px={6} py={1}>
+                    <Typography variant="caption" style={{ color: '#aaa', fontStyle: 'italic' }}>
+                      More assets in {displayKey(groupName)} on next page...
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+            )}
+          </Box>
+        );
+      })}
+    </Box>
+  );
+};
+
+export default AssetsGroupedDataTable;
