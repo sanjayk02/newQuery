@@ -5,17 +5,15 @@ import ChevronRightIcon from '@material-ui/icons/ChevronRight';
 import { Asset, PivotGroup, SortDir } from './types';
 
 type Props = {
-  /** Groups returned by the backend when view=grouped */
   groups?: PivotGroup[];
-  /** 0-based UI page index */
   page: number;
-  /** Rows per page setting */
   rowsPerPage: number;
-  /** Current UI sort key */
   sortKey: string;
-  /** Current UI sort direction */
   sortDir: SortDir;
+  pinnedTopGroups?: string[];
 };
+
+const DEFAULT_PINNED_ORDER = ['camera', 'character', 'prop', 'set', 'unassigned'];
 
 const displayKey = (v: string | null) => (v || 'UNASSIGNED').trim().toUpperCase();
 
@@ -25,6 +23,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
   rowsPerPage,
   sortKey,
   sortDir,
+  pinnedTopGroups = DEFAULT_PINNED_ORDER,
 }) => {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -33,39 +32,50 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
   }, []);
 
   /**
-   * Internal Sorting Logic:
-   * Sorts items within each group based on the global sort selection.
+   * 1. FIXED TOP NODES: Reorder groups based on pinnedTopGroups.
+   * 2. INTERNAL SORT: Sort items inside each group based on sortKey/sortDir.
    */
   const processedGroups = useMemo(() => {
-    return groups.map(group => {
+    // Clone and sort the groups based on the pinned order
+    const orderedGroups = [...groups].sort((a, b) => {
+      const nameA = (a.top_group_node || 'unassigned').toLowerCase();
+      const nameB = (b.top_group_node || 'unassigned').toLowerCase();
+      const indexA = pinnedTopGroups.indexOf(nameA);
+      const indexB = pinnedTopGroups.indexOf(nameB);
+
+      // If both are in pinned list, use that order. 
+      // If one is missing, push it to the end.
+      if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+      if (indexA !== -1) return -1;
+      if (indexB !== -1) return 1;
+      return nameA.localeCompare(nameB);
+    });
+
+    // Sort items inside each group
+    return orderedGroups.map(group => {
       const sortedItems = [...(group.items || [])].sort((a: any, b: any) => {
         if (sortDir === 'none') return 0;
         
         const isAsc = sortDir === 'asc';
-        
-        // Map UI keys to Asset properties
-        let key = sortKey;
-        if (sortKey === 'group_1_name') key = 'group_1';
-        
-        // Handle phase-specific keys like 'mdl_work_status'
+        let key = sortKey === 'group_1_name' ? 'group_1' : sortKey;
+
         const valA = (a[key] || '').toString().toLowerCase();
         const valB = (b[key] || '').toString().toLowerCase();
 
-        // Keep empty values at the bottom
-        if (valA === '' || valA === '-') return 1;
+        if (valA === '' || valA === '-') return 1; 
         if (valB === '' || valB === '-') return -1;
 
-        if (valA === valB) return 0;
-        const comparison = valA.localeCompare(valB, undefined, { numeric: true });
-        return isAsc ? comparison : -comparison;
+        const comp = valA.localeCompare(valB, undefined, { numeric: true });
+        return isAsc ? comp : -comp;
       });
+
       return { ...group, items: sortedItems };
     });
-  }, [groups, sortKey, sortDir]);
+  }, [groups, sortKey, sortDir, pinnedTopGroups]);
 
   return (
     <Box width="100%">
-      {processedGroups.map((group, index) => {
+      {processedGroups.map((group) => {
         const groupName = group.top_group_node || 'unassigned';
         const isCollapsed = !!collapsed[groupName];
         const groupItems = group.items || [];
@@ -74,56 +84,38 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
           <Box key={groupName} mb={0.5}>
             {/* Group Header */}
             <Box
-              px={1}
-              py={0.5}
-              display="flex"
-              alignItems="center"
+              px={1} py={0.5} display="flex" alignItems="center"
               style={{
                 background: 'rgba(255,255,255,0.08)',
                 borderBottom: '1px solid rgba(255,255,255,0.12)',
-                cursor: 'pointer',
-                userSelect: 'none',
+                cursor: 'pointer'
               }}
               onClick={() => toggle(groupName)}
             >
               <IconButton size="small" style={{ padding: 4, marginRight: 8 }}>
-                {isCollapsed ? (
-                  <ChevronRightIcon fontSize="small" />
-                ) : (
-                  <ExpandMoreIcon fontSize="small" />
-                )}
+                {isCollapsed ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
               </IconButton>
 
               <Typography variant="subtitle2" style={{ fontWeight: 700, fontSize: '0.75rem' }}>
                 {displayKey(groupName)} 
-                {/* FIX: Total items in this group */}
                 <span style={{ marginLeft: 8, color: '#00b7ff' }}>({groupItems.length})</span>
               </Typography>
             </Box>
 
-            {/* Asset Rows */}
+            {/* Asset Rows (Internal Sort applied here) */}
             {!isCollapsed && (
               <Box>
-                {groupItems.length === 0 ? (
-                  <Box px={6} py={0.5} style={{ opacity: 0.5 }}>
-                    <Typography variant="caption">No assets</Typography>
+                {groupItems.map((asset) => (
+                  <Box
+                    key={`${asset.group_1}-${asset.relation}`}
+                    px={6} py={0.75}
+                    style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+                  >
+                    <Typography variant="body2" style={{ fontSize: '0.85rem' }}>
+                      {asset.group_1}
+                    </Typography>
                   </Box>
-                ) : (
-                  groupItems.map((asset) => (
-                    <Box
-                      key={`${asset.group_1}-${asset.relation}`}
-                      px={6}
-                      py={0.75}
-                      style={{
-                        borderBottom: '1px solid rgba(255,255,255,0.05)',
-                      }}
-                    >
-                      <Typography variant="body2" style={{ fontSize: '0.85rem' }}>
-                        {asset.group_1}
-                      </Typography>
-                    </Box>
-                  ))
-                )}
+                ))}
               </Box>
             )}
           </Box>
