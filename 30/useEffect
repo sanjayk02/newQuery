@@ -1,0 +1,11 @@
+useEffect(() => {
+  console.group('GROUPED VIEW — RAW BACKEND DATA');
+  groups?.forEach((g, i) => {
+    console.log(i, {
+      top_group_node: g.top_group_node,
+      normalized: (g.top_group_node ?? 'unassigned').trim().toLowerCase(),
+      itemsCount: g.items?.length,
+    });
+  });
+  console.groupEnd();
+}, [groups]);
