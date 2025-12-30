@@ -1,132 +1,133 @@
-import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { Box, Typography, IconButton } from '@material-ui/core';
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
 import ChevronRightIcon from '@material-ui/icons/ChevronRight';
 import { PivotGroup, SortDir } from './types';
 
 type Props = {
+  /** Groups returned by the backend when view=grouped */
   groups?: PivotGroup[];
+
+  /** 0-based UI page index (used by backend request; this component just renders what it receives) */
   page: number;
+
+  /** Assets per page (used by backend request; this component just renders what it receives) */
   rowsPerPage: number;
 
-  sortKey?: string;
-  sortDir?: SortDir;
+  /** Current UI sort key (used for sorting items within a group) */
+  sortKey: string;
 
-  // Optional rule
-  unassignedFirst?: boolean;
-
-  // A→Z or Z→A
-  groupSortDir?: 'asc' | 'desc';
+  /** Current UI sort direction (asc/desc/none) */
+  sortDir: SortDir;
 };
 
-const displayKey = (v: string | null) => (v ? String(v) : 'UNASSIGNED').trim().toUpperCase();
-
-const normalizeGroup = (v: any) => {
-  const s = (v === null || v === undefined || v === '' ? 'unassigned' : String(v)).trim();
-  return s.toLowerCase();
+const normalizeGroupName = (v: string | null | undefined) => {
+  const raw = v ? v : 'unassigned';
+  return String(raw).trim().toLowerCase();
 };
 
-const normalizeValue = (v: any) => {
-  if (v === null || v === undefined) return '';
+const displayKey = (v: string | null | undefined) => {
+  const raw = v ? v : 'UNASSIGNED';
+  return String(raw).trim().toUpperCase();
+};
+
+function getGroupTotalCount(g: PivotGroup): number {
+  const anyG: any = g as any;
+  if (typeof anyG.total_count === 'number') return anyG.total_count;
+  if (typeof anyG.itemsCount === 'number') return anyG.itemsCount;
+  if (typeof anyG.totalCount === 'number') return anyG.totalCount;
+  return Array.isArray(g.items) ? g.items.length : 0;
+}
+
+function compareStringsAsc(a: string, b: string) {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+function mapSortKey(sortKey: string) {
+  // UI label -> actual asset field key
+  if (sortKey === 'group_1_name') return 'group_1';
+  return sortKey;
+}
+
+function getComparableValue(row: any, key: string) {
+  const v = row && row[key] != null ? row[key] : '';
   const s = String(v).trim();
-  return s === '-' ? '' : s;
-};
-
-const isEmptyVal = (v: any) => normalizeValue(v) === '';
+  // keep blanks / '-' as lowest priority
+  if (s === '' || s === '-') return null;
+  return s.toLowerCase();
+}
 
 const AssetsGroupedDataTable: React.FC<Props> = ({
   groups = [],
   page,
   rowsPerPage,
-  sortKey = 'group_1',
-  sortDir = 'asc',
-  unassignedFirst = false,
-  groupSortDir,
+  sortKey,
+  sortDir,
 }) => {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const toggle = useCallback((key: string) => {
-    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
+    setCollapsed(prev => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
-  // ✅ Debug backend payload (optional)
-  useEffect(() => {
-    // console.log('GROUPED VIEW - RAW BACKEND DATA', groups);
-  }, [groups]);
-
+  /**
+   * Behavior (ShotGrid-like):
+   * - Group order: ALWAYS alphabetical A→Z, and UNASSIGNED ALWAYS LAST.
+   * - Items inside each group: sorted by sortKey/sortDir (asc/desc). If sortDir=none, no item sorting.
+   * - Pagination: this component renders what backend returns (groups can be split across pages).
+   */
   const processedGroups = useMemo(() => {
-    // 1) Sort groups ShotGrid-style
-    const dirForGroups: 'asc' | 'desc' =
-      groupSortDir ? groupSortDir : (sortDir === 'desc' ? 'desc' : 'asc');
-
+    // 1) Group order (A→Z, UNASSIGNED last)
     const orderedGroups = [...groups].sort((a, b) => {
-      const aNorm = normalizeGroup(a && (a as any).top_group_node);
-      const bNorm = normalizeGroup(b && (b as any).top_group_node);
+      const na = normalizeGroupName(a.top_group_node);
+      const nb = normalizeGroupName(b.top_group_node);
 
-      if (unassignedFirst) {
-        const aIsUn = aNorm === 'unassigned';
-        const bIsUn = bNorm === 'unassigned';
-        if (aIsUn && !bIsUn) return -1;
-        if (!aIsUn && bIsUn) return 1;
-      }
+      const aIsUn = na === 'unassigned';
+      const bIsUn = nb === 'unassigned';
 
-      const comp = aNorm.localeCompare(bNorm, undefined, { numeric: true, sensitivity: 'base' });
-      return dirForGroups === 'asc' ? comp : -comp;
+      if (aIsUn && !bIsUn) return 1;  // UNASSIGNED last
+      if (!aIsUn && bIsUn) return -1; // UNASSIGNED last
+
+      return compareStringsAsc(na, nb);
     });
 
-    // 2) Sort items inside each group based on current column sort
-    return orderedGroups.map((group) => {
-      const items = (group && (group as any).items) ? (group as any).items : [];
+    // 2) Sort items inside each group
+    if (sortDir === 'none') return orderedGroups;
 
-      // If sorting by group header itself, don't re-sort items by group key again
-      const sortingGroupHeader =
-        sortKey === 'group_1' || sortKey === 'group_1_name' || sortKey === 'top_group_node';
+    const key = mapSortKey(sortKey);
+    const dir: 'asc' | 'desc' = sortDir === 'desc' ? 'desc' : 'asc';
 
-      if (sortDir === 'none' || sortingGroupHeader) {
-        return { ...group, items };
-      }
-
-      const key = sortKey === 'group_1_name' ? 'group_1' : sortKey;
-
+    return orderedGroups.map(g => {
+      const items = Array.isArray(g.items) ? g.items : [];
       const sortedItems = [...items].sort((a: any, b: any) => {
-        const aVal = a ? a[key] : '';
-        const bVal = b ? b[key] : '';
+        const va = getComparableValue(a, key);
+        const vb = getComparableValue(b, key);
 
-        const aEmpty = isEmptyVal(aVal);
-        const bEmpty = isEmptyVal(bVal);
-        if (aEmpty && !bEmpty) return 1;
-        if (!aEmpty && bEmpty) return -1;
+        if (va == null && vb == null) return 0;
+        if (va == null) return 1;
+        if (vb == null) return -1;
 
-        const aa = normalizeValue(aVal).toLowerCase();
-        const bb = normalizeValue(bVal).toLowerCase();
-
-        const comp = aa.localeCompare(bb, undefined, { numeric: true, sensitivity: 'base' });
-        return sortDir === 'asc' ? comp : -comp;
+        const comp = va.localeCompare(vb, undefined, { numeric: true, sensitivity: 'base' });
+        return dir === 'asc' ? comp : -comp;
       });
 
-      return { ...group, items: sortedItems };
+      return { ...g, items: sortedItems };
     });
-  }, [groups, sortKey, sortDir, groupSortDir, unassignedFirst]);
+  }, [groups, sortKey, sortDir]);
 
   return (
     <Box width="100%">
-      {processedGroups.map((group: any) => {
-        const rawGroupName = group && group.top_group_node ? group.top_group_node : 'unassigned';
-        const groupKey = normalizeGroup(rawGroupName);
-        const isCollapsed = !!collapsed[groupKey];
+      {processedGroups.map(group => {
+        const groupNameRaw = group.top_group_node ? group.top_group_node : 'unassigned';
+        const groupName = String(groupNameRaw);
 
-        const groupItems = group && group.items ? group.items : [];
-
-        // If backend ever sends totals, we will use them automatically:
-        // supports: total_count, total, count
-        const totalCount =
-          (group && (group as any).total_count != null ? (group as any).total_count :
-          (group && (group as any).total != null ? (group as any).total :
-          (group && (group as any).count != null ? (group as any).count :
-          groupItems.length)));
+        const isCollapsed = !!collapsed[groupName];
+        const groupItems = Array.isArray(group.items) ? group.items : [];
+        const totalCount = getGroupTotalCount(group);
 
         return (
-          <Box key={groupKey} mb={0.5}>
+          <Box key={groupName} mb={0.5}>
+            {/* Group Header */}
             <Box
               px={1}
               py={0.5}
@@ -138,29 +139,30 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                 cursor: 'pointer',
                 userSelect: 'none',
               }}
-              onClick={() => toggle(groupKey)}
+              onClick={() => toggle(groupName)}
             >
               <IconButton size="small" style={{ padding: 4, marginRight: 8 }}>
                 {isCollapsed ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
               </IconButton>
 
               <Typography variant="subtitle2" style={{ fontWeight: 700, fontSize: '0.75rem' }}>
-                {displayKey(rawGroupName)}
+                {displayKey(groupName)}
                 <span style={{ marginLeft: 8, color: '#00b7ff' }}>({totalCount})</span>
               </Typography>
             </Box>
 
+            {/* Rows */}
             {!isCollapsed && (
               <Box>
-                {groupItems.map((asset: any) => (
+                {groupItems.map((asset: any, idx: number) => (
                   <Box
-                    key={(asset && asset.root ? asset.root : '') + '-' + (asset && asset.relation ? asset.relation : '')}
+                    key={String(asset?.id ?? asset?.relation ?? asset?.asset_name ?? `${groupName}-${idx}`)}
                     px={6}
                     py={0.75}
                     style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
                   >
                     <Typography variant="body2" style={{ fontSize: '0.85rem' }}>
-                      {asset && asset.group_1 ? asset.group_1 : ''}
+                      {asset?.group_1 ?? ''}
                     </Typography>
                   </Box>
                 ))}
