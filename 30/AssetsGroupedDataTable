@@ -12,8 +12,9 @@ type Props = {
   sortDir: SortDir;
 };
 
-/** * FIXED ORDER: Defines the static sequence for top-level nodes.
- * This prevents the groups themselves from re-sorting when column sorting is applied.
+/**
+ * FIXED GROUP ORDER: Defines the static sequence for top-level nodes 
+ * as seen in your "before sorted" and "after sorted" images.
  */
 const PINNED_ORDER = [
   'unassigned',
@@ -42,8 +43,13 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
     setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
+  /**
+   * Final Sorting & Ordering Logic:
+   * 1. PINNED ORDER: Reorders the group headers to follow the PINNED_ORDER array.
+   * 2. ASSET SORT: Sorts the assets inside each fixed group by the selected key/direction.
+   */
   const processedGroups = useMemo(() => {
-    // 1. PINNED SORTING: Reorder the groups to match PINNED_ORDER
+    // Force the top-level groups into the pinned order
     const orderedGroups = [...groups].sort((a, b) => {
       const nameA = (a.top_group_node || 'unassigned').toLowerCase();
       const nameB = (b.top_group_node || 'unassigned').toLowerCase();
@@ -57,7 +63,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
       return nameA.localeCompare(nameB);
     });
 
-    // 2. INTERNAL SORTING: Sort items inside those fixed groups
+    // Sort the contents of each fixed group
     return orderedGroups.map(group => {
       const sortedItems = [...(group.items || [])].sort((a: any, b: any) => {
         if (sortDir === 'none') return 0;
@@ -68,6 +74,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
         const valA = (a[key] || '').toString().toLowerCase();
         const valB = (b[key] || '').toString().toLowerCase();
 
+        // Keep empty values at the bottom
         if (valA === '' || valA === '-') return 1; 
         if (valB === '' || valB === '-') return -1;
 
@@ -88,34 +95,43 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
         
         return (
           <Box key={groupName} mb={0.5}>
-            {/* Pinned Group Header */}
+            {/* Final Group Header with Total Count */}
             <Box
-              px={1} py={0.5} display="flex" alignItems="center"
+              px={1}
+              py={0.5}
+              display="flex"
+              alignItems="center"
               style={{
                 background: 'rgba(255,255,255,0.08)',
                 borderBottom: '1px solid rgba(255,255,255,0.12)',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                userSelect: 'none'
               }}
               onClick={() => toggle(groupName)}
             >
               <IconButton size="small" style={{ padding: 4, marginRight: 8 }}>
-                {isCollapsed ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                {isCollapsed ? (
+                  <ChevronRightIcon fontSize="small" />
+                ) : (
+                  <ExpandMoreIcon fontSize="small" />
+                )}
               </IconButton>
 
               <Typography variant="subtitle2" style={{ fontWeight: 700, fontSize: '0.75rem' }}>
                 {displayKey(groupName)} 
-                {/* Total item count display next to group name */}
+                {/* Total items count rendered here in brackets */}
                 <span style={{ marginLeft: 8, color: '#00b7ff' }}>({groupItems.length})</span>
               </Typography>
             </Box>
 
-            {/* Sorted Asset Rows inside the group */}
+            {/* Asset Rows */}
             {!isCollapsed && (
               <Box>
                 {groupItems.map((asset) => (
                   <Box
                     key={`${asset.group_1}-${asset.relation}`}
-                    px={6} py={0.75}
+                    px={6}
+                    py={0.75}
                     style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
                   >
                     <Typography variant="body2" style={{ fontSize: '0.85rem' }}>
