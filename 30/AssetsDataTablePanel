@@ -1,0 +1,30 @@
+// Inside AssetsDataTablePanel component
+const [dynamicPinnedOrder, setDynamicPinnedOrder] = useState<string[]>([]);
+
+useEffect(() => {
+  if (!currentProject) return;
+  (async () => {
+    try {
+      // Fetching dynamic order from a hypothetical pipeline setting key
+      const val = await queryConfig('project', currentProject.key_name, '/ppiTracker/assets/groupOrder');
+      if (val) {
+        const orderArray = Array.isArray(val) ? val : JSON.parse(val as string);
+        setDynamicPinnedOrder(orderArray.map((s: string) => s.toLowerCase()));
+      }
+    } catch (e) {
+      console.warn('Failed to load dynamic group order, using defaults', e);
+      // Fallback to a default order if the setting doesn't exist
+      setDynamicPinnedOrder(['unassigned', 'camera', 'character', 'prop', 'set']);
+    }
+  })();
+}, [currentProject]);
+
+// ... in the render section ...
+<AssetsGroupedDataTable
+  groups={groups}
+  page={pageProps.page}
+  rowsPerPage={pageProps.rowsPerPage}
+  sortKey={uiSortKey}
+  sortDir={uiSortDir}
+  pinnedTopGroups={dynamicPinnedOrder} // Pass the dynamic order here
+/>
