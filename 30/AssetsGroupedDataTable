@@ -1,8 +1,8 @@
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { Box, Typography, IconButton } from '@material-ui/core';
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
 import ChevronRightIcon from '@material-ui/icons/ChevronRight';
-import { Asset, PivotGroup, SortDir } from './types';
+import { PivotGroup, SortDir } from './types';
 
 type Props = {
   /** Groups returned by the backend when view=grouped */
@@ -17,9 +17,15 @@ type Props = {
   sortDir: SortDir;
   /** Pinned top nodes to show in a fixed order */
   pinnedTopGroups?: string[];
+  /**
+   * How to order the top groups:
+   * - 'pinned' = DEFAULT_PINNED_ORDER first (recommended)
+   * - 'alpha'  = alphabetical A->Z / Z->A based on sortDir
+   */
+  groupOrderMode?: 'pinned' | 'alpha';
 };
 
-// Fixed order (your “Before Sorted”)
+// Fixed order you want (as per "Before Sorted")
 const DEFAULT_PINNED_ORDER = [
   'unassigned',
   'camera',
@@ -32,47 +38,26 @@ const DEFAULT_PINNED_ORDER = [
   'creature',
 ];
 
-const normalizeGroupKey = (v: string | null | undefined) => {
-  const s = (v ?? '').trim();
-  if (!s || s === '-') return 'unassigned';
+function normalizeTopGroupNode(v: any) {
+  var s = v == null ? '' : String(v);
+  s = s.trim();
+  if (!s) return 'unassigned';
   return s.toLowerCase();
-};
+}
 
-const displayGroupKey = (v: string | null | undefined) =>
-  (v || 'UNASSIGNED').trim().toUpperCase();
+function displayKey(v: any) {
+  var s = v == null ? '' : String(v);
+  s = s.trim();
+  if (!s) s = 'UNASSIGNED';
+  return s.toUpperCase();
+}
 
-/**
- * Maps UI sort keys to real Asset fields.
- * Adjust this mapping if your UI uses different keys.
- */
-const resolveItemSortField = (uiKey: string): keyof Asset | null => {
-  if (!uiKey) return null;
-
-  // Common direct keys
-  if (uiKey === 'group_1' || uiKey === 'relation') return uiKey as keyof Asset;
-
-  // Example dynamic keys like: mdl_work, mdl_appr, mdl_submitted etc.
-  // Supports phases: mdl|rig|bld|dsn|ldv and fields work|appr|submitted
-  const m = uiKey.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
-  if (!m) return null;
-
-  const phase = m[1].toLowerCase();
-  const field = m[2].toLowerCase();
-
-  if (field === 'work') return `${phase}_work_status` as keyof Asset;
-  if (field === 'appr') return `${phase}_approval_status` as keyof Asset;
-  if (field === 'submitted') return `${phase}_submitted` as keyof Asset;
-
-  return null;
-};
-
-const toSortableString = (v: any) => {
-  if (v == null) return '';
-  if (typeof v === 'string') return v.trim();
-  return String(v).trim();
-};
-
-const isEmptyLike = (s: string) => s === '' || s === '-' || s.toLowerCase() === 'unassigned';
+function getComparableValue(obj: any, key: string) {
+  var v = obj && obj[key] != null ? obj[key] : '';
+  var s = String(v).trim();
+  if (!s || s === '-') return ''; // treat empty placeholders as empty
+  return s.toLowerCase();
+}
 
 const AssetsGroupedDataTable: React.FC<Props> = ({
   groups = [],
@@ -81,72 +66,98 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
   sortKey,
   sortDir,
   pinnedTopGroups = DEFAULT_PINNED_ORDER,
+  groupOrderMode = 'pinned',
 }) => {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const toggle = useCallback((key: string) => {
-    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
+    setCollapsed(function (prev) {
+      return { ...prev, [key]: !prev[key] };
+    });
   }, []);
 
+  // --- Debug: what backend is sending (no optional chaining) ---
+  useEffect(() => {
+    // Comment this out once verified
+    console.group('GROUPED VIEW - RAW BACKEND DATA');
+    for (var i = 0; i < groups.length; i++) {
+      var g: any = (groups as any)[i];
+      console.log(i, {
+        top_group_node: g && g.top_group_node,
+        normalized: normalizeTopGroupNode(g && g.top_group_node),
+        itemsCount: g && g.items ? g.items.length : 0,
+      });
+    }
+    console.groupEnd();
+  }, [groups]);
+
   const processedGroups = useMemo(() => {
-    // Normalize pinned list (IMPORTANT FIX)
-    const pinned = (pinnedTopGroups || []).map((k) => normalizeGroupKey(k));
-    const orderMap = new Map<string, number>(pinned.map((k, i) => [k, i]));
-
-    // 1) Fixed group order: pinned first, then alpha
-    const orderedGroups = [...groups].sort((a, b) => {
-      const aKey = normalizeGroupKey(a.top_group_node);
-      const bKey = normalizeGroupKey(b.top_group_node);
-
-      const aIdx = orderMap.get(aKey) ?? -1;
-      const bIdx = orderMap.get(bKey) ?? -1;
-
-      if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
-      if (aIdx !== -1) return -1;
-      if (bIdx !== -1) return 1;
-
-      return aKey.localeCompare(bKey, undefined, { numeric: true });
+    var pinned = (pinnedTopGroups || []).map(function (x) {
+      return normalizeTopGroupNode(x);
     });
 
-    // 2) Sort items within each group based on current UI sort
-    const field = resolveItemSortField(sortKey);
+    // 1) ORDER GROUPS
+    var orderedGroups = groups.slice().sort(function (a: any, b: any) {
+      var aName = normalizeTopGroupNode(a && a.top_group_node);
+      var bName = normalizeTopGroupNode(b && b.top_group_node);
 
-    return orderedGroups.map((group) => {
-      const items = [...(group.items || [])];
+      // Alphabetical mode (A->Z / Z->A via sortDir)
+      if (groupOrderMode === 'alpha') {
+        var cmpAlpha = aName.localeCompare(bName, undefined, { numeric: true });
+        return sortDir === 'desc' ? -cmpAlpha : cmpAlpha;
+      }
 
-      // If no sort (or unknown sort key), keep backend order.
-      if (!field || sortDir === 'none') return { ...group, items };
+      // Pinned mode (DEFAULT_PINNED_ORDER first)
+      var ia = pinned.indexOf(aName);
+      var ib = pinned.indexOf(bName);
 
-      const asc = sortDir === 'asc';
+      if (ia !== -1 && ib !== -1) return ia - ib;
+      if (ia !== -1) return -1;
+      if (ib !== -1) return 1;
 
-      items.sort((a: any, b: any) => {
-        const aStr = toSortableString(a?.[field]).toLowerCase();
-        const bStr = toSortableString(b?.[field]).toLowerCase();
+      // unknown groups after pinned, but alphabetical among themselves
+      return aName.localeCompare(bName, undefined, { numeric: true });
+    });
 
-        // Push empties to bottom (both directions)
-        const aEmpty = isEmptyLike(aStr);
-        const bEmpty = isEmptyLike(bStr);
-        if (aEmpty && !bEmpty) return 1;
-        if (!aEmpty && bEmpty) return -1;
+    // 2) SORT ITEMS INSIDE EACH GROUP (based on sortKey/sortDir)
+    var key = sortKey === 'group_1_name' ? 'group_1' : sortKey;
 
-        const cmp = aStr.localeCompare(bStr, undefined, { numeric: true, sensitivity: 'base' });
+    return orderedGroups.map(function (group: any) {
+      var items = group && group.items ? group.items.slice() : [];
+
+      items.sort(function (a: any, b: any) {
+        if (sortDir === 'none') return 0;
+
+        var asc = sortDir === 'asc';
+        var va = getComparableValue(a, key);
+        var vb = getComparableValue(b, key);
+
+        // keep empty values at bottom
+        if (!va && vb) return 1;
+        if (!vb && va) return -1;
+        if (!va && !vb) return 0;
+
+        var cmp = va.localeCompare(vb, undefined, { numeric: true });
         return asc ? cmp : -cmp;
       });
 
-      return { ...group, items };
+      return { ...group, items: items };
     });
-  }, [groups, sortKey, sortDir, pinnedTopGroups]);
+  }, [groups, sortKey, sortDir, pinnedTopGroups, groupOrderMode]);
+
+  // NOTE: you’re not using page/rowsPerPage here because grouped view is usually “show all groups”.
+  // If you want paging later, we can page the *groups* or page the *flattened items*.
 
   return (
     <Box width="100%">
-      {processedGroups.map((group) => {
-        const rawGroupName = group.top_group_node || 'unassigned';
-        const groupKey = normalizeGroupKey(rawGroupName); // stable key
-        const isCollapsed = !!collapsed[groupKey];
-        const groupItems = group.items || [];
+      {processedGroups.map(function (group: any) {
+        var rawName = group && group.top_group_node ? group.top_group_node : 'unassigned';
+        var collapseKey = normalizeTopGroupNode(rawName);
+        var isCollapsed = !!collapsed[collapseKey];
+        var groupItems = group && group.items ? group.items : [];
 
         return (
-          <Box key={groupKey} mb={0.5}>
+          <Box key={collapseKey} mb={0.5}>
             {/* Group Header */}
             <Box
               px={1}
@@ -159,7 +170,9 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                 cursor: 'pointer',
                 userSelect: 'none',
               }}
-              onClick={() => toggle(groupKey)}
+              onClick={function () {
+                toggle(collapseKey);
+              }}
             >
               <IconButton size="small" style={{ padding: 4, marginRight: 8 }}>
                 {isCollapsed ? (
@@ -170,7 +183,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
               </IconButton>
 
               <Typography variant="subtitle2" style={{ fontWeight: 700, fontSize: '0.75rem' }}>
-                {displayGroupKey(rawGroupName)}
+                {displayKey(rawName)}
                 <span style={{ marginLeft: 8, color: '#00b7ff' }}>({groupItems.length})</span>
               </Typography>
             </Box>
@@ -178,18 +191,27 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
             {/* Asset Rows */}
             {!isCollapsed && (
               <Box>
-                {groupItems.map((asset: any, idx: number) => (
-                  <Box
-                    key={asset?.id ?? `${groupKey}-${asset?.group_1 ?? ''}-${asset?.relation ?? ''}-${idx}`}
-                    px={6}
-                    py={0.75}
-                    style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
-                  >
-                    <Typography variant="body2" style={{ fontSize: '0.85rem' }}>
-                      {asset.group_1}
-                    </Typography>
-                  </Box>
-                ))}
+                {groupItems.map(function (asset: any, idx: number) {
+                  var rowKey =
+                    (asset && asset.relation ? String(asset.relation) : 'r') +
+                    '-' +
+                    (asset && asset.group_1 ? String(asset.group_1) : 'g') +
+                    '-' +
+                    idx;
+
+                  return (
+                    <Box
+                      key={rowKey}
+                      px={6}
+                      py={0.75}
+                      style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+                    >
+                      <Typography variant="body2" style={{ fontSize: '0.85rem' }}>
+                        {asset && asset.group_1 ? asset.group_1 : '-'}
+                      </Typography>
+                    </Box>
+                  );
+                })}
               </Box>
             )}
           </Box>
