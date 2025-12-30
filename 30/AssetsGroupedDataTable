@@ -5,15 +5,32 @@ import ChevronRightIcon from '@material-ui/icons/ChevronRight';
 import { Asset, PivotGroup, SortDir } from './types';
 
 type Props = {
+  /** Groups returned by the backend when view=grouped */
   groups?: PivotGroup[];
+  /** 0-based UI page index */
   page: number;
+  /** Rows per page setting */
   rowsPerPage: number;
+  /** Current UI sort key */
   sortKey: string;
+  /** Current UI sort direction */
   sortDir: SortDir;
+  /** Pinned top nodes to show in a fixed order */
   pinnedTopGroups?: string[];
 };
 
-const DEFAULT_PINNED_ORDER = ['camera', 'character', 'prop', 'set', 'unassigned'];
+// Define the fixed order as seen in your "Before Sorted" image
+const DEFAULT_PINNED_ORDER = [
+  'unassigned',
+  'camera',
+  'character',
+  'test',
+  'set',
+  'prop',
+  'light',
+  'fx',
+  'creature'
+];
 
 const displayKey = (v: string | null) => (v || 'UNASSIGNED').trim().toUpperCase();
 
@@ -32,18 +49,20 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
   }, []);
 
   /**
-   * 1. FIXED TOP NODES: Reorder groups based on pinnedTopGroups.
-   * 2. INTERNAL SORT: Sort items inside each group based on sortKey/sortDir.
+   * Internal Logic:
+   * 1. FIXED GROUP ORDER: Reorders groups based on pinnedTopGroups array.
+   * 2. ITEM SORTING: Sorts items inside each group based on sortKey/sortDir.
    */
   const processedGroups = useMemo(() => {
-    // Clone and sort the groups based on the pinned order
+    // Clone and reorder the groups based on the fixed list
     const orderedGroups = [...groups].sort((a, b) => {
       const nameA = (a.top_group_node || 'unassigned').toLowerCase();
       const nameB = (b.top_group_node || 'unassigned').toLowerCase();
+      
       const indexA = pinnedTopGroups.indexOf(nameA);
       const indexB = pinnedTopGroups.indexOf(nameB);
 
-      // If both are in pinned list, use that order. 
+      // If both are in the pinned list, use that order. 
       // If one is missing, push it to the end.
       if (indexA !== -1 && indexB !== -1) return indexA - indexB;
       if (indexA !== -1) return -1;
@@ -51,17 +70,19 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
       return nameA.localeCompare(nameB);
     });
 
-    // Sort items inside each group
+    // Sort the items within each group based on current column sorting
     return orderedGroups.map(group => {
       const sortedItems = [...(group.items || [])].sort((a: any, b: any) => {
         if (sortDir === 'none') return 0;
         
         const isAsc = sortDir === 'asc';
+        // Map UI labels to actual data keys (e.g., 'group_1_name' -> 'group_1')
         let key = sortKey === 'group_1_name' ? 'group_1' : sortKey;
 
         const valA = (a[key] || '').toString().toLowerCase();
         const valB = (b[key] || '').toString().toLowerCase();
 
+        // Ensure empty/placeholder values stay at the bottom
         if (valA === '' || valA === '-') return 1; 
         if (valB === '' || valB === '-') return -1;
 
@@ -88,7 +109,8 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
               style={{
                 background: 'rgba(255,255,255,0.08)',
                 borderBottom: '1px solid rgba(255,255,255,0.12)',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                userSelect: 'none'
               }}
               onClick={() => toggle(groupName)}
             >
@@ -98,11 +120,12 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
 
               <Typography variant="subtitle2" style={{ fontWeight: 700, fontSize: '0.75rem' }}>
                 {displayKey(groupName)} 
+                {/* Total items in that group as requested in image_befc4e.png */}
                 <span style={{ marginLeft: 8, color: '#00b7ff' }}>({groupItems.length})</span>
               </Typography>
             </Box>
 
-            {/* Asset Rows (Internal Sort applied here) */}
+            {/* Sorted Asset Rows */}
             {!isCollapsed && (
               <Box>
                 {groupItems.map((asset) => (
