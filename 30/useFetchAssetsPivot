@@ -1,0 +1,61 @@
+/* hooks.ts */
+import { useEffect, useState } from 'react';
+import { Asset, PivotGroup, SortDir } from './types';
+import { fetchAssetsPivot } from './api';
+import { Project } from '../types';
+
+export function useFetchAssetsPivot(
+  project: Project | null | undefined,
+  page: number,
+  rowsPerPage: number,
+  sortKey: string,
+  sortDir: SortDir,
+  phase: string,
+  assetNameKey: string,
+  approvalStatuses: string[],
+  workStatuses: string[],
+  viewMode: 'list' | 'grouped', 
+): { assets: Asset[]; total: number; groups: PivotGroup[] } {
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [groups, setGroups] = useState<PivotGroup[]>([]);
+  const [total, setTotal] = useState(0);
+
+  useEffect(() => {
+    if (project == null || sortDir === 'none') return;
+
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const res = await fetchAssetsPivot(
+          project.key_name,
+          page,
+          rowsPerPage,
+          sortKey,
+          sortDir,
+          phase,
+          assetNameKey,
+          approvalStatuses,
+          workStatuses,
+          viewMode,
+          controller.signal,
+        );
+
+        const list = (res as any).assets || (res as any).data || [];
+        const count = (res as any).total || 0;
+        const serverGroups: PivotGroup[] = Array.isArray((res as any).groups) ? (res as any).groups : [];
+
+        setAssets(list);
+        setTotal(count);
+        setGroups(serverGroups);
+      } catch (err) {
+        if ((err as any).name === 'AbortError') return;
+        console.error(err);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [project, page, rowsPerPage, sortKey, sortDir, phase, assetNameKey, approvalStatuses, workStatuses, viewMode]);
+
+  return { assets, total, groups };
+}
