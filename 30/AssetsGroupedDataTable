@@ -1,4 +1,3 @@
-/* AssetsGroupeDataTable.tsx */
 import React, { useMemo, useState, useCallback } from 'react';
 import { Box, Typography, IconButton } from '@material-ui/core';
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
@@ -6,17 +5,25 @@ import ChevronRightIcon from '@material-ui/icons/ChevronRight';
 import { Asset, PivotGroup } from './types';
 
 type Props = {
+  /** Groups returned by the backend when view=grouped */
   groups?: PivotGroup[];
+  /** 0-based UI page index */
   page: number;
+  /** Rows per page setting */
   rowsPerPage: number;
+  /** Pinned top nodes to show in a fixed order */
   pinnedTopGroups?: string[];
 };
+
+const DEFAULT_PINNED_TOP_GROUPS = ['camera', 'character', 'prop', 'set'];
+
+const displayKey = (v: string) => (v || '').trim().toUpperCase();
 
 const AssetsGroupedDataTable: React.FC<Props> = ({
   groups = [],
   page,
   rowsPerPage,
-  pinnedTopGroups = ['camera', 'character', 'prop', 'set'],
+  pinnedTopGroups = DEFAULT_PINNED_TOP_GROUPS,
 }) => {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -24,22 +31,39 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
     setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
-  const displayKey = (v: string) => (v || '').trim().toUpperCase();
+  /**
+   * Internal Sorting Logic:
+   * We keep the top nodes fixed but sort the items inside each group 
+   * to ensure assets are easy to find (e.g., A-Z).
+   */
+  const processedGroups = useMemo(() => {
+    return groups.map(group => {
+      const sortedItems = [...(group.items || [])].sort((a, b) => {
+        const nameA = (a.group_1 || '').toLowerCase();
+        const nameB = (b.group_1 || '').toLowerCase();
+        return nameA.localeCompare(nameB);
+      });
+      return { ...group, items: sortedItems };
+    });
+  }, [groups]);
 
   return (
     <Box width="100%">
-      {groups.map((group, index) => {
+      {processedGroups.map((group, index) => {
         const groupName = group.top_group_node || 'unassigned';
         const isCollapsed = !!collapsed[groupName];
         const groupItems = group.items || [];
         
-        // ShotGrid Logic: If we are not on page 0 and this is the first group, it's likely continued.
-        // Or if the group is full (matching rowsPerPage), it likely continues on the next page.
+        /** * ShotGrid Logic for Pagination:
+         * - isContinued: If this is the first group on any page after page 1.
+         * - willContinue: If the group is full, indicating more exists on the next page.
+         */
         const isContinued = page > 0 && index === 0;
         const willContinue = groupItems.length === rowsPerPage;
 
         return (
-          <Box key={groupName} mb={1}>
+          <Box key={groupName} mb={0.5}>
+            {/* Group Header (Fixed Node) */}
             <Box
               px={1}
               py={0.5}
@@ -48,30 +72,55 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
               style={{
                 background: 'rgba(255,255,255,0.08)',
                 borderBottom: '1px solid rgba(255,255,255,0.12)',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                userSelect: 'none',
               }}
               onClick={() => toggle(groupName)}
             >
-              <IconButton size="small" style={{ marginRight: 8 }}>
-                {isCollapsed ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+              <IconButton size="small" style={{ padding: 4, marginRight: 8 }}>
+                {isCollapsed ? (
+                  <ChevronRightIcon fontSize="small" />
+                ) : (
+                  <ExpandMoreIcon fontSize="small" />
+                )}
               </IconButton>
-              <Typography variant="subtitle2" style={{ fontWeight: 700 }}>
+
+              <Typography variant="subtitle2" style={{ fontWeight: 700, fontSize: '0.75rem' }}>
                 {displayKey(groupName)} 
-                {isContinued && <span style={{ opacity: 0.6, marginLeft: 8 }}>(continued)</span>}
+                {isContinued && (
+                  <span style={{ opacity: 0.5, marginLeft: 8, fontWeight: 400 }}>(continued)</span>
+                )}
                 <span style={{ marginLeft: 8, color: '#00b7ff' }}>({groupItems.length})</span>
               </Typography>
             </Box>
 
+            {/* Asset Rows (Sorted Items) */}
             {!isCollapsed && (
               <Box>
-                {groupItems.map((asset) => (
-                  <Box key={`${asset.group_1}-${asset.relation}`} px={6} py={1} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                    <Typography variant="body2">{asset.group_1}</Typography>
+                {groupItems.length === 0 ? (
+                  <Box px={6} py={0.5} style={{ opacity: 0.5 }}>
+                    <Typography variant="caption">No assets</Typography>
                   </Box>
-                ))}
+                ) : (
+                  groupItems.map((asset) => (
+                    <Box
+                      key={`${asset.group_1}-${asset.relation}`}
+                      px={6}
+                      py={0.75}
+                      style={{
+                        borderBottom: '1px solid rgba(255,255,255,0.05)',
+                        backgroundColor: 'transparent'
+                      }}
+                    >
+                      <Typography variant="body2" style={{ fontSize: '0.85rem' }}>
+                        {asset.group_1}
+                      </Typography>
+                    </Box>
+                  ))
+                )}
                 {willContinue && (
-                  <Box px={6} py={1}>
-                    <Typography variant="caption" style={{ color: '#aaa', fontStyle: 'italic' }}>
+                  <Box px={6} py={0.5}>
+                    <Typography variant="caption" style={{ color: '#888', fontStyle: 'italic' }}>
                       More assets in {displayKey(groupName)} on next page...
                     </Typography>
                   </Box>
