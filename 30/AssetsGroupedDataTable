@@ -1,8 +1,8 @@
-import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { Box, Typography, IconButton } from '@material-ui/core';
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
 import ChevronRightIcon from '@material-ui/icons/ChevronRight';
-import { PivotGroup, SortDir } from './types';
+import { Asset, PivotGroup, SortDir } from './types';
 
 type Props = {
   /** Groups returned by the backend when view=grouped */
@@ -11,53 +11,50 @@ type Props = {
   page: number;
   /** Rows per page setting */
   rowsPerPage: number;
-  /** Current UI sort key */
+
+  /** Current UI sort key (same state as list view) */
   sortKey: string;
   /** Current UI sort direction */
   sortDir: SortDir;
-  /** Pinned top nodes to show in a fixed order */
-  pinnedTopGroups?: string[];
-  /**
-   * How to order the top groups:
-   * - 'pinned' = DEFAULT_PINNED_ORDER first (recommended)
-   * - 'alpha'  = alphabetical A->Z / Z->A based on sortDir
-   */
-  groupOrderMode?: 'pinned' | 'alpha';
+
+  /** ShotGrid-like rule: keep UNASSIGNED first */
+  unassignedFirst?: boolean;
 };
 
-// Fixed order you want (as per "Before Sorted")
-const DEFAULT_PINNED_ORDER = [
-  'unassigned',
-  'camera',
-  'character',
-  'test',
-  'set',
-  'prop',
-  'light',
-  'fx',
-  'creature',
-];
+const normalizeGroupKey = (v: string | null | undefined) => {
+  const raw = (v || '').trim();
+  return raw ? raw.toLowerCase() : 'unassigned';
+};
 
-function normalizeTopGroupNode(v: any) {
-  var s = v == null ? '' : String(v);
-  s = s.trim();
-  if (!s) return 'unassigned';
-  return s.toLowerCase();
-}
+const displayGroupKey = (v: string | null | undefined) => {
+  const raw = (v || '').trim();
+  return raw ? raw.toUpperCase() : 'UNASSIGNED';
+};
 
-function displayKey(v: any) {
-  var s = v == null ? '' : String(v);
-  s = s.trim();
-  if (!s) s = 'UNASSIGNED';
-  return s.toUpperCase();
-}
+const isEmptySortVal = (v: unknown) => v == null || v === '' || v === '-';
 
-function getComparableValue(obj: any, key: string) {
-  var v = obj && obj[key] != null ? obj[key] : '';
-  var s = String(v).trim();
-  if (!s || s === '-') return ''; // treat empty placeholders as empty
-  return s.toLowerCase();
-}
+// Map UI sort keys to actual Asset keys.
+// - `group_1_name` in the UI is the asset name in this dataset (`group_1`)
+const resolveItemSortField = (uiKey: string): keyof Asset | null => {
+  if (!uiKey) return null;
+  if (uiKey === 'group_1_name') return 'group_1' as keyof Asset;
+  if (uiKey === 'group_1' || uiKey === 'relation') return uiKey as keyof Asset;
+  return uiKey as keyof Asset;
+};
+
+const compareStrings = (a: unknown, b: unknown, dir: SortDir) => {
+  const asc = dir === 'asc';
+  const aEmpty = isEmptySortVal(a);
+  const bEmpty = isEmptySortVal(b);
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return 1;
+  if (bEmpty) return -1;
+
+  const sa = String(a).toLowerCase();
+  const sb = String(b).toLowerCase();
+  const comp = sa.localeCompare(sb, undefined, { numeric: true });
+  return asc ? comp : -comp;
+};
 
 const AssetsGroupedDataTable: React.FC<Props> = ({
   groups = [],
@@ -65,99 +62,65 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
   rowsPerPage,
   sortKey,
   sortDir,
-  pinnedTopGroups = DEFAULT_PINNED_ORDER,
-  groupOrderMode = 'pinned',
+  unassignedFirst = true,
 }) => {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const toggle = useCallback((key: string) => {
-    setCollapsed(function (prev) {
-      return { ...prev, [key]: !prev[key] };
-    });
+    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
-  // --- Debug: what backend is sending (no optional chaining) ---
-  useEffect(() => {
-    // Comment this out once verified
-    console.group('GROUPED VIEW - RAW BACKEND DATA');
-    for (var i = 0; i < groups.length; i++) {
-      var g: any = (groups as any)[i];
-      console.log(i, {
-        top_group_node: g && g.top_group_node,
-        normalized: normalizeTopGroupNode(g && g.top_group_node),
-        itemsCount: g && g.items ? g.items.length : 0,
-      });
-    }
-    console.groupEnd();
-  }, [groups]);
-
+  /**
+   * ShotGrid-like sorting:
+   * - Group headers: alphabetical A→Z or Z→A
+   * - Optional rule: UNASSIGNED always first
+   * - Items inside each group: sorted by current UI sortKey/sortDir
+   */
   const processedGroups = useMemo(() => {
-    var pinned = (pinnedTopGroups || []).map(function (x) {
-      return normalizeTopGroupNode(x);
-    });
+    const effectiveGroupDir: SortDir = sortDir === 'desc' ? 'desc' : 'asc';
 
-    // 1) ORDER GROUPS
-    var orderedGroups = groups.slice().sort(function (a: any, b: any) {
-      var aName = normalizeTopGroupNode(a && a.top_group_node);
-      var bName = normalizeTopGroupNode(b && b.top_group_node);
+    // 1) Sort GROUP HEADERS
+    const orderedGroups = [...groups].sort((ga, gb) => {
+      const aKey = normalizeGroupKey(ga.top_group_node);
+      const bKey = normalizeGroupKey(gb.top_group_node);
 
-      // Alphabetical mode (A->Z / Z->A via sortDir)
-      if (groupOrderMode === 'alpha') {
-        var cmpAlpha = aName.localeCompare(bName, undefined, { numeric: true });
-        return sortDir === 'desc' ? -cmpAlpha : cmpAlpha;
+      if (unassignedFirst) {
+        const aIsUnassigned = aKey === 'unassigned';
+        const bIsUnassigned = bKey === 'unassigned';
+        if (aIsUnassigned && !bIsUnassigned) return -1;
+        if (!aIsUnassigned && bIsUnassigned) return 1;
       }
 
-      // Pinned mode (DEFAULT_PINNED_ORDER first)
-      var ia = pinned.indexOf(aName);
-      var ib = pinned.indexOf(bName);
-
-      if (ia !== -1 && ib !== -1) return ia - ib;
-      if (ia !== -1) return -1;
-      if (ib !== -1) return 1;
-
-      // unknown groups after pinned, but alphabetical among themselves
-      return aName.localeCompare(bName, undefined, { numeric: true });
+      const comp = aKey.localeCompare(bKey, undefined, { numeric: true });
+      return effectiveGroupDir === 'asc' ? comp : -comp;
     });
 
-    // 2) SORT ITEMS INSIDE EACH GROUP (based on sortKey/sortDir)
-    var key = sortKey === 'group_1_name' ? 'group_1' : sortKey;
+    // 2) Sort ITEMS WITHIN EACH GROUP (based on sortKey/sortDir)
+    const field = resolveItemSortField(sortKey);
+    const effectiveItemDir: SortDir = sortDir === 'desc' ? 'desc' : 'asc';
 
-    return orderedGroups.map(function (group: any) {
-      var items = group && group.items ? group.items.slice() : [];
+    return orderedGroups.map((g) => {
+      const items = [...(g.items || [])];
+      if (!field || sortDir === 'none') return { ...g, items };
 
-      items.sort(function (a: any, b: any) {
-        if (sortDir === 'none') return 0;
-
-        var asc = sortDir === 'asc';
-        var va = getComparableValue(a, key);
-        var vb = getComparableValue(b, key);
-
-        // keep empty values at bottom
-        if (!va && vb) return 1;
-        if (!vb && va) return -1;
-        if (!va && !vb) return 0;
-
-        var cmp = va.localeCompare(vb, undefined, { numeric: true });
-        return asc ? cmp : -cmp;
-      });
-
-      return { ...group, items: items };
+      items.sort((a, b) => compareStrings((a as any)[field], (b as any)[field], effectiveItemDir));
+      return { ...g, items };
     });
-  }, [groups, sortKey, sortDir, pinnedTopGroups, groupOrderMode]);
-
-  // NOTE: you’re not using page/rowsPerPage here because grouped view is usually “show all groups”.
-  // If you want paging later, we can page the *groups* or page the *flattened items*.
+  }, [groups, sortKey, sortDir, unassignedFirst]);
 
   return (
     <Box width="100%">
-      {processedGroups.map(function (group: any) {
-        var rawName = group && group.top_group_node ? group.top_group_node : 'unassigned';
-        var collapseKey = normalizeTopGroupNode(rawName);
-        var isCollapsed = !!collapsed[collapseKey];
-        var groupItems = group && group.items ? group.items : [];
+      {processedGroups.map((group, index) => {
+        const groupKey = normalizeGroupKey(group.top_group_node); // stable key
+        const isCollapsed = !!collapsed[groupKey];
+        const groupItems = group.items || [];
+
+        // ShotGrid pagination hints
+        const isContinued = page > 0 && index === 0;
+        const willContinue = groupItems.length === rowsPerPage;
 
         return (
-          <Box key={collapseKey} mb={0.5}>
+          <Box key={groupKey} mb={0.5}>
             {/* Group Header */}
             <Box
               px={1}
@@ -170,48 +133,53 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                 cursor: 'pointer',
                 userSelect: 'none',
               }}
-              onClick={function () {
-                toggle(collapseKey);
-              }}
+              onClick={() => toggle(groupKey)}
             >
               <IconButton size="small" style={{ padding: 4, marginRight: 8 }}>
-                {isCollapsed ? (
-                  <ChevronRightIcon fontSize="small" />
-                ) : (
-                  <ExpandMoreIcon fontSize="small" />
-                )}
+                {isCollapsed ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
               </IconButton>
 
               <Typography variant="subtitle2" style={{ fontWeight: 700, fontSize: '0.75rem' }}>
-                {displayKey(rawName)}
+                {displayGroupKey(group.top_group_node)}
+                {isContinued && (
+                  <span style={{ opacity: 0.5, marginLeft: 8, fontWeight: 400 }}>(continued)</span>
+                )}
                 <span style={{ marginLeft: 8, color: '#00b7ff' }}>({groupItems.length})</span>
               </Typography>
             </Box>
 
-            {/* Asset Rows */}
+            {/* Rows */}
             {!isCollapsed && (
               <Box>
-                {groupItems.map(function (asset: any, idx: number) {
-                  var rowKey =
-                    (asset && asset.relation ? String(asset.relation) : 'r') +
-                    '-' +
-                    (asset && asset.group_1 ? String(asset.group_1) : 'g') +
-                    '-' +
-                    idx;
-
-                  return (
+                {groupItems.length === 0 ? (
+                  <Box px={6} py={0.5} style={{ opacity: 0.5 }}>
+                    <Typography variant="caption">No assets</Typography>
+                  </Box>
+                ) : (
+                  groupItems.map((asset) => (
                     <Box
-                      key={rowKey}
+                      key={`${asset.group_1}-${asset.relation}`}
                       px={6}
                       py={0.75}
-                      style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+                      style={{
+                        borderBottom: '1px solid rgba(255,255,255,0.05)',
+                        backgroundColor: 'transparent',
+                      }}
                     >
                       <Typography variant="body2" style={{ fontSize: '0.85rem' }}>
-                        {asset && asset.group_1 ? asset.group_1 : '-'}
+                        {asset.group_1}
                       </Typography>
                     </Box>
-                  );
-                })}
+                  ))
+                )}
+
+                {willContinue && (
+                  <Box px={6} py={0.5}>
+                    <Typography variant="caption" style={{ color: '#888', fontStyle: 'italic' }}>
+                      More assets in {displayGroupKey(group.top_group_node)} on next page...
+                    </Typography>
+                  </Box>
+                )}
               </Box>
             )}
           </Box>
