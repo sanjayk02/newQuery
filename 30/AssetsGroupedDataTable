@@ -1,30 +1,112 @@
-// Inside AssetsDataTablePanel component
-const [dynamicPinnedOrder, setDynamicPinnedOrder] = useState<string[]>([]);
+import React, { useMemo, useState, useCallback } from 'react';
+import { Box, Typography, IconButton } from '@material-ui/core';
+import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
+import ChevronRightIcon from '@material-ui/icons/ChevronRight';
+import { Asset, PivotGroup, SortDir } from './types';
 
-useEffect(() => {
-  if (!currentProject) return;
-  (async () => {
-    try {
-      // Fetching dynamic order from a hypothetical pipeline setting key
-      const val = await queryConfig('project', currentProject.key_name, '/ppiTracker/assets/groupOrder');
-      if (val) {
-        const orderArray = Array.isArray(val) ? val : JSON.parse(val as string);
-        setDynamicPinnedOrder(orderArray.map((s: string) => s.toLowerCase()));
-      }
-    } catch (e) {
-      console.warn('Failed to load dynamic group order, using defaults', e);
-      // Fallback to a default order if the setting doesn't exist
-      setDynamicPinnedOrder(['unassigned', 'camera', 'character', 'prop', 'set']);
-    }
-  })();
-}, [currentProject]);
+type Props = {
+  groups?: PivotGroup[];
+  page: number;
+  rowsPerPage: number;
+  sortKey: string;
+  sortDir: SortDir;
+  pinnedTopGroups: string[]; // Required dynamic prop
+};
 
-// ... in the render section ...
-<AssetsGroupedDataTable
-  groups={groups}
-  page={pageProps.page}
-  rowsPerPage={pageProps.rowsPerPage}
-  sortKey={uiSortKey}
-  sortDir={uiSortDir}
-  pinnedTopGroups={dynamicPinnedOrder} // Pass the dynamic order here
-/>
+const normalizeGroupKey = (v: string | null | undefined) => (v || 'unassigned').trim().toLowerCase();
+const displayGroupKey = (v: string | null | undefined) => (v || 'UNASSIGNED').trim().toUpperCase();
+
+const AssetsGroupedDataTable: React.FC<Props> = ({
+  groups = [],
+  page,
+  rowsPerPage,
+  sortKey,
+  sortDir,
+  pinnedTopGroups,
+}) => {
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  const toggle = useCallback((key: string) => {
+    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+
+  const processedGroups = useMemo(() => {
+    // 1. DYNAMIC TOP NODE SORTING
+    const orderedGroups = [...groups].sort((a, b) => {
+      const aKey = normalizeGroupKey(a.top_group_node);
+      const bKey = normalizeGroupKey(b.top_group_node);
+
+      const aIdx = pinnedTopGroups.indexOf(aKey);
+      const bIdx = pinnedTopGroups.indexOf(bKey);
+
+      // Respect the dynamic order provided via props
+      if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+      if (aIdx !== -1) return -1;
+      if (bIdx !== -1) return 1;
+      return aKey.localeCompare(bKey, undefined, { numeric: true });
+    });
+
+    // 2. INTERNAL ASSET SORTING (Respecting A-Z / Z-A)
+    return orderedGroups.map(group => {
+      const sortedItems = [...(group.items || [])].sort((a: any, b: any) => {
+        if (sortDir === 'none') return 0;
+        
+        const isAsc = sortDir === 'asc';
+        let key = sortKey === 'group_1_name' ? 'group_1' : sortKey;
+
+        const valA = (a[key] || '').toString().toLowerCase();
+        const valB = (b[key] || '').toString().toLowerCase();
+
+        if (valA === '' || valA === '-') return 1; 
+        if (valB === '' || valB === '-') return -1;
+
+        const comp = valA.localeCompare(valB, undefined, { numeric: true });
+        return isAsc ? comp : -comp;
+      });
+
+      return { ...group, items: sortedItems };
+    });
+  }, [groups, sortKey, sortDir, pinnedTopGroups]);
+
+  return (
+    <Box width="100%">
+      {processedGroups.map((group) => {
+        const groupName = group.top_group_node || 'unassigned';
+        const groupItems = group.items || [];
+        
+        return (
+          <Box key={groupName} mb={0.5}>
+            <Box
+              px={1} py={0.5} display="flex" alignItems="center"
+              style={{ background: 'rgba(255,255,255,0.08)', cursor: 'pointer' }}
+              onClick={() => toggle(groupName)}
+            >
+              <IconButton size="small" style={{ padding: 4, marginRight: 8 }}>
+                {collapsed[groupName] ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+              </IconButton>
+
+              <Typography variant="subtitle2" style={{ fontWeight: 700, fontSize: '0.75rem' }}>
+                {displayGroupKey(groupName)} 
+                <span style={{ marginLeft: 8, color: '#00b7ff' }}>({groupItems.length})</span>
+              </Typography>
+            </Box>
+
+            {!collapsed[groupName] && (
+              <Box>
+                {groupItems.map((asset) => (
+                  <Box key={`${asset.group_1}-${asset.relation}`} px={6} py={0.75}>
+                    <Typography variant="body2" style={{ fontSize: '0.85rem' }}>
+                      {asset.group_1}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+            )}
+          </Box>
+        );
+      })}
+    </Box>
+  );
+};
+
+export default AssetsGroupedDataTable;
