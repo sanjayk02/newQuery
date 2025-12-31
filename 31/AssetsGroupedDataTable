@@ -1,88 +1,78 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from "react";
 import {
   Box,
-  Typography,
   IconButton,
   Table,
+  TableBody,
+  TableCell,
   TableHead,
   TableRow,
-  TableCell,
-  TableBody,
-} from '@material-ui/core';
-import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
-import ChevronRightIcon from '@material-ui/icons/ChevronRight';
-import ArrowDropUpIcon from '@material-ui/icons/ArrowDropUp';
-import ArrowDropDownIcon from '@material-ui/icons/ArrowDropDown';
-import { PivotGroup, SortDir, Column } from './types';
+  Typography,
+} from "@material-ui/core";
+import ExpandMoreIcon from "@material-ui/icons/ExpandMore";
+import ChevronRightIcon from "@material-ui/icons/ChevronRight";
+import ArrowDropUpIcon from "@material-ui/icons/ArrowDropUp";
+import ArrowDropDownIcon from "@material-ui/icons/ArrowDropDown";
+import { PivotGroup, SortDir } from "./types";
 
-/**
- * ============================================================
+/** ----------------------------------------------------------------
  *  COLOR COLLECTION (single source of truth)
- *  - Phase rails are aligned with AssetsDataTable.tsx
- * ============================================================
- */
-const PHASE_COLORS: Record<
-  'mdl' | 'rig' | 'bld' | 'dsn' | 'ldv',
-  { lineColor: string; backgroundColor: string }
-> = {
-  mdl: { lineColor: '#3295fd', backgroundColor: '#354d68' },
-  rig: { lineColor: '#c061fd', backgroundColor: '#5e3568' },
-  bld: { lineColor: '#fc2f8c', backgroundColor: '#5a0028' },
-  dsn: { lineColor: '#98f2fb', backgroundColor: '#045660' },
-  ldv: { lineColor: '#fe5cff', backgroundColor: '#683566' },
+ *  ---------------------------------------------------------------- */
+const COLORS = {
+  TABLE_BG: "#1e1e1e",
+  HEADER_BG: "#2d2d2d",
+  HEADER_BORDER: "#3d3d3d",
+  GRID_LINE: "#2a2a2a",
+  ROW_BG: "#2b2b2b",
+  GROUP_BG: "#303030",
+  GROUP_TEXT: "#00b7ff",
+  TEXT: "#e0e0e0",
+  MUTED: "#bdbdbd",
+
+  PHASE: {
+    mdl: "#00b7ff",
+    rig: "#a333c8",
+    bld: "#e91e63",
+    dsn: "#00a6a6",
+    ldv: "#d14bff",
+  },
 };
 
-// Small status palette (you can expand this if you want exact match with AssetsDataTable)
-const STATUS_COLOR: Record<string, string> = {
-  // approvals
-  approved: '#32cd32',
-  review: '#ffa500',
-  check: '#ca25ed',
-  clientReview: '#005fbd',
-  dirReview: '#007fff',
-  epdReview: '#4fa7ff',
-  clientOnHold: '#d69b00',
-  dirOnHold: '#ffcc00',
-  epdOnHold: '#ffdd55',
-  execRetake: '#a60000',
-  clientRetake: '#c60000',
-  dirRetake: '#ff0000',
-  epdRetake: '#ff4f4f',
-  clientApproved: '#1d7c39',
-  dirApproved: '#27ab4f',
-  epdApproved: '#5cda82',
-  other: '#9a9a9a',
-  omit: '#646464',
-
-  // work (common)
-  cgsvOnHold: '#ffdd55',
-  svOnHold: '#ffe373',
-  leadOnHold: '#fff04f',
-  cgsvRetake: '#ff4f4f',
-  svRetake: '#ff8080',
-  leadRetake: '#ffbbbb',
-  cgsvApproved: '#5cda82',
-  svApproved: '#83e29f',
-  leadApproved: '#b9eec9',
-  svOther: '#9a9a9a',
-  leadOther: '#dbdbdb',
-
-  // extra
-  inProgress: '#00bfff',
-  notStarted: '#d3d3d3',
+/** Visual spacing controls */
+const UI = {
+  ROW_GAP_PX: 10, // gap between data rows
+  GROUP_ROW_GAP_PX: 8,
+  PHASE_GAP_PX: 14, // gap between phase blocks
+  RAIL_PX: 3,
 };
 
-// UI constants
-const TABLE_BG = '#1e1e1e';
-const HEADER_BG = '#2d2d2d';
-const GROUP_ROW_BG = '#252525';
-const CELL_BG = '#2a2a2a';
-const GRID_LINE = '#2f2f2f';
-const TEXT = '#e0e0e0';
+type ColumnId =
+  | "thumbnail"
+  | "group_1_name"
+  | "mdl_work"
+  | "mdl_appr"
+  | "mdl_submitted"
+  | "rig_work"
+  | "rig_appr"
+  | "rig_submitted"
+  | "bld_work"
+  | "bld_appr"
+  | "bld_submitted"
+  | "dsn_work"
+  | "dsn_appr"
+  | "dsn_submitted"
+  | "ldv_work"
+  | "ldv_appr"
+  | "ldv_submitted"
+  | "relation";
 
-const ROW_GAP_PX = 6;   // GAP BETWEEN ROWS (what you asked)
-const COL_GAP_PX = 8;   // GAP BETWEEN PHASE GROUPS
-const RAIL_W_PX = 3;    // COLORED RAIL THICKNESS
+type Column = {
+  id: ColumnId;
+  label: string;
+  sortable?: boolean;
+  phase?: keyof typeof COLORS.PHASE; // mdl|rig|bld|dsn|ldv
+  kind?: "work" | "appr" | "submitted";
+};
 
 type Props = {
   groups?: PivotGroup[];
@@ -93,42 +83,185 @@ type Props = {
   hiddenColumns?: Set<string>;
 };
 
-// Grouped table uses these ids (server keys) in your code
+/** Columns (your grouped API uses mdl_work / mdl_appr / mdl_submitted etc.) */
 const COLUMNS: Column[] = [
-  { id: 'thumbnail', label: 'THUMBS' },
-  { id: 'group_1_name', label: 'NAME' },
+  { id: "thumbnail", label: "THUMBS" },
+  { id: "group_1_name", label: "NAME", sortable: true },
 
-  { id: 'mdl_work', label: 'MDL WORK', colors: PHASE_COLORS.mdl, sortable: true },
-  { id: 'mdl_appr', label: 'MDL APPR', colors: PHASE_COLORS.mdl, sortable: true },
-  { id: 'mdl_submitted', label: 'MDL SUBMITTED AT', colors: PHASE_COLORS.mdl, sortable: true },
+  { id: "mdl_work", label: "MDL WORK", sortable: true, phase: "mdl", kind: "work" },
+  { id: "mdl_appr", label: "MDL APPR", sortable: true, phase: "mdl", kind: "appr" },
+  { id: "mdl_submitted", label: "MDL SUBMITTED AT", sortable: true, phase: "mdl", kind: "submitted" },
 
-  { id: 'rig_work', label: 'RIG WORK', colors: PHASE_COLORS.rig, sortable: true },
-  { id: 'rig_appr', label: 'RIG APPR', colors: PHASE_COLORS.rig, sortable: true },
-  { id: 'rig_submitted', label: 'RIG SUBMITTED AT', colors: PHASE_COLORS.rig, sortable: true },
+  { id: "rig_work", label: "RIG WORK", sortable: true, phase: "rig", kind: "work" },
+  { id: "rig_appr", label: "RIG APPR", sortable: true, phase: "rig", kind: "appr" },
+  { id: "rig_submitted", label: "RIG SUBMITTED AT", sortable: true, phase: "rig", kind: "submitted" },
 
-  { id: 'bld_work', label: 'BLD WORK', colors: PHASE_COLORS.bld, sortable: true },
-  { id: 'bld_appr', label: 'BLD APPR', colors: PHASE_COLORS.bld, sortable: true },
-  { id: 'bld_submitted', label: 'BLD SUBMITTED AT', colors: PHASE_COLORS.bld, sortable: true },
+  { id: "bld_work", label: "BLD WORK", sortable: true, phase: "bld", kind: "work" },
+  { id: "bld_appr", label: "BLD APPR", sortable: true, phase: "bld", kind: "appr" },
+  { id: "bld_submitted", label: "BLD SUBMITTED AT", sortable: true, phase: "bld", kind: "submitted" },
 
-  { id: 'dsn_work', label: 'DSN WORK', colors: PHASE_COLORS.dsn, sortable: true },
-  { id: 'dsn_appr', label: 'DSN APPR', colors: PHASE_COLORS.dsn, sortable: true },
-  { id: 'dsn_submitted', label: 'DSN SUBMITTED AT', colors: PHASE_COLORS.dsn, sortable: true },
+  { id: "dsn_work", label: "DSN WORK", sortable: true, phase: "dsn", kind: "work" },
+  { id: "dsn_appr", label: "DSN APPR", sortable: true, phase: "dsn", kind: "appr" },
+  { id: "dsn_submitted", label: "DSN SUBMITTED AT", sortable: true, phase: "dsn", kind: "submitted" },
 
-  { id: 'ldv_work', label: 'LDV WORK', colors: PHASE_COLORS.ldv, sortable: true },
-  { id: 'ldv_appr', label: 'LDV APPR', colors: PHASE_COLORS.ldv, sortable: true },
-  { id: 'ldv_submitted', label: 'LDV SUBMITTED AT', colors: PHASE_COLORS.ldv, sortable: true },
+  { id: "ldv_work", label: "LDV WORK", sortable: true, phase: "ldv", kind: "work" },
+  { id: "ldv_appr", label: "LDV APPR", sortable: true, phase: "ldv", kind: "appr" },
+  { id: "ldv_submitted", label: "LDV SUBMITTED AT", sortable: true, phase: "ldv", kind: "submitted" },
 
-  { id: 'relation', label: 'RELATION' },
+  { id: "relation", label: "RELATION", sortable: true },
 ];
 
-function getPhase(colId: string): 'mdl' | 'rig' | 'bld' | 'dsn' | 'ldv' | null {
-  const p = colId.split('_')[0]?.toLowerCase();
-  if (p === 'mdl' || p === 'rig' || p === 'bld' || p === 'dsn' || p === 'ldv') return p;
-  return null;
+function getPhaseRailColor(col: Column) {
+  if (!col.phase) return "";
+  return COLORS.PHASE[col.phase];
 }
 
-function isPhaseCol(colId: string) {
-  return !!getPhase(colId);
+function isPhaseStart(col: Column, visibleCols: Column[]) {
+  if (!col.phase) return false;
+  const first = visibleCols.find((c) => c.phase === col.phase);
+  return first?.id === col.id;
+}
+
+function isPhaseEnd(col: Column, visibleCols: Column[]) {
+  if (!col.phase) return false;
+  const samePhase = visibleCols.filter((c) => c.phase === col.phase);
+  return samePhase[samePhase.length - 1]?.id === col.id;
+}
+
+/**
+ * Builds cell styles:
+ * - Phase rails (colored)
+ * - Phase group spacing (gap between phase blocks)
+ * - Row gap simulation (no borderSpacing, so no overlap)
+ */
+function buildCellStyle(
+  col: Column,
+  visibleCols: Column[],
+  opts: { header?: boolean; isGroupRow?: boolean } = {}
+): React.CSSProperties {
+  const { header = false, isGroupRow = false } = opts;
+
+  const baseBg = header ? COLORS.HEADER_BG : COLORS.ROW_BG;
+  const railColor = getPhaseRailColor(col);
+
+  // base borders
+  const grid = header ? COLORS.HEADER_BORDER : COLORS.GRID_LINE;
+
+  const style: React.CSSProperties = {
+    backgroundColor: baseBg,
+    color: header ? "#fff" : COLORS.TEXT,
+    whiteSpace: "nowrap",
+    borderBottom: header
+      ? `1px solid ${grid}`
+      : isGroupRow
+      ? `1px solid ${grid}`
+      : `1px solid ${COLORS.TABLE_BG}`, // "row gap" (table bg shows through)
+    borderRight: `1px solid ${grid}`,
+    padding: header ? "10px 6px" : "6px 6px",
+    fontSize: header ? "0.65rem" : "0.8rem",
+  };
+
+  // row gap thickness for data rows only
+  if (!header && !isGroupRow) {
+    style.borderBottom = `${UI.ROW_GAP_PX}px solid ${COLORS.TABLE_BG}`;
+  }
+  if (!header && isGroupRow) {
+    style.borderBottom = `${UI.GROUP_ROW_GAP_PX}px solid ${COLORS.TABLE_BG}`;
+  }
+
+  // phase rails + phase gaps
+  if (col.phase) {
+    const start = isPhaseStart(col, visibleCols);
+    const end = isPhaseEnd(col, visibleCols);
+
+    // top rail on header only
+    if (header) {
+      style.borderTop = `${UI.RAIL_PX + 1}px solid ${railColor}`;
+    }
+
+    // left rail (inset)
+    if (start) {
+      style.boxShadow = `inset ${UI.RAIL_PX}px 0 0 0 ${railColor}`;
+    }
+
+    // right rail (inset) + add a "gap" after phase end using thick borderRight with table bg
+    if (end) {
+      const currentShadow = style.boxShadow ? `${style.boxShadow}, ` : "";
+      style.boxShadow = `${currentShadow}inset -${UI.RAIL_PX}px 0 0 0 ${railColor}`;
+      // This creates the visible GAP between phase blocks (like your screenshot)
+      style.borderRight = `${UI.PHASE_GAP_PX}px solid ${COLORS.TABLE_BG}`;
+    }
+  }
+
+  return style;
+}
+
+function formatSubmitted(val: any) {
+  if (!val || val === "-") return "-";
+  // your API looks like `${phase}_submitted_at_utc`
+  // you were showing date only; keep date-only for now:
+  return String(val).split("T")[0];
+}
+
+function statusColor(status?: string) {
+  const s = (status || "").toLowerCase();
+  if (!s || s === "-") return COLORS.MUTED;
+
+  // very light rules (you can extend this later)
+  if (s.includes("approved")) return "#32cd32";
+  if (s.includes("review")) return "#ffa500";
+  if (s.includes("retake")) return "#ff4f4f";
+  if (s.includes("hold")) return "#ffdd55";
+  if (s === "check") return "#ca25ed";
+
+  return COLORS.MUTED;
+}
+
+function renderAssetField(asset: any, col: Column) {
+  if (col.id === "thumbnail") {
+    return (
+      <Box
+        width={40}
+        height={24}
+        bgcolor="#2a2a2a"
+        style={{ border: "1px solid #444", margin: "auto" }}
+      />
+    );
+  }
+
+  if (col.id === "group_1_name") {
+    return (
+      <Typography style={{ fontSize: "0.85rem", fontWeight: 700, paddingLeft: 10 }}>
+        {asset.group_1 || ""}
+      </Typography>
+    );
+  }
+
+  if (col.id === "relation") {
+    return <Typography style={{ fontSize: "0.75rem" }}>{asset.relation || "-"}</Typography>;
+  }
+
+  // phase columns: mdl_* / rig_* / ...
+  const phase = col.phase; // mdl|rig|...
+  if (!phase) return <span>-</span>;
+
+  if (col.kind === "submitted") {
+    return (
+      <Typography style={{ fontSize: "0.75rem" }}>
+        {formatSubmitted(asset[`${phase}_submitted_at_utc`])}
+      </Typography>
+    );
+  }
+
+  const field = col.kind === "work" ? "work_status" : "approval_status";
+  const raw = asset[`${phase}_${field}`];
+  const text = raw || "-";
+
+  return (
+    <Typography style={{ fontSize: "0.75rem", color: statusColor(text) }}>
+      {text}
+    </Typography>
+  );
 }
 
 const AssetsGroupedDataTable: React.FC<Props> = ({
@@ -136,118 +269,33 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
   sortKey,
   sortDir,
   onSortChange,
-  dateTimeFormat,
+  dateTimeFormat, // (kept in props; not used in this simplified render)
   hiddenColumns = new Set(),
 }) => {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
   const toggle = useCallback((key: string) => {
     setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
   const visibleColumns = useMemo(
     () => COLUMNS.filter((c) => !hiddenColumns.has(c.id)),
-    [hiddenColumns],
+    [hiddenColumns]
   );
 
-  /**
-   * Determine first/last visible column within each phase block
-   * so we can draw the colored rails + add the dark "gap" before/after.
-   */
-  const phaseEdges = useMemo(() => {
-    const phases: Array<'mdl' | 'rig' | 'bld' | 'dsn' | 'ldv'> = ['mdl', 'rig', 'bld', 'dsn', 'ldv'];
-    const map: Record<string, { first?: string; last?: string; lineColor?: string }> = {};
-    for (const ph of phases) {
-      const ids = visibleColumns
-        .map((c) => c.id)
-        .filter((id) => id.startsWith(ph + '_'));
-      if (ids.length) {
-        map[ph] = {
-          first: ids[0],
-          last: ids[ids.length - 1],
-          lineColor: PHASE_COLORS[ph].lineColor,
-        };
-      }
-    }
-    return map;
-  }, [visibleColumns]);
-
-  const buildPhaseCellStyle = (colId: string): React.CSSProperties => {
-    const ph = getPhase(colId);
-    if (!ph) return {};
-
-    const edge = phaseEdges[ph] || {};
-    const lineColor = edge.lineColor || PHASE_COLORS[ph].lineColor;
-
-    const isFirst = edge.first === colId;
-    const isLast = edge.last === colId;
-
-    // Use a dark “gap” (borderLeft/borderRight) + draw colored rail inside via boxShadow.
-    const style: React.CSSProperties = {
-      backgroundColor: CELL_BG,
-    };
-
-    const shadows: string[] = [];
-
-    if (isFirst) {
-      style.borderLeft = `${COL_GAP_PX}px solid ${TABLE_BG}`;
-      shadows.push(`inset ${RAIL_W_PX}px 0 0 ${lineColor}`);
-    }
-    if (isLast) {
-      style.borderRight = `${COL_GAP_PX}px solid ${TABLE_BG}`;
-      shadows.push(`inset -${RAIL_W_PX}px 0 0 ${lineColor}`);
-    }
-
-    if (shadows.length) style.boxShadow = shadows.join(', ');
-    return style;
-  };
-
-  const buildPhaseHeaderStyle = (col: Column): React.CSSProperties => {
-    const base: React.CSSProperties = {
-      backgroundColor: HEADER_BG,
-      color: '#fff',
-      borderBottom: '1px solid #444',
-      whiteSpace: 'nowrap',
-      padding: '12px 6px',
-      cursor: col.sortable ? 'pointer' : 'default',
-    };
-
-    if (!col.colors?.lineColor) return base;
-
-    // Top stripe + phase block rails (same idea as body)
-    const ph = getPhase(col.id);
-    const edge = ph ? phaseEdges[ph] : {};
-    const lineColor = col.colors.lineColor;
-
-    const isFirst = edge?.first === col.id;
-    const isLast = edge?.last === col.id;
-
-    base.borderTop = `4px solid ${lineColor}`;
-
-    const shadows: string[] = [];
-    if (isFirst) {
-      base.borderLeft = `${COL_GAP_PX}px solid ${TABLE_BG}`;
-      shadows.push(`inset ${RAIL_W_PX}px 0 0 ${lineColor}`);
-    }
-    if (isLast) {
-      base.borderRight = `${COL_GAP_PX}px solid ${TABLE_BG}`;
-      shadows.push(`inset -${RAIL_W_PX}px 0 0 ${lineColor}`);
-    }
-    if (shadows.length) base.boxShadow = shadows.join(', ');
-
-    return base;
-  };
-
   return (
-    <Box width="100%" style={{ backgroundColor: TABLE_BG, overflowX: 'auto' }}>
+    <Box width="100%" style={{ backgroundColor: COLORS.TABLE_BG, overflowX: "auto" }}>
       <Table
         size="small"
         stickyHeader
         style={{
-          minWidth: 1800,
-
-          // IMPORTANT: row-gap effect
-          borderCollapse: 'separate',
-          borderSpacing: `0px ${ROW_GAP_PX}px`,
+          // IMPORTANT: removes the “white space right side” issue:
+          // - max-content => table fits to columns (no trailing blank area)
+          // - minWidth: 100% => still expands if viewport is wider
+          width: "max-content",
+          minWidth: "100%",
+          backgroundColor: COLORS.TABLE_BG,
+          tableLayout: "auto",
         }}
       >
         <TableHead>
@@ -255,20 +303,23 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
             {visibleColumns.map((col) => (
               <TableCell
                 key={col.id}
-                align={col.id === 'group_1_name' ? 'left' : 'center'}
+                align={col.id === "group_1_name" ? "left" : "center"}
                 onClick={() => col.sortable && onSortChange(col.id)}
-                style={buildPhaseHeaderStyle(col)}
+                style={{
+                  ...buildCellStyle(col, visibleColumns, { header: true }),
+                  cursor: col.sortable ? "pointer" : "default",
+                }}
               >
                 <Box
                   display="flex"
                   alignItems="center"
-                  justifyContent={col.id === 'group_1_name' ? 'flex-start' : 'center'}
+                  justifyContent={col.id === "group_1_name" ? "flex-start" : "center"}
                 >
-                  <Typography style={{ fontSize: '0.65rem', fontWeight: 800 }}>
+                  <Typography style={{ fontSize: "0.65rem", fontWeight: 900 }}>
                     {col.label}
                   </Typography>
                   {sortKey === col.id &&
-                    (sortDir === 'asc' ? (
+                    (sortDir === "asc" ? (
                       <ArrowDropUpIcon fontSize="small" />
                     ) : (
                       <ArrowDropDownIcon fontSize="small" />
@@ -281,23 +332,27 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
 
         <TableBody>
           {groups.map((group) => {
-            const groupName = group.top_group_node || 'UNASSIGNED';
+            const groupName = group.top_group_node || "UNASSIGNED";
             const isCollapsed = !!collapsed[groupName];
 
             return (
               <React.Fragment key={groupName}>
-                {/* Group header row */}
-                <TableRow onClick={() => toggle(groupName)} style={{ cursor: 'pointer' }}>
+                {/* Group row */}
+                <TableRow
+                  onClick={() => toggle(groupName)}
+                  style={{ backgroundColor: COLORS.TABLE_BG, cursor: "pointer" }}
+                >
                   <TableCell
                     colSpan={visibleColumns.length}
                     style={{
-                      backgroundColor: GROUP_ROW_BG,
-                      borderBottom: '1px solid #2a2a2a',
-                      padding: '6px 8px',
+                      backgroundColor: COLORS.GROUP_BG,
+                      color: COLORS.GROUP_TEXT,
+                      borderBottom: `${UI.GROUP_ROW_GAP_PX}px solid ${COLORS.TABLE_BG}`,
+                      padding: "6px 8px",
                     }}
                   >
                     <Box display="flex" alignItems="center">
-                      <IconButton size="small" style={{ color: PHASE_COLORS.mdl.lineColor, padding: 0 }}>
+                      <IconButton size="small" style={{ color: COLORS.GROUP_TEXT, padding: 0 }}>
                         {isCollapsed ? (
                           <ChevronRightIcon fontSize="small" />
                         ) : (
@@ -306,15 +361,15 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                       </IconButton>
                       <Typography
                         style={{
-                          color: PHASE_COLORS.mdl.lineColor,
-                          fontSize: '0.8rem',
-                          fontWeight: 700,
+                          color: COLORS.GROUP_TEXT,
+                          fontSize: "0.8rem",
+                          fontWeight: 800,
                           marginLeft: 10,
                         }}
                       >
-                        {groupName.toUpperCase()}{' '}
-                        <span style={{ fontSize: '0.75rem' }}>
-                          ({group.items.length || 0})
+                        {groupName.toUpperCase()}{" "}
+                        <span style={{ fontSize: "0.75rem" }}>
+                          ({group.items?.length || 0})
                         </span>
                       </Typography>
                     </Box>
@@ -323,40 +378,23 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
 
                 {/* Data rows */}
                 {!isCollapsed &&
-                  group.items.map((asset, idx) => (
+                  group.items.map((asset: any, idx: number) => (
                     <TableRow
                       key={`${groupName}-${idx}`}
                       hover
                       style={{
-                        backgroundColor: CELL_BG, // whole "row card"
+                        backgroundColor: COLORS.TABLE_BG, // row background is table bg so the "gap" looks clean
                       }}
                     >
-                      {visibleColumns.map((col) => {
-                        const phaseCellStyle = isPhaseCol(col.id) ? buildPhaseCellStyle(col.id) : {};
-
-                        return (
-                          <TableCell
-                            key={col.id}
-                            align={col.id === 'group_1_name' ? 'left' : 'center'}
-                            style={{
-                              // row "card" look
-                              backgroundColor: CELL_BG,
-                              color: TEXT,
-                              fontSize: '0.8rem',
-                              padding: '8px 6px',
-
-                              // subtle grid lines inside row
-                              borderTop: `1px solid ${GRID_LINE}`,
-                              borderBottom: `1px solid ${GRID_LINE}`,
-                              borderRight: `1px solid ${GRID_LINE}`,
-
-                              ...phaseCellStyle,
-                            }}
-                          >
-                            {renderAssetField(asset, col, dateTimeFormat)}
-                          </TableCell>
-                        );
-                      })}
+                      {visibleColumns.map((col) => (
+                        <TableCell
+                          key={col.id}
+                          align={col.id === "group_1_name" ? "left" : "center"}
+                          style={buildCellStyle(col, visibleColumns)}
+                        >
+                          {renderAssetField(asset, col)}
+                        </TableCell>
+                      ))}
                     </TableRow>
                   ))}
               </React.Fragment>
@@ -367,60 +405,5 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
     </Box>
   );
 };
-
-function renderAssetField(asset: any, col: Column, df: Intl.DateTimeFormat) {
-  if (col.id === 'thumbnail') {
-    return (
-      <Box
-        width={40}
-        height={28}
-        bgcolor="#2a2a2a"
-        style={{ border: '1px solid #444', margin: 'auto' }}
-      />
-    );
-  }
-
-  if (col.id === 'group_1_name') {
-    return (
-      <Typography style={{ fontSize: '0.85rem', fontWeight: 600, paddingLeft: 12 }}>
-        {asset.group_1 || ''}
-      </Typography>
-    );
-  }
-
-  if (col.id === 'relation') {
-    return (
-      <Typography style={{ fontSize: '0.75rem', color: '#bdbdbd' }}>
-        {asset.relation || '-'}
-      </Typography>
-    );
-  }
-
-  // phase mapping (mdl_work / mdl_appr / mdl_submitted etc.)
-  const phase = col.id.split('_')[0];
-
-  if (col.id.includes('submitted')) {
-    const val = asset[`${phase}_submitted_at_utc`];
-    if (!val) return '-';
-    try {
-      // if you want full date-time, swap df.format(new Date(val))
-      return val.split('T')[0];
-    } catch {
-      return val;
-    }
-  }
-
-  const isWork = col.id.endsWith('_work');
-  const statusKey = isWork ? `${phase}_work_status` : `${phase}_approval_status`;
-  const raw = asset[statusKey];
-  const key = (raw || '').toString().trim();
-  const color = STATUS_COLOR[key] || STATUS_COLOR[key.toLowerCase()] || '#bdbdbd';
-
-  return (
-    <Typography style={{ fontSize: '0.75rem', color }}>
-      {raw || '-'}
-    </Typography>
-  );
-}
 
 export default AssetsGroupedDataTable;
