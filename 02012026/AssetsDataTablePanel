@@ -1,0 +1,12 @@
+<AssetsGroupedDataTable
+  groups={groups}
+  sortKey={uiSortKey}
+  sortDir={uiSortDir}
+  dateTimeFormat={dateTimeFormat}
+  onSortChange={handleSortChange}
+  count={effectiveCount}
+  page={pageProps.page}
+  rowsPerPage={pageProps.rowsPerPage}
+  onChangePage={handlePageChange}
+  onChangeRowsPerPage={handleRowsPerPageChange}
+/>
