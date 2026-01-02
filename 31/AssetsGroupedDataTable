@@ -38,12 +38,23 @@ const COLORS = {
   },
 };
 
-/** Visual spacing controls */
+/** Visual spacing + sizing controls */
 const UI = {
-  ROW_GAP_PX: 10, // gap between data rows
+  // gaps
+  ROW_GAP_PX: 10, // gap between data rows (table bg line)
   GROUP_ROW_GAP_PX: 8,
   PHASE_GAP_PX: 14, // gap between phase blocks
   RAIL_PX: 3,
+
+  // row heights
+  HEADER_HEIGHT_PX: 34,
+  GROUP_ROW_HEIGHT_PX: 34,
+  DATA_ROW_HEIGHT_PX: 32,
+
+  // cell padding (also affects row height)
+  HEADER_PAD_Y: 6,
+  CELL_PAD_Y: 4,
+  CELL_PAD_X: 6,
 };
 
 type ColumnId =
@@ -79,11 +90,11 @@ type Props = {
   sortKey: string;
   sortDir: SortDir;
   onSortChange: (key: string) => void;
-  dateTimeFormat: Intl.DateTimeFormat;
+  dateTimeFormat?: Intl.DateTimeFormat; // optional
   hiddenColumns?: Set<string>;
 };
 
-/** Columns (your grouped API uses mdl_work / mdl_appr / mdl_submitted etc.) */
+/** Columns */
 const COLUMNS: Column[] = [
   { id: "thumbnail", label: "THUMBS" },
   { id: "group_1_name", label: "NAME", sortable: true },
@@ -112,8 +123,7 @@ const COLUMNS: Column[] = [
 ];
 
 function getPhaseRailColor(col: Column) {
-  if (!col.phase) return "";
-  return COLORS.PHASE[col.phase];
+  return col.phase ? COLORS.PHASE[col.phase] : "";
 }
 
 function isPhaseStart(col: Column, visibleCols: Column[]) {
@@ -124,90 +134,14 @@ function isPhaseStart(col: Column, visibleCols: Column[]) {
 
 function isPhaseEnd(col: Column, visibleCols: Column[]) {
   if (!col.phase) return false;
-  const samePhase = visibleCols.filter((c) => c.phase === col.phase);
-  return samePhase[samePhase.length - 1]?.id === col.id;
-}
-
-/**
- * Builds cell styles:
- * - Phase rails (colored)
- * - Phase group spacing (gap between phase blocks)
- * - Row gap simulation (no borderSpacing, so no overlap)
- */
-function buildCellStyle(
-  col: Column,
-  visibleCols: Column[],
-  opts: { header?: boolean; isGroupRow?: boolean } = {}
-): React.CSSProperties {
-  const { header = false, isGroupRow = false } = opts;
-
-  const baseBg = header ? COLORS.HEADER_BG : COLORS.ROW_BG;
-  const railColor = getPhaseRailColor(col);
-
-  // base borders
-  const grid = header ? COLORS.HEADER_BORDER : COLORS.GRID_LINE;
-
-  const style: React.CSSProperties = {
-    backgroundColor: baseBg,
-    color: header ? "#fff" : COLORS.TEXT,
-    whiteSpace: "nowrap",
-    borderBottom: header
-      ? `1px solid ${grid}`
-      : isGroupRow
-      ? `1px solid ${grid}`
-      : `1px solid ${COLORS.TABLE_BG}`, // "row gap" (table bg shows through)
-    borderRight: `1px solid ${grid}`,
-    padding: header ? "10px 6px" : "6px 6px",
-    fontSize: header ? "0.65rem" : "0.8rem",
-  };
-
-  // row gap thickness for data rows only
-  if (!header && !isGroupRow) {
-    style.borderBottom = `${UI.ROW_GAP_PX}px solid ${COLORS.TABLE_BG}`;
-  }
-  if (!header && isGroupRow) {
-    style.borderBottom = `${UI.GROUP_ROW_GAP_PX}px solid ${COLORS.TABLE_BG}`;
-  }
-
-  // phase rails + phase gaps
-  if (col.phase) {
-    const start = isPhaseStart(col, visibleCols);
-    const end = isPhaseEnd(col, visibleCols);
-
-    // top rail on header only
-    if (header) {
-      style.borderTop = `${UI.RAIL_PX + 1}px solid ${railColor}`;
-    }
-
-    // left rail (inset)
-    if (start) {
-      style.boxShadow = `inset ${UI.RAIL_PX}px 0 0 0 ${railColor}`;
-    }
-
-    // right rail (inset) + add a "gap" after phase end using thick borderRight with table bg
-    if (end) {
-      const currentShadow = style.boxShadow ? `${style.boxShadow}, ` : "";
-      style.boxShadow = `${currentShadow}inset -${UI.RAIL_PX}px 0 0 0 ${railColor}`;
-      // This creates the visible GAP between phase blocks (like your screenshot)
-      style.borderRight = `${UI.PHASE_GAP_PX}px solid ${COLORS.TABLE_BG}`;
-    }
-  }
-
-  return style;
-}
-
-function formatSubmitted(val: any) {
-  if (!val || val === "-") return "-";
-  // your API looks like `${phase}_submitted_at_utc`
-  // you were showing date only; keep date-only for now:
-  return String(val).split("T")[0];
+  const same = visibleCols.filter((c) => c.phase === col.phase);
+  return same[same.length - 1]?.id === col.id;
 }
 
 function statusColor(status?: string) {
   const s = (status || "").toLowerCase();
   if (!s || s === "-") return COLORS.MUTED;
 
-  // very light rules (you can extend this later)
   if (s.includes("approved")) return "#32cd32";
   if (s.includes("review")) return "#ffa500";
   if (s.includes("retake")) return "#ff4f4f";
@@ -217,38 +151,115 @@ function statusColor(status?: string) {
   return COLORS.MUTED;
 }
 
-function renderAssetField(asset: any, col: Column) {
+function formatSubmitted(val: any, fmt?: Intl.DateTimeFormat) {
+  if (!val || val === "-") return "-";
+  // if you send ISO timestamps: "2026-01-02T10:12:33Z"
+  try {
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) return fmt ? fmt.format(d) : d.toISOString().split("T")[0];
+  } catch {}
+  return String(val).split("T")[0];
+}
+
+/**
+ * Cell styles:
+ * - phase rails
+ * - phase gap
+ * - row gap via thick border-bottom (table bg)
+ * - row height via fixed height + padding
+ */
+function buildCellStyle(
+  col: Column,
+  visibleCols: Column[],
+  opts: { header?: boolean; isGroupRow?: boolean } = {}
+): React.CSSProperties {
+  const { header = false, isGroupRow = false } = opts;
+
+  const baseBg = header ? COLORS.HEADER_BG : COLORS.ROW_BG;
+  const grid = header ? COLORS.HEADER_BORDER : COLORS.GRID_LINE;
+  const railColor = getPhaseRailColor(col);
+
+  const style: React.CSSProperties = {
+    backgroundColor: baseBg,
+    color: header ? "#fff" : COLORS.TEXT,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+
+    borderBottom: header
+      ? `1px solid ${grid}`
+      : `${(isGroupRow ? UI.GROUP_ROW_GAP_PX : UI.ROW_GAP_PX)}px solid ${COLORS.TABLE_BG}`,
+    borderRight: `1px solid ${grid}`,
+
+    // ROW HEIGHT CONTROL (important)
+    height: header
+      ? UI.HEADER_HEIGHT_PX
+      : isGroupRow
+      ? UI.GROUP_ROW_HEIGHT_PX
+      : UI.DATA_ROW_HEIGHT_PX,
+
+    padding: header
+      ? `${UI.HEADER_PAD_Y}px ${UI.CELL_PAD_X}px`
+      : `${UI.CELL_PAD_Y}px ${UI.CELL_PAD_X}px`,
+
+    fontSize: header ? "0.65rem" : "0.8rem",
+    lineHeight: 1.1,
+  };
+
+  // phase rails + phase gap after end
+  if (col.phase) {
+    const start = isPhaseStart(col, visibleCols);
+    const end = isPhaseEnd(col, visibleCols);
+
+    if (header) style.borderTop = `${UI.RAIL_PX + 1}px solid ${railColor}`;
+
+    const shadows: string[] = [];
+    if (start) shadows.push(`inset ${UI.RAIL_PX}px 0 0 0 ${railColor}`);
+    if (end) {
+      shadows.push(`inset -${UI.RAIL_PX}px 0 0 0 ${railColor}`);
+      style.borderRight = `${UI.PHASE_GAP_PX}px solid ${COLORS.TABLE_BG}`;
+    }
+    if (shadows.length) style.boxShadow = shadows.join(", ");
+  }
+
+  return style;
+}
+
+function renderAssetField(asset: any, col: Column, dateTimeFormat?: Intl.DateTimeFormat) {
   if (col.id === "thumbnail") {
     return (
       <Box
         width={40}
-        height={24}
+        height={22}
         bgcolor="#2a2a2a"
-        style={{ border: "1px solid #444", margin: "auto" }}
+        style={{ border: "1px solid #444", margin: "auto", borderRadius: 2 }}
       />
     );
   }
 
   if (col.id === "group_1_name") {
     return (
-      <Typography style={{ fontSize: "0.85rem", fontWeight: 700, paddingLeft: 10 }}>
-        {asset.group_1 || ""}
+      <Typography noWrap style={{ fontSize: "0.85rem", fontWeight: 700, paddingLeft: 10 }}>
+        {asset.group_1 || asset.asset_name || "-"}
       </Typography>
     );
   }
 
   if (col.id === "relation") {
-    return <Typography style={{ fontSize: "0.75rem" }}>{asset.relation || "-"}</Typography>;
+    return (
+      <Typography noWrap style={{ fontSize: "0.75rem" }}>
+        {asset.relation || "-"}
+      </Typography>
+    );
   }
 
-  // phase columns: mdl_* / rig_* / ...
-  const phase = col.phase; // mdl|rig|...
+  const phase = col.phase;
   if (!phase) return <span>-</span>;
 
   if (col.kind === "submitted") {
     return (
-      <Typography style={{ fontSize: "0.75rem" }}>
-        {formatSubmitted(asset[`${phase}_submitted_at_utc`])}
+      <Typography noWrap style={{ fontSize: "0.75rem" }}>
+        {formatSubmitted(asset[`${phase}_submitted_at_utc`], dateTimeFormat)}
       </Typography>
     );
   }
@@ -258,7 +269,7 @@ function renderAssetField(asset: any, col: Column) {
   const text = raw || "-";
 
   return (
-    <Typography style={{ fontSize: "0.75rem", color: statusColor(text) }}>
+    <Typography noWrap style={{ fontSize: "0.75rem", color: statusColor(text) }}>
       {text}
     </Typography>
   );
@@ -269,7 +280,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
   sortKey,
   sortDir,
   onSortChange,
-  dateTimeFormat, // (kept in props; not used in this simplified render)
+  dateTimeFormat,
   hiddenColumns = new Set(),
 }) => {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -284,14 +295,33 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
   );
 
   return (
-    <Box width="100%" style={{ backgroundColor: COLORS.TABLE_BG, overflowX: "auto" }}>
+    <Box
+      width="100%"
+      style={{
+        backgroundColor: COLORS.TABLE_BG,
+
+        // ✅ keep horizontal scroll working but HIDE the bar
+        overflowX: "auto",
+        overflowY: "hidden",
+
+        // Firefox
+        scrollbarWidth: "none",
+        // IE/Edge legacy
+        msOverflowStyle: "none",
+      }}
+      // Webkit (Chrome/Safari) hide scrollbar
+      // @ts-ignore
+      sx={{
+        "&::-webkit-scrollbar": { display: "none" },
+      }}
+    >
       <Table
         size="small"
         stickyHeader
         style={{
-          // IMPORTANT: removes the “white space right side” issue:
-          // - max-content => table fits to columns (no trailing blank area)
-          // - minWidth: 100% => still expands if viewport is wider
+          // IMPORTANT:
+          // - max-content makes table fit columns (no trailing blank area)
+          // - minWidth keeps it filling wide screens
           width: "max-content",
           minWidth: "100%",
           backgroundColor: COLORS.TABLE_BG,
@@ -299,7 +329,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
         }}
       >
         <TableHead>
-          <TableRow>
+          <TableRow style={{ height: UI.HEADER_HEIGHT_PX }}>
             {visibleColumns.map((col) => (
               <TableCell
                 key={col.id}
@@ -315,7 +345,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                   alignItems="center"
                   justifyContent={col.id === "group_1_name" ? "flex-start" : "center"}
                 >
-                  <Typography style={{ fontSize: "0.65rem", fontWeight: 900 }}>
+                  <Typography noWrap style={{ fontSize: "0.65rem", fontWeight: 900 }}>
                     {col.label}
                   </Typography>
                   {sortKey === col.id &&
@@ -340,7 +370,10 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                 {/* Group row */}
                 <TableRow
                   onClick={() => toggle(groupName)}
-                  style={{ backgroundColor: COLORS.TABLE_BG, cursor: "pointer" }}
+                  style={{
+                    cursor: "pointer",
+                    height: UI.GROUP_ROW_HEIGHT_PX,
+                  }}
                 >
                   <TableCell
                     colSpan={visibleColumns.length}
@@ -349,6 +382,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                       color: COLORS.GROUP_TEXT,
                       borderBottom: `${UI.GROUP_ROW_GAP_PX}px solid ${COLORS.TABLE_BG}`,
                       padding: "6px 8px",
+                      height: UI.GROUP_ROW_HEIGHT_PX,
                     }}
                   >
                     <Box display="flex" alignItems="center">
@@ -360,6 +394,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                         )}
                       </IconButton>
                       <Typography
+                        noWrap
                         style={{
                           color: COLORS.GROUP_TEXT,
                           fontSize: "0.8rem",
@@ -378,12 +413,13 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
 
                 {/* Data rows */}
                 {!isCollapsed &&
-                  group.items.map((asset: any, idx: number) => (
+                  (group.items || []).map((asset: any, idx: number) => (
                     <TableRow
                       key={`${groupName}-${idx}`}
                       hover
                       style={{
-                        backgroundColor: COLORS.TABLE_BG, // row background is table bg so the "gap" looks clean
+                        height: UI.DATA_ROW_HEIGHT_PX,
+                        backgroundColor: COLORS.TABLE_BG, // so the gap line looks clean
                       }}
                     >
                       {visibleColumns.map((col) => (
@@ -392,7 +428,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                           align={col.id === "group_1_name" ? "left" : "center"}
                           style={buildCellStyle(col, visibleColumns)}
                         >
-                          {renderAssetField(asset, col)}
+                          {renderAssetField(asset, col, dateTimeFormat)}
                         </TableCell>
                       ))}
                     </TableRow>
