@@ -1,0 +1,425 @@
+import React, { useCallback, useMemo, useState } from "react";
+import {
+  Box,
+  IconButton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Typography,
+} from "@material-ui/core";
+import ExpandMoreIcon from "@material-ui/icons/ExpandMore";
+import ChevronRightIcon from "@material-ui/icons/ChevronRight";
+import ArrowDropUpIcon from "@material-ui/icons/ArrowDropUp";
+import ArrowDropDownIcon from "@material-ui/icons/ArrowDropDown";
+import { PivotGroup, SortDir } from "./types";
+
+/** ----------------------------------------------------------------
+ *  COLOR COLLECTION (single source of truth)
+ *  ---------------------------------------------------------------- */
+const COLORS = {
+  TABLE_BG: "#1e1e1e",
+  HEADER_BG: "#2d2d2d",
+  HEADER_BORDER: "#3d3d3d",
+  GRID_LINE: "#2a2a2a",
+  ROW_BG: "#2b2b2b",
+  GROUP_BG: "#303030",
+  GROUP_TEXT: "#00b7ff",
+  TEXT: "#e0e0e0",
+  MUTED: "#bdbdbd",
+
+  PHASE: {
+    mdl: "#00b7ff",
+    rig: "#a333c8",
+    bld: "#e91e63",
+    dsn: "#00a6a6",
+    ldv: "#d14bff",
+  },
+};
+
+/** Visual spacing + sizing controls */
+const UI = {
+  ROW_GAP_PX: 10,
+  GROUP_ROW_GAP_PX: 8,
+  PHASE_GAP_PX: 14,
+  RAIL_PX: 3,
+
+  // Row heights
+  HEADER_HEIGHT_PX: 34,
+  ROW_HEIGHT_PX: 34,
+  GROUP_ROW_HEIGHT_PX: 32,
+
+  // Column widths
+  THUMB_WIDTH: 70,
+  NAME_WIDTH: 260,
+  PHASE_COL_WIDTH: 110,
+  RELATION_WIDTH: 110,
+};
+
+type ColumnId =
+  | "thumbnail"
+  | "group_1_name"
+  | "mdl_work"
+  | "mdl_appr"
+  | "mdl_submitted"
+  | "rig_work"
+  | "rig_appr"
+  | "rig_submitted"
+  | "bld_work"
+  | "bld_appr"
+  | "bld_submitted"
+  | "dsn_work"
+  | "dsn_appr"
+  | "dsn_submitted"
+  | "ldv_work"
+  | "ldv_appr"
+  | "ldv_submitted"
+  | "relation";
+
+type Column = {
+  id: ColumnId;
+  label: string;
+  sortable?: boolean;
+  phase?: keyof typeof COLORS.PHASE; // mdl|rig|bld|dsn|ldv
+  kind?: "work" | "appr" | "submitted";
+};
+
+type Props = {
+  groups?: PivotGroup[];
+  sortKey: string;
+  sortDir: SortDir;
+  onSortChange: (key: string) => void;
+  dateTimeFormat: Intl.DateTimeFormat;
+  hiddenColumns?: Set<string>;
+};
+
+const COLUMNS: Column[] = [
+  { id: "thumbnail", label: "THUMBS" },
+  { id: "group_1_name", label: "NAME", sortable: true },
+
+  { id: "mdl_work", label: "MDL WORK", sortable: true, phase: "mdl", kind: "work" },
+  { id: "mdl_appr", label: "MDL APPR", sortable: true, phase: "mdl", kind: "appr" },
+  { id: "mdl_submitted", label: "MDL SUBMITTED AT", sortable: true, phase: "mdl", kind: "submitted" },
+
+  { id: "rig_work", label: "RIG WORK", sortable: true, phase: "rig", kind: "work" },
+  { id: "rig_appr", label: "RIG APPR", sortable: true, phase: "rig", kind: "appr" },
+  { id: "rig_submitted", label: "RIG SUBMITTED AT", sortable: true, phase: "rig", kind: "submitted" },
+
+  { id: "bld_work", label: "BLD WORK", sortable: true, phase: "bld", kind: "work" },
+  { id: "bld_appr", label: "BLD APPR", sortable: true, phase: "bld", kind: "appr" },
+  { id: "bld_submitted", label: "BLD SUBMITTED AT", sortable: true, phase: "bld", kind: "submitted" },
+
+  { id: "dsn_work", label: "DSN WORK", sortable: true, phase: "dsn", kind: "work" },
+  { id: "dsn_appr", label: "DSN APPR", sortable: true, phase: "dsn", kind: "appr" },
+  { id: "dsn_submitted", label: "DSN SUBMITTED AT", sortable: true, phase: "dsn", kind: "submitted" },
+
+  { id: "ldv_work", label: "LDV WORK", sortable: true, phase: "ldv", kind: "work" },
+  { id: "ldv_appr", label: "LDV APPR", sortable: true, phase: "ldv", kind: "appr" },
+  { id: "ldv_submitted", label: "LDV SUBMITTED AT", sortable: true, phase: "ldv", kind: "submitted" },
+
+  { id: "relation", label: "RELATION", sortable: true },
+];
+
+function isPhaseStart(col: Column, visibleCols: Column[]) {
+  if (!col.phase) return false;
+  for (let i = 0; i < visibleCols.length; i++) {
+    if (visibleCols[i].phase === col.phase) {
+      return visibleCols[i].id === col.id;
+    }
+  }
+  return false;
+}
+
+function isPhaseEnd(col: Column, visibleCols: Column[]) {
+  if (!col.phase) return false;
+  let lastId: string | null = null;
+  for (let i = 0; i < visibleCols.length; i++) {
+    if (visibleCols[i].phase === col.phase) lastId = visibleCols[i].id;
+  }
+  return lastId === col.id;
+}
+
+function buildCellStyle(
+  col: Column,
+  visibleCols: Column[],
+  opts: { header?: boolean; isGroupRow?: boolean } = {}
+): React.CSSProperties {
+  const header = !!opts.header;
+  const isGroupRow = !!opts.isGroupRow;
+
+  const baseBg = header ? COLORS.HEADER_BG : COLORS.ROW_BG;
+  const grid = header ? COLORS.HEADER_BORDER : COLORS.GRID_LINE;
+  const railColor = col.phase ? COLORS.PHASE[col.phase] : "";
+
+  const style: React.CSSProperties = {
+    backgroundColor: baseBg,
+    color: header ? "#fff" : COLORS.TEXT,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    borderBottom: header
+      ? `1px solid ${grid}`
+      : `${isGroupRow ? UI.GROUP_ROW_GAP_PX : UI.ROW_GAP_PX}px solid ${COLORS.TABLE_BG}`,
+    borderRight: `1px solid ${grid}`,
+    padding: header ? "0 6px" : "0 6px",
+    fontSize: header ? "0.65rem" : "0.8rem",
+    height: header ? UI.HEADER_HEIGHT_PX : UI.ROW_HEIGHT_PX,
+    lineHeight: `${header ? UI.HEADER_HEIGHT_PX : UI.ROW_HEIGHT_PX}px`,
+  };
+
+  if (col.phase) {
+    const start = isPhaseStart(col, visibleCols);
+    const end = isPhaseEnd(col, visibleCols);
+
+    if (header) style.borderTop = `${UI.RAIL_PX + 1}px solid ${railColor}`;
+
+    const shadows: string[] = [];
+    if (start) shadows.push(`inset ${UI.RAIL_PX}px 0 0 0 ${railColor}`);
+    if (end) {
+      shadows.push(`inset -${UI.RAIL_PX}px 0 0 0 ${railColor}`);
+      style.borderRight = `${UI.PHASE_GAP_PX}px solid ${COLORS.TABLE_BG}`;
+    }
+    if (shadows.length) style.boxShadow = shadows.join(", ");
+  }
+
+  return style;
+}
+
+function formatSubmitted(val: any) {
+  if (!val || val === "-") return "-";
+  return String(val).split("T")[0];
+}
+
+function statusColor(status?: string) {
+  const s = (status || "").toLowerCase();
+  if (!s || s === "-") return COLORS.MUTED;
+  if (s.indexOf("approved") >= 0) return "#32cd32";
+  if (s.indexOf("review") >= 0) return "#ffa500";
+  if (s.indexOf("retake") >= 0) return "#ff4f4f";
+  if (s.indexOf("hold") >= 0) return "#ffdd55";
+  if (s === "check") return "#ca25ed";
+  return COLORS.MUTED;
+}
+
+function renderAssetField(asset: any, col: Column) {
+  if (col.id === "thumbnail") {
+    return (
+      <Box
+        width={40}
+        height={24}
+        bgcolor="#2a2a2a"
+        style={{ border: "1px solid #444", margin: "auto" }}
+      />
+    );
+  }
+
+  if (col.id === "group_1_name") {
+    return (
+      <Typography noWrap style={{ fontSize: "0.85rem", fontWeight: 700, paddingLeft: 10, lineHeight: "inherit" }}>
+        {asset.group_1 || ""}
+      </Typography>
+    );
+  }
+
+  if (col.id === "relation") {
+    return (
+      <Typography noWrap style={{ fontSize: "0.75rem", lineHeight: "inherit" }}>
+        {asset.relation || "-"}
+      </Typography>
+    );
+  }
+
+  const phase = col.phase;
+  if (!phase) return <span>-</span>;
+
+  if (col.kind === "submitted") {
+    return (
+      <Typography noWrap style={{ fontSize: "0.75rem", lineHeight: "inherit" }}>
+        {formatSubmitted(asset[phase + "_submitted_at_utc"])}
+      </Typography>
+    );
+  }
+
+  const field = col.kind === "work" ? "work_status" : "approval_status";
+  const raw = asset[phase + "_" + field];
+  const text = raw || "-";
+
+  return (
+    <Typography noWrap style={{ fontSize: "0.75rem", color: statusColor(text), lineHeight: "inherit" }}>
+      {text}
+    </Typography>
+  );
+}
+
+const AssetsGroupedDataTable: React.FC<Props> = ({
+  groups = [],
+  sortKey,
+  sortDir,
+  onSortChange,
+  dateTimeFormat,
+  hiddenColumns = new Set(),
+}) => {
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  const toggle = useCallback((key: string) => {
+    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+
+  const visibleColumns = useMemo(() => {
+    const out: Column[] = [];
+    for (let i = 0; i < COLUMNS.length; i++) {
+      const c = COLUMNS[i];
+      if (!hiddenColumns.has(c.id)) out.push(c);
+    }
+    return out;
+  }, [hiddenColumns]);
+
+  return (
+    <Box width="100%" style={{ backgroundColor: COLORS.TABLE_BG }}>
+      {/* Hide scrollbars but allow horizontal scroll */}
+      <style>
+        {`
+          .agdt-scroll {
+            overflow-x: auto;
+            overflow-y: hidden;
+            background: ${COLORS.TABLE_BG};
+            width: 100%;
+          }
+          .agdt-scroll::-webkit-scrollbar { height: 0px; }
+          .agdt-scroll { scrollbar-width: none; }
+          .agdt-scroll::-webkit-scrollbar-thumb { background: transparent; }
+        `}
+      </style>
+
+      <div className="agdt-scroll">
+        <Table
+          size="small"
+          stickyHeader
+          style={{
+            width: "100%",          // ✅ remove right empty space
+            minWidth: "100%",       // ✅ still fills container
+            tableLayout: "fixed",   // ✅ uses colgroup widths properly
+            backgroundColor: COLORS.TABLE_BG,
+            borderCollapse: "separate",
+            borderSpacing: 0,
+          }}
+        >
+          {/* ✅ Column widths */}
+          <colgroup>
+            {visibleColumns.map((col) => {
+              let w: number | undefined = UI.PHASE_COL_WIDTH;
+              if (col.id === "thumbnail") w = UI.THUMB_WIDTH;
+              else if (col.id === "group_1_name") w = UI.NAME_WIDTH;
+              else if (col.id === "relation") w = UI.RELATION_WIDTH;
+
+              return <col key={col.id} style={{ width: w }} />;
+            })}
+          </colgroup>
+
+          <TableHead>
+            <TableRow style={{ height: UI.HEADER_HEIGHT_PX }}>
+              {visibleColumns.map((col) => (
+                <TableCell
+                  key={col.id}
+                  align={col.id === "group_1_name" ? "left" : "center"}
+                  onClick={() => col.sortable && onSortChange(col.id)}
+                  style={{
+                    ...buildCellStyle(col, visibleColumns, { header: true }),
+                    cursor: col.sortable ? "pointer" : "default",
+                  }}
+                >
+                  <Box
+                    display="flex"
+                    alignItems="center"
+                    justifyContent={col.id === "group_1_name" ? "flex-start" : "center"}
+                  >
+                    <Typography style={{ fontSize: "0.65rem", fontWeight: 900 }}>
+                      {col.label}
+                    </Typography>
+                    {sortKey === col.id &&
+                      (sortDir === "asc" ? (
+                        <ArrowDropUpIcon fontSize="small" />
+                      ) : (
+                        <ArrowDropDownIcon fontSize="small" />
+                      ))}
+                  </Box>
+                </TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+
+          <TableBody>
+            {groups.map((group) => {
+              const groupName = group.top_group_node || "UNASSIGNED";
+              const isCollapsed = !!collapsed[groupName];
+
+              return (
+                <React.Fragment key={groupName}>
+                  {/* Group row */}
+                  <TableRow onClick={() => toggle(groupName)} style={{ cursor: "pointer", height: UI.GROUP_ROW_HEIGHT_PX }}>
+                    <TableCell
+                      colSpan={visibleColumns.length}
+                      style={{
+                        backgroundColor: COLORS.GROUP_BG,
+                        color: COLORS.GROUP_TEXT,
+                        borderBottom: `${UI.GROUP_ROW_GAP_PX}px solid ${COLORS.TABLE_BG}`,
+                        padding: "0 8px",
+                        height: UI.GROUP_ROW_HEIGHT_PX,
+                      }}
+                    >
+                      <Box display="flex" alignItems="center" height={UI.GROUP_ROW_HEIGHT_PX}>
+                        <IconButton size="small" style={{ color: COLORS.GROUP_TEXT, padding: 0 }}>
+                          {isCollapsed ? (
+                            <ChevronRightIcon fontSize="small" />
+                          ) : (
+                            <ExpandMoreIcon fontSize="small" />
+                          )}
+                        </IconButton>
+                        <Typography
+                          style={{
+                            color: COLORS.GROUP_TEXT,
+                            fontSize: "0.8rem",
+                            fontWeight: 800,
+                            marginLeft: 10,
+                          }}
+                        >
+                          {String(groupName).toUpperCase()}{" "}
+                          <span style={{ fontSize: "0.75rem" }}>
+                            ({(group.items && group.items.length) || 0})
+                          </span>
+                        </Typography>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+
+                  {/* Data rows */}
+                  {!isCollapsed &&
+                    (group.items || []).map((asset: any, idx: number) => (
+                      <TableRow
+                        key={groupName + "-" + idx}
+                        hover
+                        style={{ backgroundColor: COLORS.TABLE_BG, height: UI.ROW_HEIGHT_PX }}
+                      >
+                        {visibleColumns.map((col) => (
+                          <TableCell
+                            key={col.id}
+                            align={col.id === "group_1_name" ? "left" : "center"}
+                            style={buildCellStyle(col, visibleColumns)}
+                          >
+                            {renderAssetField(asset, col)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                </React.Fragment>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
+    </Box>
+  );
+};
+
+export default AssetsGroupedDataTable;
