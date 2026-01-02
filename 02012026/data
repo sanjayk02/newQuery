@@ -24,12 +24,15 @@ const COLORS = {
   TABLE_BG: "#3d3d3dff",
   HEADER_BG: "#3d3d3dff",
   HEADER_BORDER: "#3d3d3dff",
-  GRID_LINE: "#3d3d3dff",
+  GRID_LINE: "#555555", // subtle grey lines
   ROW_BG: "#3d3d3dff",
   GROUP_BG: "#3d3d3dff",
   GROUP_TEXT: "#00b7ff",
   TEXT: "#e0e0e0",
   MUTED: "#bdbdbd",
+
+  // 🔥 top/bottom line color for NON phase columns
+  COL_EDGE: "#6b6b6b",
 
   PHASE: {
     mdl: "#00b7ff",
@@ -41,7 +44,7 @@ const COLORS = {
 };
 
 /** ----------------------------------------------------------------
- *  UI controls (change here)
+ *  UI controls
  *  ---------------------------------------------------------------- */
 const UI = {
   ROW_HEIGHT: 50,
@@ -59,9 +62,12 @@ const UI = {
   RELATION_WIDTH: 50,
   PHASE_COL_WIDTH: 97,
 
-  // ✅ header top/bottom line thickness
-  HEADER_TOP_LINE_PX: 3,
-  HEADER_BOTTOM_LINE_PX: 3,
+  // ✅ the “top & bottom line” thickness you marked
+  COL_EDGE_PX: 2,
+
+  // thumbnail look like your list view squares
+  THUMB_BOX: 28,
+  THUMB_RADIUS: 2,
 };
 
 type ColumnId =
@@ -88,7 +94,7 @@ type Column = {
   id: ColumnId;
   label: string;
   sortable?: boolean;
-  phase?: keyof typeof COLORS.PHASE; // mdl|rig|bld|dsn|ldv
+  phase?: keyof typeof COLORS.PHASE;
   kind?: "work" | "appr" | "submitted";
 };
 
@@ -128,12 +134,16 @@ const COLUMNS: Column[] = [
   { id: "relation", label: "RELATION", sortable: true },
 ];
 
+/** -----------------------------
+ * scrollbar hide (bottom bar)
+ * ----------------------------- */
 const useStyles = makeStyles(() => ({
   scrollWrap: {
     width: "100%",
     background: COLORS.PAGE_BG,
     overflowX: "auto",
     overflowY: "hidden",
+
     scrollbarWidth: "none" as any,
     msOverflowStyle: "none",
     "&::-webkit-scrollbar": { display: "none" },
@@ -176,13 +186,40 @@ function statusColor(status?: string) {
   return COLORS.MUTED;
 }
 
+/** ✅ thumbnail renderer like your list view squares */
+function renderThumbnail(asset: any) {
+  const url = asset?.thumbnail_url || asset?.thumbnail; // support both keys
+  return (
+    <Box display="flex" alignItems="center" justifyContent="center">
+      <Box
+        style={{
+          width: UI.THUMB_BOX,
+          height: UI.THUMB_BOX,
+          borderRadius: UI.THUMB_RADIUS,
+          backgroundColor: "#2a2a2a",
+          overflow: "hidden",
+        }}
+      >
+        {url ? (
+          <img
+            src={url}
+            alt=""
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              display: "block",
+            }}
+          />
+        ) : null}
+      </Box>
+    </Box>
+  );
+}
+
 function renderAssetField(asset: any, col: Column) {
   if (col.id === "thumbnail") {
-    return (
-      <Typography style={{ fontSize: 12, fontWeight: 500 }}>
-        {asset.thumbnail ? "Thumbnail" : "No Thumbnail"}
-      </Typography>
-    );
+    return renderThumbnail(asset);
   }
 
   if (col.id === "group_1_name") {
@@ -224,8 +261,11 @@ function renderAssetField(asset: any, col: Column) {
 }
 
 /**
- * ✅ Added: top & bottom colored line on EVERY header cell
- * ✅ Removed: vertical line between THUMBNAIL and NAME
+ * ✅ What you asked:
+ * 1) Top LINE for each column (header)
+ * 2) Bottom LINE for each column (header)
+ * 3) Remove middle vertical line between Thumbnail and Name
+ * 4) Keep phase rails + phase gaps
  */
 function buildCellStyle(
   col: Column,
@@ -240,10 +280,11 @@ function buildCellStyle(
   const isPhaseStart = !!(meta && meta.start === col.id);
   const isPhaseEnd = !!(meta && meta.end === col.id);
 
+  // header background
   const headerBg = col.phase ? hexToRgba(railColor, 0.45) : COLORS.HEADER_BG;
 
-  const topLineColor = col.phase ? railColor : COLORS.HEADER_BORDER;
-  const bottomLineColor = col.phase ? railColor : COLORS.HEADER_BORDER;
+  // ✅ column top/bottom edge line color (phase uses phase color)
+  const edgeColor = col.phase ? railColor : COLORS.COL_EDGE;
 
   const style: React.CSSProperties = {
     backgroundColor: header ? headerBg : COLORS.ROW_BG,
@@ -255,42 +296,49 @@ function buildCellStyle(
     height: UI.ROW_HEIGHT,
     padding: (header ? 8 : UI.ROW_PAD_Y) + "px " + UI.ROW_PAD_X + "px",
     fontSize: 12,
-    fontWeight: header ? 700 : 500,
+    fontWeight: header ? 900 : 500,
 
-    borderRight: "0px",
     borderLeft: "0px",
+    borderRight: "0px",
 
-    // default row bottom
+    // row gap/border
     borderBottom: header
-      ? "0px"
+      ? "1px solid " + COLORS.HEADER_BORDER
       : (isGroupRow ? UI.GROUP_ROW_GAP_PX : UI.ROW_GAP_PX) + "px solid " + COLORS.TABLE_BG,
   };
 
-  // ✅ HEADER: top and bottom colored line (every column)
+  // ✅ draw TOP + BOTTOM line in HEADER for each column (your red line)
   if (header) {
-    style.borderTop = `${UI.HEADER_TOP_LINE_PX}px solid ${topLineColor}`;
-    style.borderBottom = `${UI.HEADER_BOTTOM_LINE_PX}px solid ${bottomLineColor}`;
+    style.boxShadow = [
+      // top line
+      `inset 0 ${UI.COL_EDGE_PX}px 0 0 ${edgeColor}`,
+      // bottom line
+      `inset 0 -${UI.COL_EDGE_PX}px 0 0 ${edgeColor}`,
+    ].join(", ");
   }
 
-  // PHASE rails + phase gap only at phase boundary
+  // PHASE rails (only at group boundaries)
   if (col.phase) {
     const shadows: string[] = [];
+
+    // keep existing shadows from header (top/bottom lines)
+    if (style.boxShadow) shadows.push(String(style.boxShadow));
 
     if (isPhaseStart) shadows.push(`inset ${UI.RAIL_PX}px 0 0 0 ${railColor}`);
     if (isPhaseEnd) shadows.push(`inset -${UI.RAIL_PX}px 0 0 0 ${railColor}`);
 
     style.boxShadow = shadows.join(", ");
 
+    // gap after phase end
     if (isPhaseEnd) {
-      style.borderRight = `${UI.PHASE_GAP_PX}px solid ${COLORS.TABLE_BG}`;
+      style.borderRight = UI.PHASE_GAP_PX + "px solid " + COLORS.TABLE_BG;
     }
   } else {
-    // ✅ Non-phase columns:
-    // Remove the vertical line BETWEEN THUMBNAIL and NAME only
+    // ✅ remove middle line between THUMBNAIL and NAME (your marked line)
     if (col.id === "thumbnail") {
       style.borderRight = "0px";
     } else {
-      // keep subtle separation elsewhere (NAME -> phases, RELATION, etc.)
+      // keep subtle separator for other non-phase boundaries (like RELATION end)
       style.borderRight = "1px solid " + (header ? COLORS.HEADER_BORDER : COLORS.GRID_LINE);
     }
   }
@@ -384,6 +432,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
 
             return (
               <React.Fragment key={groupName}>
+                {/* Group row */}
                 <TableRow onClick={() => toggle(groupName)} style={{ cursor: "pointer" }}>
                   <TableCell
                     colSpan={visibleColumns.length}
@@ -421,6 +470,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                   </TableCell>
                 </TableRow>
 
+                {/* Data rows */}
                 {!isCollapsed &&
                   (group.items || []).map((asset: any, idx: number) => (
                     <TableRow key={groupName + "-" + idx} hover>
