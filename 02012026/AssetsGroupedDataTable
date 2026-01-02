@@ -8,7 +8,6 @@ import {
   TableHead,
   TableRow,
   Typography,
-  makeStyles,
 } from "@material-ui/core";
 import ExpandMoreIcon from "@material-ui/icons/ExpandMore";
 import ChevronRightIcon from "@material-ui/icons/ChevronRight";
@@ -39,17 +38,23 @@ const COLORS = {
   },
 };
 
-/** Visual spacing + heights */
+/** Visual spacing + sizing controls */
 const UI = {
-  ROW_GAP_PX: 10, // gap between data rows (shows table bg)
+  ROW_GAP_PX: 10,
   GROUP_ROW_GAP_PX: 8,
-  PHASE_GAP_PX: 14, // gap between phase blocks
+  PHASE_GAP_PX: 14,
   RAIL_PX: 3,
 
-  // HEIGHT CONTROL (change these)
-  HEADER_CELL_PY: 6, // header vertical padding
-  ROW_CELL_PY: 6, // data row vertical padding
-  GROUP_CELL_PY: 6, // group row vertical padding
+  // Row heights
+  HEADER_HEIGHT_PX: 34,
+  ROW_HEIGHT_PX: 34,
+  GROUP_ROW_HEIGHT_PX: 32,
+
+  // Column widths
+  THUMB_WIDTH: 70,
+  NAME_WIDTH: 260,
+  PHASE_COL_WIDTH: 110,
+  RELATION_WIDTH: 110,
 };
 
 type ColumnId =
@@ -89,7 +94,6 @@ type Props = {
   hiddenColumns?: Set<string>;
 };
 
-/** Columns */
 const COLUMNS: Column[] = [
   { id: "thumbnail", label: "THUMBS" },
   { id: "group_1_name", label: "NAME", sortable: true },
@@ -117,61 +121,23 @@ const COLUMNS: Column[] = [
   { id: "relation", label: "RELATION", sortable: true },
 ];
 
-/** Hide scrollbar but keep scrolling */
-const useStyles = makeStyles({
-  scrollWrap: {
-    width: "100%",
-    backgroundColor: COLORS.TABLE_BG,
-
-    overflowX: "auto",
-    overflowY: "hidden",
-
-    // Firefox
-    scrollbarWidth: "none",
-    // IE/Edge legacy
-    msOverflowStyle: "none",
-
-    // Chrome/Safari
-    "&::-webkit-scrollbar": {
-      height: 0,
-      width: 0,
-      display: "none",
-    },
-  },
-});
-
-function getPhaseRailColor(col: Column) {
-  if (!col.phase) return "";
-  return COLORS.PHASE[col.phase];
-}
-
-/** NO optional chaining here */
 function isPhaseStart(col: Column, visibleCols: Column[]) {
   if (!col.phase) return false;
-  var first: Column | undefined = undefined;
-
-  for (var i = 0; i < visibleCols.length; i++) {
+  for (let i = 0; i < visibleCols.length; i++) {
     if (visibleCols[i].phase === col.phase) {
-      first = visibleCols[i];
-      break;
+      return visibleCols[i].id === col.id;
     }
   }
-  if (!first) return false;
-  return first.id === col.id;
+  return false;
 }
 
-/** NO optional chaining here */
 function isPhaseEnd(col: Column, visibleCols: Column[]) {
   if (!col.phase) return false;
-
-  var last: Column | undefined = undefined;
-  for (var i = 0; i < visibleCols.length; i++) {
-    if (visibleCols[i].phase === col.phase) {
-      last = visibleCols[i];
-    }
+  let lastId: string | null = null;
+  for (let i = 0; i < visibleCols.length; i++) {
+    if (visibleCols[i].phase === col.phase) lastId = visibleCols[i].id;
   }
-  if (!last) return false;
-  return last.id === col.id;
+  return lastId === col.id;
 }
 
 function buildCellStyle(
@@ -182,48 +148,39 @@ function buildCellStyle(
   const header = !!opts.header;
   const isGroupRow = !!opts.isGroupRow;
 
-  const baseBg = header ? COLORS.HEADER_BG : isGroupRow ? COLORS.GROUP_BG : COLORS.ROW_BG;
-  const railColor = getPhaseRailColor(col);
+  const baseBg = header ? COLORS.HEADER_BG : COLORS.ROW_BG;
   const grid = header ? COLORS.HEADER_BORDER : COLORS.GRID_LINE;
+  const railColor = col.phase ? COLORS.PHASE[col.phase] : "";
 
   const style: React.CSSProperties = {
     backgroundColor: baseBg,
-    color: header ? "#fff" : isGroupRow ? COLORS.GROUP_TEXT : COLORS.TEXT,
+    color: header ? "#fff" : COLORS.TEXT,
     whiteSpace: "nowrap",
-    borderRight: "1px solid " + grid,
-    borderBottom: header
-      ? "1px solid " + grid
-      : (isGroupRow ? UI.GROUP_ROW_GAP_PX : UI.ROW_GAP_PX) + "px solid " + COLORS.TABLE_BG,
-    padding: header
-      ? UI.HEADER_CELL_PY + "px 6px"
-      : isGroupRow
-      ? UI.GROUP_CELL_PY + "px 8px"
-      : UI.ROW_CELL_PY + "px 6px",
-    fontSize: header ? "0.65rem" : "0.8rem",
     overflow: "hidden",
     textOverflow: "ellipsis",
+    borderBottom: header
+      ? `1px solid ${grid}`
+      : `${isGroupRow ? UI.GROUP_ROW_GAP_PX : UI.ROW_GAP_PX}px solid ${COLORS.TABLE_BG}`,
+    borderRight: `1px solid ${grid}`,
+    padding: header ? "0 6px" : "0 6px",
+    fontSize: header ? "0.65rem" : "0.8rem",
+    height: header ? UI.HEADER_HEIGHT_PX : UI.ROW_HEIGHT_PX,
+    lineHeight: `${header ? UI.HEADER_HEIGHT_PX : UI.ROW_HEIGHT_PX}px`,
   };
 
-  // phase rails + phase gap
   if (col.phase) {
     const start = isPhaseStart(col, visibleCols);
     const end = isPhaseEnd(col, visibleCols);
 
-    if (header) {
-      style.borderTop = UI.RAIL_PX + 1 + "px solid " + railColor;
-    }
+    if (header) style.borderTop = `${UI.RAIL_PX + 1}px solid ${railColor}`;
 
-    if (start) {
-      style.boxShadow = "inset " + UI.RAIL_PX + "px 0 0 0 " + railColor;
-    }
-
+    const shadows: string[] = [];
+    if (start) shadows.push(`inset ${UI.RAIL_PX}px 0 0 0 ${railColor}`);
     if (end) {
-      const currentShadow = style.boxShadow ? style.boxShadow + ", " : "";
-      style.boxShadow = currentShadow + "inset -" + UI.RAIL_PX + "px 0 0 0 " + railColor;
-
-      // gap between phases
-      style.borderRight = UI.PHASE_GAP_PX + "px solid " + COLORS.TABLE_BG;
+      shadows.push(`inset -${UI.RAIL_PX}px 0 0 0 ${railColor}`);
+      style.borderRight = `${UI.PHASE_GAP_PX}px solid ${COLORS.TABLE_BG}`;
     }
+    if (shadows.length) style.boxShadow = shadows.join(", ");
   }
 
   return style;
@@ -235,15 +192,13 @@ function formatSubmitted(val: any) {
 }
 
 function statusColor(status?: string) {
-  const s = String(status || "").toLowerCase();
+  const s = (status || "").toLowerCase();
   if (!s || s === "-") return COLORS.MUTED;
-
   if (s.indexOf("approved") >= 0) return "#32cd32";
   if (s.indexOf("review") >= 0) return "#ffa500";
   if (s.indexOf("retake") >= 0) return "#ff4f4f";
   if (s.indexOf("hold") >= 0) return "#ffdd55";
   if (s === "check") return "#ca25ed";
-
   return COLORS.MUTED;
 }
 
@@ -261,7 +216,7 @@ function renderAssetField(asset: any, col: Column) {
 
   if (col.id === "group_1_name") {
     return (
-      <Typography noWrap style={{ fontSize: "0.85rem", fontWeight: 700, paddingLeft: 10 }}>
+      <Typography noWrap style={{ fontSize: "0.85rem", fontWeight: 700, paddingLeft: 10, lineHeight: "inherit" }}>
         {asset.group_1 || ""}
       </Typography>
     );
@@ -269,7 +224,7 @@ function renderAssetField(asset: any, col: Column) {
 
   if (col.id === "relation") {
     return (
-      <Typography noWrap style={{ fontSize: "0.75rem" }}>
+      <Typography noWrap style={{ fontSize: "0.75rem", lineHeight: "inherit" }}>
         {asset.relation || "-"}
       </Typography>
     );
@@ -280,7 +235,7 @@ function renderAssetField(asset: any, col: Column) {
 
   if (col.kind === "submitted") {
     return (
-      <Typography noWrap style={{ fontSize: "0.75rem" }}>
+      <Typography noWrap style={{ fontSize: "0.75rem", lineHeight: "inherit" }}>
         {formatSubmitted(asset[phase + "_submitted_at_utc"])}
       </Typography>
     );
@@ -291,7 +246,7 @@ function renderAssetField(asset: any, col: Column) {
   const text = raw || "-";
 
   return (
-    <Typography noWrap style={{ fontSize: "0.75rem", color: statusColor(text) }}>
+    <Typography noWrap style={{ fontSize: "0.75rem", color: statusColor(text), lineHeight: "inherit" }}>
       {text}
     </Typography>
   );
@@ -302,140 +257,167 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
   sortKey,
   sortDir,
   onSortChange,
-  dateTimeFormat, // kept for compatibility
+  dateTimeFormat,
   hiddenColumns = new Set(),
 }) => {
-  const classes = useStyles();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const toggle = useCallback((key: string) => {
-    setCollapsed((prev) => {
-      const next = { ...prev };
-      next[key] = !prev[key];
-      return next;
-    });
+    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
   const visibleColumns = useMemo(() => {
-    return COLUMNS.filter((c) => !hiddenColumns.has(c.id));
+    const out: Column[] = [];
+    for (let i = 0; i < COLUMNS.length; i++) {
+      const c = COLUMNS[i];
+      if (!hiddenColumns.has(c.id)) out.push(c);
+    }
+    return out;
   }, [hiddenColumns]);
 
   return (
-    <Box className={classes.scrollWrap}>
-      <Table
-        size="small"
-        stickyHeader
-        style={{
-          // Fits content = no trailing blank white area
-          width: "max-content",
-          minWidth: "100%",
-          backgroundColor: COLORS.TABLE_BG,
-          tableLayout: "auto",
-        }}
-      >
-        <TableHead>
-          <TableRow>
-            {visibleColumns.map((col) => (
-              <TableCell
-                key={col.id}
-                align={col.id === "group_1_name" ? "left" : "center"}
-                onClick={() => (col.sortable ? onSortChange(col.id) : undefined)}
-                style={{
-                  ...buildCellStyle(col, visibleColumns, { header: true }),
-                  cursor: col.sortable ? "pointer" : "default",
-                }}
-              >
-                <Box
-                  display="flex"
-                  alignItems="center"
-                  justifyContent={col.id === "group_1_name" ? "flex-start" : "center"}
-                >
-                  <Typography style={{ fontSize: "0.65rem", fontWeight: 900 }}>
-                    {col.label}
-                  </Typography>
-                  {sortKey === col.id ? (
-                    sortDir === "asc" ? (
-                      <ArrowDropUpIcon fontSize="small" />
-                    ) : (
-                      <ArrowDropDownIcon fontSize="small" />
-                    )
-                  ) : null}
-                </Box>
-              </TableCell>
-            ))}
-          </TableRow>
-        </TableHead>
+    <Box width="100%" style={{ backgroundColor: COLORS.TABLE_BG }}>
+      {/* Hide scrollbars but allow horizontal scroll */}
+      <style>
+        {`
+          .agdt-scroll {
+            overflow-x: auto;
+            overflow-y: hidden;
+            background: ${COLORS.TABLE_BG};
+            width: 100%;
+          }
+          .agdt-scroll::-webkit-scrollbar { height: 0px; }
+          .agdt-scroll { scrollbar-width: none; }
+          .agdt-scroll::-webkit-scrollbar-thumb { background: transparent; }
+        `}
+      </style>
 
-        <TableBody>
-          {groups.map((group) => {
-            const groupName = (group && group.top_group_node) ? group.top_group_node : "UNASSIGNED";
-            const items = (group && group.items) ? group.items : [];
-            const isCollapsed = !!collapsed[groupName];
+      <div className="agdt-scroll">
+        <Table
+          size="small"
+          stickyHeader
+          style={{
+            width: "100%",          // ✅ remove right empty space
+            minWidth: "100%",       // ✅ still fills container
+            tableLayout: "fixed",   // ✅ uses colgroup widths properly
+            backgroundColor: COLORS.TABLE_BG,
+            borderCollapse: "separate",
+            borderSpacing: 0,
+          }}
+        >
+          {/* ✅ Column widths */}
+          <colgroup>
+            {visibleColumns.map((col) => {
+              let w: number | undefined = UI.PHASE_COL_WIDTH;
+              if (col.id === "thumbnail") w = UI.THUMB_WIDTH;
+              else if (col.id === "group_1_name") w = UI.NAME_WIDTH;
+              else if (col.id === "relation") w = UI.RELATION_WIDTH;
 
-            return (
-              <React.Fragment key={groupName}>
-                {/* Group row */}
-                <TableRow
-                  onClick={() => toggle(groupName)}
-                  style={{ cursor: "pointer" }}
+              return <col key={col.id} style={{ width: w }} />;
+            })}
+          </colgroup>
+
+          <TableHead>
+            <TableRow style={{ height: UI.HEADER_HEIGHT_PX }}>
+              {visibleColumns.map((col) => (
+                <TableCell
+                  key={col.id}
+                  align={col.id === "group_1_name" ? "left" : "center"}
+                  onClick={() => col.sortable && onSortChange(col.id)}
+                  style={{
+                    ...buildCellStyle(col, visibleColumns, { header: true }),
+                    cursor: col.sortable ? "pointer" : "default",
+                  }}
                 >
-                  <TableCell
-                    colSpan={visibleColumns.length}
-                    style={buildCellStyle(
-                      { id: "group_1_name", label: "GROUP" } as any,
-                      visibleColumns,
-                      { isGroupRow: true }
-                    )}
+                  <Box
+                    display="flex"
+                    alignItems="center"
+                    justifyContent={col.id === "group_1_name" ? "flex-start" : "center"}
                   >
-                    <Box display="flex" alignItems="center">
-                      <IconButton size="small" style={{ color: COLORS.GROUP_TEXT, padding: 0 }}>
-                        {isCollapsed ? (
-                          <ChevronRightIcon fontSize="small" />
-                        ) : (
-                          <ExpandMoreIcon fontSize="small" />
-                        )}
-                      </IconButton>
-
-                      <Typography
-                        noWrap
-                        style={{
-                          color: COLORS.GROUP_TEXT,
-                          fontSize: "0.8rem",
-                          fontWeight: 800,
-                          marginLeft: 10,
-                        }}
-                      >
-                        {String(groupName).toUpperCase()}{" "}
-                        <span style={{ fontSize: "0.75rem" }}>({items.length})</span>
-                      </Typography>
-                    </Box>
-                  </TableCell>
-                </TableRow>
-
-                {/* Data rows */}
-                {!isCollapsed &&
-                  items.map((asset: any, idx: number) => (
-                    <TableRow
-                      key={groupName + "-" + idx}
-                      hover
-                      style={{ backgroundColor: COLORS.TABLE_BG }}
-                    >
-                      {visibleColumns.map((col) => (
-                        <TableCell
-                          key={col.id}
-                          align={col.id === "group_1_name" ? "left" : "center"}
-                          style={buildCellStyle(col, visibleColumns)}
-                        >
-                          {renderAssetField(asset, col)}
-                        </TableCell>
+                    <Typography style={{ fontSize: "0.65rem", fontWeight: 900 }}>
+                      {col.label}
+                    </Typography>
+                    {sortKey === col.id &&
+                      (sortDir === "asc" ? (
+                        <ArrowDropUpIcon fontSize="small" />
+                      ) : (
+                        <ArrowDropDownIcon fontSize="small" />
                       ))}
-                    </TableRow>
-                  ))}
-              </React.Fragment>
-            );
-          })}
-        </TableBody>
-      </Table>
+                  </Box>
+                </TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+
+          <TableBody>
+            {groups.map((group) => {
+              const groupName = group.top_group_node || "UNASSIGNED";
+              const isCollapsed = !!collapsed[groupName];
+
+              return (
+                <React.Fragment key={groupName}>
+                  {/* Group row */}
+                  <TableRow onClick={() => toggle(groupName)} style={{ cursor: "pointer", height: UI.GROUP_ROW_HEIGHT_PX }}>
+                    <TableCell
+                      colSpan={visibleColumns.length}
+                      style={{
+                        backgroundColor: COLORS.GROUP_BG,
+                        color: COLORS.GROUP_TEXT,
+                        borderBottom: `${UI.GROUP_ROW_GAP_PX}px solid ${COLORS.TABLE_BG}`,
+                        padding: "0 8px",
+                        height: UI.GROUP_ROW_HEIGHT_PX,
+                      }}
+                    >
+                      <Box display="flex" alignItems="center" height={UI.GROUP_ROW_HEIGHT_PX}>
+                        <IconButton size="small" style={{ color: COLORS.GROUP_TEXT, padding: 0 }}>
+                          {isCollapsed ? (
+                            <ChevronRightIcon fontSize="small" />
+                          ) : (
+                            <ExpandMoreIcon fontSize="small" />
+                          )}
+                        </IconButton>
+                        <Typography
+                          style={{
+                            color: COLORS.GROUP_TEXT,
+                            fontSize: "0.8rem",
+                            fontWeight: 800,
+                            marginLeft: 10,
+                          }}
+                        >
+                          {String(groupName).toUpperCase()}{" "}
+                          <span style={{ fontSize: "0.75rem" }}>
+                            ({(group.items && group.items.length) || 0})
+                          </span>
+                        </Typography>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+
+                  {/* Data rows */}
+                  {!isCollapsed &&
+                    (group.items || []).map((asset: any, idx: number) => (
+                      <TableRow
+                        key={groupName + "-" + idx}
+                        hover
+                        style={{ backgroundColor: COLORS.TABLE_BG, height: UI.ROW_HEIGHT_PX }}
+                      >
+                        {visibleColumns.map((col) => (
+                          <TableCell
+                            key={col.id}
+                            align={col.id === "group_1_name" ? "left" : "center"}
+                            style={buildCellStyle(col, visibleColumns)}
+                          >
+                            {renderAssetField(asset, col)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                </React.Fragment>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
     </Box>
   );
 };
