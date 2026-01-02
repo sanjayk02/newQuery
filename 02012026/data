@@ -20,13 +20,13 @@ import { PivotGroup, SortDir } from "./types";
  *  COLORS (match list view look)
  *  ---------------------------------------------------------------- */
 const COLORS = {
-  PAGE_BG: "#3f3f3f", // top area background (your “I WANT THIS COLOR” bar)
-  TABLE_BG: "#1e1e1e",
-  HEADER_BG: "#2d2d2d",
-  HEADER_BORDER: "#3d3d3d",
-  GRID_LINE: "#2a2a2a",
-  ROW_BG: "#2b2b2b",
-  GROUP_BG: "#303030",
+  PAGE_BG: "#3d3d3dff",
+  TABLE_BG: "#3d3d3dff",
+  HEADER_BG: "#3d3d3dff",
+  HEADER_BORDER: "#5a5a5a", // ✅ top/bottom line for header
+  GRID_LINE: "#4e4e4e", // ✅ top/bottom line for body rows
+  ROW_BG: "#3d3d3dff",
+  GROUP_BG: "#3d3d3dff",
   GROUP_TEXT: "#00b7ff",
   TEXT: "#e0e0e0",
   MUTED: "#bdbdbd",
@@ -44,24 +44,20 @@ const COLORS = {
  *  UI controls (change here)
  *  ---------------------------------------------------------------- */
 const UI = {
-  // row sizing
-  ROW_HEIGHT: 34,
-  ROW_PAD_Y: 6,
+  ROW_HEIGHT: 50,
+  ROW_PAD_Y: 2,
   ROW_PAD_X: 8,
 
-  // gaps (visual)
-  ROW_GAP_PX: 10,
-  GROUP_ROW_GAP_PX: 8,
-  PHASE_GAP_PX: 14,
+  ROW_GAP_PX: 0,
+  GROUP_ROW_GAP_PX: 2,
+  PHASE_GAP_PX: 1,
 
-  // phase rails
   RAIL_PX: 3,
 
-  // widths (adjust if needed)
   THUMB_WIDTH: 90,
-  NAME_WIDTH: 220,
-  RELATION_WIDTH: 90,
-  PHASE_COL_WIDTH: 120,
+  NAME_WIDTH: 150,
+  RELATION_WIDTH: 50,
+  PHASE_COL_WIDTH: 97,
 };
 
 type ColumnId =
@@ -88,7 +84,7 @@ type Column = {
   id: ColumnId;
   label: string;
   sortable?: boolean;
-  phase?: keyof typeof COLORS.PHASE; // mdl|rig|bld|dsn|ldv
+  phase?: keyof typeof COLORS.PHASE;
   kind?: "work" | "appr" | "submitted";
 };
 
@@ -107,41 +103,67 @@ const COLUMNS: Column[] = [
 
   { id: "mdl_work", label: "MDL WORK", sortable: true, phase: "mdl", kind: "work" },
   { id: "mdl_appr", label: "MDL APPR", sortable: true, phase: "mdl", kind: "appr" },
-  { id: "mdl_submitted", label: "MDL SUBMITTED AT", sortable: true, phase: "mdl", kind: "submitted" },
+  {
+    id: "mdl_submitted",
+    label: "MDL SUBMITTED AT",
+    sortable: true,
+    phase: "mdl",
+    kind: "submitted",
+  },
 
   { id: "rig_work", label: "RIG WORK", sortable: true, phase: "rig", kind: "work" },
   { id: "rig_appr", label: "RIG APPR", sortable: true, phase: "rig", kind: "appr" },
-  { id: "rig_submitted", label: "RIG SUBMITTED AT", sortable: true, phase: "rig", kind: "submitted" },
+  {
+    id: "rig_submitted",
+    label: "RIG SUBMITTED AT",
+    sortable: true,
+    phase: "rig",
+    kind: "submitted",
+  },
 
   { id: "bld_work", label: "BLD WORK", sortable: true, phase: "bld", kind: "work" },
   { id: "bld_appr", label: "BLD APPR", sortable: true, phase: "bld", kind: "appr" },
-  { id: "bld_submitted", label: "BLD SUBMITTED AT", sortable: true, phase: "bld", kind: "submitted" },
+  {
+    id: "bld_submitted",
+    label: "BLD SUBMITTED AT",
+    sortable: true,
+    phase: "bld",
+    kind: "submitted",
+  },
 
   { id: "dsn_work", label: "DSN WORK", sortable: true, phase: "dsn", kind: "work" },
   { id: "dsn_appr", label: "DSN APPR", sortable: true, phase: "dsn", kind: "appr" },
-  { id: "dsn_submitted", label: "DSN SUBMITTED AT", sortable: true, phase: "dsn", kind: "submitted" },
+  {
+    id: "dsn_submitted",
+    label: "DSN SUBMITTED AT",
+    sortable: true,
+    phase: "dsn",
+    kind: "submitted",
+  },
 
   { id: "ldv_work", label: "LDV WORK", sortable: true, phase: "ldv", kind: "work" },
   { id: "ldv_appr", label: "LDV APPR", sortable: true, phase: "ldv", kind: "appr" },
-  { id: "ldv_submitted", label: "LDV SUBMITTED AT", sortable: true, phase: "ldv", kind: "submitted" },
+  {
+    id: "ldv_submitted",
+    label: "LDV SUBMITTED AT",
+    sortable: true,
+    phase: "ldv",
+    kind: "submitted",
+  },
 
   { id: "relation", label: "RELATION", sortable: true },
 ];
 
-/** -----------------------------
- * scrollbar hide (bottom bar)
- * ----------------------------- */
 const useStyles = makeStyles(() => ({
   scrollWrap: {
     width: "100%",
-    background: COLORS.PAGE_BG, // outer background like list view area
+    background: COLORS.PAGE_BG,
     overflowX: "auto",
     overflowY: "hidden",
 
-    // Hide scrollbar (still scrolls)
-    scrollbarWidth: "none" as any, // Firefox
-    msOverflowStyle: "none", // IE/Edge legacy
-    "&::-webkit-scrollbar": { display: "none" }, // Chrome/Safari
+    scrollbarWidth: "none" as any,
+    msOverflowStyle: "none",
+    "&::-webkit-scrollbar": { display: "none" },
   },
 }));
 
@@ -154,7 +176,6 @@ function hexToRgba(hex: string, a: number) {
   return "rgba(" + r + "," + g + "," + b + "," + a + ")";
 }
 
-/** phase metadata to know start/end */
 function getPhaseMetadata(visibleCols: Column[]) {
   const map: Record<string, { start: string; end: string }> = {};
   visibleCols.forEach((col) => {
@@ -167,7 +188,6 @@ function getPhaseMetadata(visibleCols: Column[]) {
 
 function formatSubmitted(val: any) {
   if (!val || val === "-") return "-";
-  // you can change to dateTimeFormat later if you want
   const s = String(val);
   return s.indexOf("T") >= 0 ? s.split("T")[0] : s;
 }
@@ -186,7 +206,7 @@ function statusColor(status?: string) {
 function renderAssetField(asset: any, col: Column) {
   if (col.id === "thumbnail") {
     return (
-      <Typography style={{ fontSize: "0.75rem", fontWeight: 700 }}>
+      <Typography style={{ fontSize: 12, fontWeight: 500 }}>
         {asset.thumbnail ? "Thumbnail" : "No Thumbnail"}
       </Typography>
     );
@@ -194,13 +214,7 @@ function renderAssetField(asset: any, col: Column) {
 
   if (col.id === "group_1_name") {
     return (
-      <Typography
-        noWrap
-        style={{
-          fontSize: "0.78rem",
-          fontWeight: 700,
-        }}
-      >
+      <Typography noWrap style={{ fontSize: 12, fontWeight: 500 }}>
         {asset.group_1 || ""}
       </Typography>
     );
@@ -208,9 +222,7 @@ function renderAssetField(asset: any, col: Column) {
 
   if (col.id === "relation") {
     return (
-      <Typography style={{ fontSize: "0.75rem", fontWeight: 700 }}>
-        {asset.relation || "-"}
-      </Typography>
+      <Typography style={{ fontSize: 12, fontWeight: 500 }}>{asset.relation || "-"}</Typography>
     );
   }
 
@@ -219,7 +231,7 @@ function renderAssetField(asset: any, col: Column) {
 
   if (col.kind === "submitted") {
     return (
-      <Typography style={{ fontSize: "0.72rem", fontWeight: 700 }}>
+      <Typography style={{ fontSize: 12, fontWeight: 500 }}>
         {formatSubmitted(asset[phase + "_submitted_at_utc"])}
       </Typography>
     );
@@ -230,18 +242,14 @@ function renderAssetField(asset: any, col: Column) {
   const text = raw || "-";
 
   return (
-    <Typography style={{ fontSize: "0.72rem", fontWeight: 700, color: statusColor(text) }}>
-      {text}
-    </Typography>
+    <Typography style={{ fontSize: 12, fontWeight: 500, color: statusColor(text) }}>{text}</Typography>
   );
 }
 
 /**
- * Cell style:
- * ✅ No inner vertical borders inside a phase block (MDL group becomes one)
- * ✅ Only show separator at phase END (gap)
- * ✅ Phase headers colored like listview
- * ✅ Row height control
+ * ✅ Adds TOP + BOTTOM line for EACH column (header + body)
+ * ✅ Keeps phase rails + phase gaps
+ * ✅ No inner vertical lines inside phase blocks
  */
 function buildCellStyle(
   col: Column,
@@ -252,12 +260,11 @@ function buildCellStyle(
 
   const meta = col.phase ? phaseMeta[col.phase] : null;
   const railColor = col.phase ? COLORS.PHASE[col.phase] : "";
-
   const isPhaseStart = !!(meta && meta.start === col.id);
   const isPhaseEnd = !!(meta && meta.end === col.id);
 
-  // HEADER BG: phase header uses colored background
   const headerBg = col.phase ? hexToRgba(railColor, 0.45) : COLORS.HEADER_BG;
+  const lineColor = header ? COLORS.HEADER_BORDER : COLORS.GRID_LINE;
 
   const style: React.CSSProperties = {
     backgroundColor: header ? headerBg : COLORS.ROW_BG,
@@ -266,43 +273,42 @@ function buildCellStyle(
     overflow: "hidden",
     textOverflow: "ellipsis",
 
-    // row sizing
-    height: header ? UI.ROW_HEIGHT : UI.ROW_HEIGHT,
+    height: UI.ROW_HEIGHT,
     padding: (header ? 8 : UI.ROW_PAD_Y) + "px " + UI.ROW_PAD_X + "px",
-    fontSize: header ? "0.70rem" : "0.76rem",
-    fontWeight: header ? 900 : 700,
+    fontSize: 12,
+    fontWeight: header ? 700 : 500,
 
-    // remove inner grid lines (your red-marked lines)
     borderRight: "0px",
     borderLeft: "0px",
 
-    // row gap
+    // keep your "gap" using borderBottom with table bg,
+    // but draw the actual bottom line using boxShadow (below)
     borderBottom: header
-      ? "1px solid " + COLORS.HEADER_BORDER
+      ? "0px"
       : (isGroupRow ? UI.GROUP_ROW_GAP_PX : UI.ROW_GAP_PX) + "px solid " + COLORS.TABLE_BG,
   };
 
+  const shadows: string[] = [];
+
+  // ✅ TOP line (each column)
+  shadows.push(`inset 0 1px 0 0 ${lineColor}`);
+
+  // ✅ BOTTOM line (each column)
+  shadows.push(`inset 0 -1px 0 0 ${lineColor}`);
+
   // PHASE grouping rails (only at group boundaries)
   if (col.phase) {
-    const shadows: string[] = [];
+    if (isPhaseStart) shadows.push(`inset ${UI.RAIL_PX}px 0 0 0 ${railColor}`);
+    if (isPhaseEnd) shadows.push(`inset -${UI.RAIL_PX}px 0 0 0 ${railColor}`);
 
-    // left rail only on start col
-    if (isPhaseStart) shadows.push("inset " + UI.RAIL_PX + "px 0 0 0 " + railColor);
-
-    // right rail only on end col
-    if (isPhaseEnd) shadows.push("inset -" + UI.RAIL_PX + "px 0 0 0 " + railColor);
-
-    style.boxShadow = shadows.join(", ");
-
-    // create a visible GAP only after phase end
-    if (isPhaseEnd) {
-      style.borderRight = UI.PHASE_GAP_PX + "px solid " + COLORS.TABLE_BG;
-    }
+    // visible GAP only after phase end
+    if (isPhaseEnd) style.borderRight = UI.PHASE_GAP_PX + "px solid " + COLORS.TABLE_BG;
   } else {
     // non-phase columns: keep subtle separators between THUMB/NAME and RELATION
     style.borderRight = "1px solid " + (header ? COLORS.HEADER_BORDER : COLORS.GRID_LINE);
   }
 
+  style.boxShadow = shadows.join(", ");
   return style;
 }
 
@@ -334,8 +340,6 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
         size="small"
         stickyHeader
         style={{
-          // ✅ removes right-side empty space:
-          // table takes full width when small, and expands when many columns
           width: "max-content",
           minWidth: "100%",
           backgroundColor: COLORS.TABLE_BG,
@@ -344,7 +348,6 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
           borderSpacing: 0,
         }}
       >
-        {/* fixed column widths */}
         <colgroup>
           {visibleColumns.map((col) => {
             let w = UI.PHASE_COL_WIDTH;
@@ -402,9 +405,12 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                     style={{
                       backgroundColor: COLORS.GROUP_BG,
                       color: COLORS.GROUP_TEXT,
-                      borderBottom: UI.GROUP_ROW_GAP_PX + "px solid " + COLORS.TABLE_BG,
                       padding: "6px 10px",
                       fontWeight: 900,
+
+                      // ✅ same top + bottom line for group row (full width)
+                      boxShadow: `inset 0 1px 0 0 ${COLORS.GRID_LINE}, inset 0 -1px 0 0 ${COLORS.GRID_LINE}`,
+                      borderBottom: UI.GROUP_ROW_GAP_PX + "px solid " + COLORS.TABLE_BG,
                     }}
                   >
                     <Box display="flex" alignItems="center">
@@ -426,7 +432,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                       >
                         {groupName.toUpperCase()}{" "}
                         <span style={{ fontSize: "0.75rem", fontWeight: 800 }}>
-                          ({group.items?.length || 0})
+                          ({group.items.length || 0})
                         </span>
                       </Typography>
                     </Box>
