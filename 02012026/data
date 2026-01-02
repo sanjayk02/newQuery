@@ -8,6 +8,7 @@ import {
   TableHead,
   TableRow,
   Typography,
+  makeStyles,
 } from "@material-ui/core";
 import ExpandMoreIcon from "@material-ui/icons/ExpandMore";
 import ChevronRightIcon from "@material-ui/icons/ChevronRight";
@@ -38,22 +39,21 @@ const COLORS = {
   },
 };
 
-/** Visual spacing + sizes */
+/** Visual spacing + sizing */
 const UI = {
-  ROW_GAP_PX: 10, // gap between data rows (table bg showing)
+  ROW_GAP_PX: 10,
   GROUP_ROW_GAP_PX: 8,
-  PHASE_GAP_PX: 14, // gap after each phase block
+  PHASE_GAP_PX: 14,
   RAIL_PX: 3,
 
-  // HEIGHT CONTROL
-  ROW_HEIGHT_PX: 34,
-  HEADER_HEIGHT_PX: 34,
-  GROUP_ROW_HEIGHT_PX: 32,
+  // row height control
+  HEADER_HEIGHT: 34,
+  ROW_HEIGHT: 36,
 
-  // WIDTH CONTROL
-  THUMB_WIDTH: 70,
+  // widths (adjust to taste)
+  THUMB_WIDTH: 80,
   NAME_WIDTH: 260,
-  PHASE_COL_WIDTH: 110,
+  PHASE_COL_WIDTH: 120,
   RELATION_WIDTH: 90,
 };
 
@@ -95,7 +95,7 @@ type Props = {
 };
 
 const COLUMNS: Column[] = [
-  { id: "thumbnail", label: "THUMBS" },
+  { id: "thumbnail", label: "THUMBNAIL" },
   { id: "group_1_name", label: "NAME", sortable: true },
 
   { id: "mdl_work", label: "MDL WORK", sortable: true, phase: "mdl", kind: "work" },
@@ -121,32 +121,67 @@ const COLUMNS: Column[] = [
   { id: "relation", label: "RELATION", sortable: true },
 ];
 
-function getPhaseRailColor(col: Column) {
-  if (!col.phase) return "";
-  return COLORS.PHASE[col.phase];
+/** Hide scrollbar but keep scroll working */
+const useStyles = makeStyles({
+  scrollX: {
+    overflowX: "auto",
+    overflowY: "hidden",
+    scrollbarWidth: "none", // Firefox
+    msOverflowStyle: "none", // IE/Edge legacy
+    "&::-webkit-scrollbar": {
+      height: 0, // Chrome/Safari
+    },
+  },
+});
+
+/** ------------ helpers (no optional chaining!) ------------ */
+
+function hexToRgb(hex: string) {
+  const h = hex.replace("#", "");
+  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const n = parseInt(full, 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
 }
 
-/** No optional chaining (to avoid babel/plugin issues) */
+function mixHex(bg: string, fg: string, fgAlpha: number) {
+  // mix fg over bg
+  const b = hexToRgb(bg);
+  const f = hexToRgb(fg);
+  const a = Math.max(0, Math.min(1, fgAlpha));
+  const r = Math.round(f.r * a + b.r * (1 - a));
+  const g = Math.round(f.g * a + b.g * (1 - a));
+  const bb = Math.round(f.b * a + b.b * (1 - a));
+  return `rgb(${r}, ${g}, ${bb})`;
+}
+
+function getPhaseRailColor(col: Column) {
+  return col.phase ? COLORS.PHASE[col.phase] : "";
+}
+
 function isPhaseStart(col: Column, visibleCols: Column[]) {
   if (!col.phase) return false;
   const first = visibleCols.find((c) => c.phase === col.phase);
-  return first ? first.id === col.id : false;
+  return !!first && first.id === col.id; // ✅ no optional chaining
 }
 
-/** No optional chaining (to avoid babel/plugin issues) */
 function isPhaseEnd(col: Column, visibleCols: Column[]) {
   if (!col.phase) return false;
-  const samePhase = visibleCols.filter((c) => c.phase === col.phase);
-  if (samePhase.length === 0) return false;
-  return samePhase[samePhase.length - 1].id === col.id;
+  const same = visibleCols.filter((c) => c.phase === col.phase);
+  if (same.length === 0) return false;
+  return same[same.length - 1].id === col.id;
+}
+
+function isPhaseMiddle(col: Column, visibleCols: Column[]) {
+  if (!col.phase) return false;
+  return !isPhaseStart(col, visibleCols) && !isPhaseEnd(col, visibleCols);
 }
 
 /**
  * Cell style:
- * - Phase rails (colored)
- * - Phase gap only at phase END
- * - Remove inner vertical lines inside phase block (your request)
- * - Row gap (by thick border-bottom in TABLE_BG)
+ * - Phase header background tinted (like listview)
+ * - Remove internal vertical lines INSIDE phase group
+ * - Keep only group boundaries (rails + phase gap)
+ * - Row height control
  */
 function buildCellStyle(
   col: Column,
@@ -155,64 +190,78 @@ function buildCellStyle(
 ): React.CSSProperties {
   const { header = false, isGroupRow = false } = opts;
 
-  const baseBg = header ? COLORS.HEADER_BG : COLORS.ROW_BG;
   const railColor = getPhaseRailColor(col);
+  const start = isPhaseStart(col, visibleCols);
+  const end = isPhaseEnd(col, visibleCols);
+  const middle = isPhaseMiddle(col, visibleCols);
 
   const grid = header ? COLORS.HEADER_BORDER : COLORS.GRID_LINE;
 
+  // Header color per phase (match your listview look)
+  const headerBg = col.phase
+    ? mixHex(COLORS.HEADER_BG, railColor, 0.35)
+    : COLORS.HEADER_BG;
+
   const style: React.CSSProperties = {
-    backgroundColor: baseBg,
+    backgroundColor: header ? headerBg : COLORS.ROW_BG,
     color: header ? "#fff" : COLORS.TEXT,
     whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    padding: header ? "6px 6px" : "6px 6px",
-    fontSize: header ? "0.65rem" : "0.8rem",
-    height: header ? UI.HEADER_HEIGHT_PX : UI.ROW_HEIGHT_PX,
-    boxSizing: "border-box",
-
-    // default grid
+    padding: header ? "6px 8px" : "6px 8px",
+    fontSize: header ? "0.70rem" : "0.78rem",
+    fontWeight: header ? 900 : 600,
+    height: header ? UI.HEADER_HEIGHT : UI.ROW_HEIGHT,
+    lineHeight: header ? `${UI.HEADER_HEIGHT}px` : `${UI.ROW_HEIGHT}px`,
+    verticalAlign: "middle",
     borderBottom: header
       ? `1px solid ${grid}`
       : isGroupRow
       ? `${UI.GROUP_ROW_GAP_PX}px solid ${COLORS.TABLE_BG}`
       : `${UI.ROW_GAP_PX}px solid ${COLORS.TABLE_BG}`,
 
-    // IMPORTANT:
-    // remove vertical lines INSIDE phase groups
-    borderRight: col.phase ? "none" : `1px solid ${grid}`,
+    // default vertical line
+    borderRight: `1px solid ${grid}`,
   };
 
-  // phase rails + phase gaps
+  /**
+   * ✅ Remove internal vertical lines inside the phase group:
+   * - middle columns => no borderRight
+   * - start column => keep only left rail via inset shadow, but remove borderRight
+   * - end column => add phase gap instead of normal borderRight
+   */
   if (col.phase) {
-    const start = isPhaseStart(col, visibleCols);
-    const end = isPhaseEnd(col, visibleCols);
+    // top rail only on header
+    if (header) style.borderTop = `${UI.RAIL_PX + 1}px solid ${railColor}`;
 
-    // top rail on header
-    if (header) {
-      style.borderTop = `${UI.RAIL_PX + 1}px solid ${railColor}`;
+    const shadows: string[] = [];
+
+    // left rail at group start
+    if (start) shadows.push(`inset ${UI.RAIL_PX}px 0 0 0 ${railColor}`);
+
+    // right rail at group end
+    if (end) shadows.push(`inset -${UI.RAIL_PX}px 0 0 0 ${railColor}`);
+
+    style.boxShadow = shadows.join(", ");
+
+    // remove inner separators
+    if (start || middle) {
+      style.borderRight = "none";
     }
 
-    // left rail
-    if (start) {
-      style.boxShadow = `inset ${UI.RAIL_PX}px 0 0 0 ${railColor}`;
-      // keep a subtle separator between NAME and the phase block
-      if (!header) {
-        // nothing needed; the rail itself is the separator
-      }
-    }
-
-    // right rail + phase gap at the END only
+    // phase gap after end
     if (end) {
-      const currentShadow = style.boxShadow ? style.boxShadow + ", " : "";
-      style.boxShadow = `${currentShadow}inset -${UI.RAIL_PX}px 0 0 0 ${railColor}`;
       style.borderRight = `${UI.PHASE_GAP_PX}px solid ${COLORS.TABLE_BG}`;
     }
+  }
+
+  // Non-phase columns (thumbnail/name/relation) keep regular grid
+  if (!col.phase) {
+    style.borderRight = `1px solid ${grid}`;
   }
 
   return style;
 }
 
+/** data format */
 function formatSubmitted(val: any) {
   if (!val || val === "-") return "-";
   return String(val).split("T")[0];
@@ -221,34 +270,26 @@ function formatSubmitted(val: any) {
 function statusColor(status?: string) {
   const s = (status || "").toLowerCase();
   if (!s || s === "-") return COLORS.MUTED;
-
   if (s.includes("approved")) return "#32cd32";
   if (s.includes("review")) return "#ffa500";
   if (s.includes("retake")) return "#ff4f4f";
   if (s.includes("hold")) return "#ffdd55";
   if (s === "check") return "#ca25ed";
-
   return COLORS.MUTED;
 }
 
 function renderAssetField(asset: any, col: Column) {
   if (col.id === "thumbnail") {
     return (
-      <Box
-        width={40}
-        height={22}
-        bgcolor="#2a2a2a"
-        style={{ border: "1px solid #444", margin: "auto" }}
-      />
+      <Typography style={{ fontSize: "0.75rem", fontWeight: 700 }}>
+        {asset.thumbnail ? "Thumbnail" : "No Thumbnail"}
+      </Typography>
     );
   }
 
   if (col.id === "group_1_name") {
     return (
-      <Typography
-        noWrap
-        style={{ fontSize: "0.85rem", fontWeight: 700, paddingLeft: 10 }}
-      >
+      <Typography noWrap style={{ fontSize: "0.80rem", fontWeight: 800 }}>
         {asset.group_1 || ""}
       </Typography>
     );
@@ -256,7 +297,7 @@ function renderAssetField(asset: any, col: Column) {
 
   if (col.id === "relation") {
     return (
-      <Typography noWrap style={{ fontSize: "0.75rem" }}>
+      <Typography noWrap style={{ fontSize: "0.75rem", fontWeight: 700 }}>
         {asset.relation || "-"}
       </Typography>
     );
@@ -267,7 +308,7 @@ function renderAssetField(asset: any, col: Column) {
 
   if (col.kind === "submitted") {
     return (
-      <Typography noWrap style={{ fontSize: "0.75rem" }}>
+      <Typography noWrap style={{ fontSize: "0.72rem", fontWeight: 700 }}>
         {formatSubmitted(asset[`${phase}_submitted_at_utc`])}
       </Typography>
     );
@@ -278,7 +319,10 @@ function renderAssetField(asset: any, col: Column) {
   const text = raw || "-";
 
   return (
-    <Typography noWrap style={{ fontSize: "0.75rem", color: statusColor(text) }}>
+    <Typography
+      noWrap
+      style={{ fontSize: "0.72rem", fontWeight: 800, color: statusColor(text) }}
+    >
       {text}
     </Typography>
   );
@@ -289,9 +333,10 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
   sortKey,
   sortDir,
   onSortChange,
-  dateTimeFormat, // kept; not used here
+  dateTimeFormat, // kept
   hiddenColumns = new Set(),
 }) => {
+  const classes = useStyles();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const toggle = useCallback((key: string) => {
@@ -304,175 +349,151 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
   );
 
   return (
-    <Box
-      width="100%"
-      style={{
-        backgroundColor: COLORS.TABLE_BG,
+    <Box width="100%" style={{ backgroundColor: COLORS.TABLE_BG }}>
+      {/* ✅ wrapper hides scrollbar + removes right empty space */}
+      <Box className={classes.scrollX} style={{ backgroundColor: COLORS.TABLE_BG }}>
+        <Table
+          size="small"
+          stickyHeader
+          style={{
+            // ✅ IMPORTANT: fixes right-side empty gray space
+            width: "max-content",
+            minWidth: "100%",
 
-        // keep scroll functionality but hide bar
-        overflowX: "auto",
-        overflowY: "auto",
-
-        // Firefox
-        scrollbarWidth: "none",
-        // IE/Edge legacy
-        msOverflowStyle: "none",
-
-        // IMPORTANT to avoid any weird right-side space
-        maxWidth: "100%",
-      }}
-      // WebKit (Chrome/Safari) hide scrollbar
-      className="assetsGroupedTableScroll"
-    >
-      {/* Hide scrollbar for webkit */}
-      <style>
-        {`
-          .assetsGroupedTableScroll::-webkit-scrollbar {
-            height: 0px;
-            width: 0px;
-          }
-        `}
-      </style>
-
-      <Table
-        size="small"
-        stickyHeader
-        style={{
-          // ✅ removes right blank area: table fits to its columns
-          width: "max-content",
-          minWidth: "100%",
-
-          backgroundColor: COLORS.TABLE_BG,
-          borderCollapse: "separate",
-          borderSpacing: 0,
-          tableLayout: "fixed",
-        }}
-      >
-        {/* Fixed widths so columns are predictable */}
-        <colgroup>
-          {visibleColumns.map((col) => (
-            <col
-              key={col.id}
-              style={{
-                width:
-                  col.id === "thumbnail"
-                    ? UI.THUMB_WIDTH
-                    : col.id === "group_1_name"
-                    ? UI.NAME_WIDTH
-                    : col.id === "relation"
-                    ? UI.RELATION_WIDTH
-                    : UI.PHASE_COL_WIDTH,
-              }}
-            />
-          ))}
-        </colgroup>
-
-        <TableHead>
-          <TableRow style={{ height: UI.HEADER_HEIGHT_PX }}>
+            // keep borders clean
+            borderCollapse: "separate",
+            borderSpacing: 0,
+            backgroundColor: COLORS.TABLE_BG,
+          }}
+        >
+          {/* ✅ fixed widths so table is stable */}
+          <colgroup>
             {visibleColumns.map((col) => (
-              <TableCell
+              <col
                 key={col.id}
-                align={col.id === "group_1_name" ? "left" : "center"}
-                onClick={() => col.sortable && onSortChange(col.id)}
                 style={{
-                  ...buildCellStyle(col, visibleColumns, { header: true }),
-                  cursor: col.sortable ? "pointer" : "default",
+                  width:
+                    col.id === "thumbnail"
+                      ? UI.THUMB_WIDTH
+                      : col.id === "group_1_name"
+                      ? UI.NAME_WIDTH
+                      : col.id === "relation"
+                      ? UI.RELATION_WIDTH
+                      : UI.PHASE_COL_WIDTH,
                 }}
-              >
-                <Box
-                  display="flex"
-                  alignItems="center"
-                  justifyContent={col.id === "group_1_name" ? "flex-start" : "center"}
-                >
-                  <Typography noWrap style={{ fontSize: "0.65rem", fontWeight: 900 }}>
-                    {col.label}
-                  </Typography>
-                  {sortKey === col.id &&
-                    (sortDir === "asc" ? (
-                      <ArrowDropUpIcon fontSize="small" />
-                    ) : (
-                      <ArrowDropDownIcon fontSize="small" />
-                    ))}
-                </Box>
-              </TableCell>
+              />
             ))}
-          </TableRow>
-        </TableHead>
+          </colgroup>
 
-        <TableBody>
-          {groups.map((group) => {
-            const groupName = group.top_group_node || "UNASSIGNED";
-            const isCollapsed = !!collapsed[groupName];
-
-            return (
-              <React.Fragment key={groupName}>
-                {/* Group row */}
-                <TableRow
-                  onClick={() => toggle(groupName)}
-                  style={{ backgroundColor: COLORS.TABLE_BG, cursor: "pointer", height: UI.GROUP_ROW_HEIGHT_PX }}
+          <TableHead>
+            <TableRow style={{ height: UI.HEADER_HEIGHT }}>
+              {visibleColumns.map((col) => (
+                <TableCell
+                  key={col.id}
+                  align={col.id === "group_1_name" ? "left" : "center"}
+                  onClick={() => col.sortable && onSortChange(col.id)}
+                  style={{
+                    ...buildCellStyle(col, visibleColumns, { header: true }),
+                    cursor: col.sortable ? "pointer" : "default",
+                    paddingTop: 0,
+                    paddingBottom: 0,
+                  }}
                 >
-                  <TableCell
-                    colSpan={visibleColumns.length}
-                    style={{
-                      backgroundColor: COLORS.GROUP_BG,
-                      color: COLORS.GROUP_TEXT,
-                      borderBottom: `${UI.GROUP_ROW_GAP_PX}px solid ${COLORS.TABLE_BG}`,
-                      padding: "6px 8px",
-                      height: UI.GROUP_ROW_HEIGHT_PX,
-                    }}
+                  <Box
+                    display="flex"
+                    alignItems="center"
+                    justifyContent={col.id === "group_1_name" ? "flex-start" : "center"}
                   >
-                    <Box display="flex" alignItems="center">
-                      <IconButton size="small" style={{ color: COLORS.GROUP_TEXT, padding: 0 }}>
-                        {isCollapsed ? (
-                          <ChevronRightIcon fontSize="small" />
-                        ) : (
-                          <ExpandMoreIcon fontSize="small" />
-                        )}
-                      </IconButton>
-
-                      <Typography
-                        noWrap
-                        style={{
-                          color: COLORS.GROUP_TEXT,
-                          fontSize: "0.8rem",
-                          fontWeight: 800,
-                          marginLeft: 10,
-                        }}
-                      >
-                        {groupName.toUpperCase()}{" "}
-                        <span style={{ fontSize: "0.75rem" }}>({group.items ? group.items.length : 0})</span>
-                      </Typography>
-                    </Box>
-                  </TableCell>
-                </TableRow>
-
-                {/* Data rows */}
-                {!isCollapsed &&
-                  (group.items || []).map((asset: any, idx: number) => (
-                    <TableRow
-                      key={`${groupName}-${idx}`}
-                      hover
+                    <Typography
                       style={{
-                        backgroundColor: COLORS.TABLE_BG,
-                        height: UI.ROW_HEIGHT_PX,
+                        fontSize: "0.70rem",
+                        fontWeight: 900,
+                        letterSpacing: 0.3,
                       }}
                     >
-                      {visibleColumns.map((col) => (
-                        <TableCell
-                          key={col.id}
-                          align={col.id === "group_1_name" ? "left" : "center"}
-                          style={buildCellStyle(col, visibleColumns)}
-                        >
-                          {renderAssetField(asset, col)}
-                        </TableCell>
+                      {col.label}
+                    </Typography>
+                    {sortKey === col.id &&
+                      (sortDir === "asc" ? (
+                        <ArrowDropUpIcon fontSize="small" />
+                      ) : (
+                        <ArrowDropDownIcon fontSize="small" />
                       ))}
-                    </TableRow>
-                  ))}
-              </React.Fragment>
-            );
-          })}
-        </TableBody>
-      </Table>
+                  </Box>
+                </TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+
+          <TableBody>
+            {groups.map((group) => {
+              const groupName = group.top_group_node || "UNASSIGNED";
+              const isCollapsed = !!collapsed[groupName];
+
+              return (
+                <React.Fragment key={groupName}>
+                  {/* Group row */}
+                  <TableRow onClick={() => toggle(groupName)} style={{ cursor: "pointer" }}>
+                    <TableCell
+                      colSpan={visibleColumns.length}
+                      style={{
+                        backgroundColor: COLORS.GROUP_BG,
+                        color: COLORS.GROUP_TEXT,
+                        borderBottom: `${UI.GROUP_ROW_GAP_PX}px solid ${COLORS.TABLE_BG}`,
+                        padding: "6px 8px",
+                      }}
+                    >
+                      <Box display="flex" alignItems="center">
+                        <IconButton size="small" style={{ color: COLORS.GROUP_TEXT, padding: 0 }}>
+                          {isCollapsed ? (
+                            <ChevronRightIcon fontSize="small" />
+                          ) : (
+                            <ExpandMoreIcon fontSize="small" />
+                          )}
+                        </IconButton>
+                        <Typography
+                          style={{
+                            color: COLORS.GROUP_TEXT,
+                            fontSize: "0.80rem",
+                            fontWeight: 900,
+                            marginLeft: 10,
+                            letterSpacing: 0.3,
+                          }}
+                        >
+                          {groupName.toUpperCase()}{" "}
+                          <span style={{ fontSize: "0.75rem", fontWeight: 800 }}>
+                            ({group.items?.length || 0})
+                          </span>
+                        </Typography>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+
+                  {/* Data rows */}
+                  {!isCollapsed &&
+                    (group.items || []).map((asset: any, idx: number) => (
+                      <TableRow key={`${groupName}-${idx}`} hover style={{ height: UI.ROW_HEIGHT }}>
+                        {visibleColumns.map((col) => (
+                          <TableCell
+                            key={col.id}
+                            align={col.id === "group_1_name" ? "left" : "center"}
+                            style={{
+                              ...buildCellStyle(col, visibleColumns),
+                              paddingTop: 0,
+                              paddingBottom: 0,
+                            }}
+                          >
+                            {renderAssetField(asset, col)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                </React.Fragment>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </Box>
     </Box>
   );
 };
