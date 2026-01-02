@@ -1,7 +1,6 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Box,
-  IconButton,
   Table,
   TableBody,
   TableCell,
@@ -13,7 +12,6 @@ import ExpandMoreIcon from "@material-ui/icons/ExpandMore";
 import ChevronRightIcon from "@material-ui/icons/ChevronRight";
 import ArrowDropUpIcon from "@material-ui/icons/ArrowDropUp";
 import ArrowDropDownIcon from "@material-ui/icons/ArrowDropDown";
-import { PivotGroup, SortDir } from "./types";
 
 /** ----------------------------------------------------------------
  * COLOR COLLECTION
@@ -41,11 +39,19 @@ const COLORS = {
 const UI = {
   ROW_GAP_PX: 10,
   GROUP_ROW_GAP_PX: 8,
+
+  // column spacing (NEW)
+  COL_GAP_PX: 10,
+
+  // phase separation spacing (already used)
   PHASE_GAP_PX: 14,
+
+  // phase rails
   RAIL_PX: 3,
+
   // WIDTHS
   THUMB_WIDTH: 65,
-  NAME_WIDTH: 280, // Increased width for Name column
+  NAME_WIDTH: 280,
   PHASE_COL_WIDTH: 110,
   RELATION_WIDTH: 80,
 };
@@ -71,38 +77,77 @@ type Column = {
 const COLUMNS: Column[] = [
   { id: "thumbnail", label: "THUMBS" },
   { id: "group_1_name", label: "NAME", sortable: true },
+
   { id: "mdl_work", label: "MDL WORK", sortable: true, phase: "mdl", kind: "work" },
   { id: "mdl_appr", label: "MDL APPR", sortable: true, phase: "mdl", kind: "appr" },
   { id: "mdl_submitted", label: "MDL SUBMITTED AT", sortable: true, phase: "mdl", kind: "submitted" },
+
   { id: "rig_work", label: "RIG WORK", sortable: true, phase: "rig", kind: "work" },
   { id: "rig_appr", label: "RIG APPR", sortable: true, phase: "rig", kind: "appr" },
   { id: "rig_submitted", label: "RIG SUBMITTED AT", sortable: true, phase: "rig", kind: "submitted" },
+
   { id: "bld_work", label: "BLD WORK", sortable: true, phase: "bld", kind: "work" },
   { id: "bld_appr", label: "BLD APPR", sortable: true, phase: "bld", kind: "appr" },
   { id: "bld_submitted", label: "BLD SUBMITTED AT", sortable: true, phase: "bld", kind: "submitted" },
+
   { id: "dsn_work", label: "DSN WORK", sortable: true, phase: "dsn", kind: "work" },
   { id: "dsn_appr", label: "DSN APPR", sortable: true, phase: "dsn", kind: "appr" },
   { id: "dsn_submitted", label: "DSN SUBMITTED AT", sortable: true, phase: "dsn", kind: "submitted" },
+
   { id: "ldv_work", label: "LDV WORK", sortable: true, phase: "ldv", kind: "work" },
   { id: "ldv_appr", label: "LDV APPR", sortable: true, phase: "ldv", kind: "appr" },
   { id: "ldv_submitted", label: "LDV SUBMITTED AT", sortable: true, phase: "ldv", kind: "submitted" },
+
   { id: "relation", label: "RELATION", sortable: true },
 ];
 
-/** * Pre-calculates phase boundaries to avoid expensive array operations inside the render loop.
- */
+/** Pre-calculates phase boundaries */
 function getPhaseMetadata(visibleCols: Column[]) {
   const map: Record<string, { start: string; end: string }> = {};
   visibleCols.forEach((col) => {
-    if (col.phase) {
-      if (!map[col.phase]) {
-        map[col.phase] = { start: col.id, end: col.id };
-      } else {
-        map[col.phase].end = col.id;
-      }
-    }
+    if (!col.phase) return;
+    if (!map[col.phase]) map[col.phase] = { start: col.id, end: col.id };
+    else map[col.phase].end = col.id;
   });
   return map;
+}
+
+/** Column width helper */
+function getColWidth(col: Column) {
+  if (col.id === "thumbnail") return UI.THUMB_WIDTH;
+  if (col.id === "group_1_name") return UI.NAME_WIDTH;
+  if (col.id === "relation") return UI.RELATION_WIDTH;
+  return UI.PHASE_COL_WIDTH;
+}
+
+/**
+ * IMPORTANT: Phase gaps were previously added as a big borderRight (PHASE_GAP_PX),
+ * but that extra width was NOT included in colgroup width -> causes overlap / whitespace bugs.
+ * Here we compute the table's total width including those phase-gap borders.
+ */
+function computeTableWidth(
+  visibleCols: Column[],
+  phaseMeta: Record<string, { start: string; end: string }>
+) {
+  let total = 0;
+
+  for (const col of visibleCols) {
+    total += getColWidth(col);
+
+    // normal column gap space
+    total += UI.COL_GAP_PX;
+
+    // add extra phase gap ONLY at phase end columns (matches buildCellStyle behavior)
+    if (col.phase) {
+      const meta = phaseMeta[col.phase];
+      if (meta?.end === col.id) total += UI.PHASE_GAP_PX;
+    }
+  }
+
+  // remove trailing gap at end so it doesn't look like extra whitespace
+  total -= UI.COL_GAP_PX;
+
+  return total;
 }
 
 function buildCellStyle(
@@ -114,6 +159,12 @@ function buildCellStyle(
   const railColor = col.phase ? COLORS.PHASE[col.phase] : "";
   const meta = col.phase ? phaseMeta[col.phase] : null;
 
+  // Create "gap between columns" + keep a grid line
+  // - borderRight = column gap space (TABLE_BG)
+  // - inset shadow = actual 1px grid line on the inside
+  const baseRightGap = `${UI.COL_GAP_PX}px solid ${COLORS.TABLE_BG}`;
+  const gridLineShadow = `inset -1px 0 0 ${header ? COLORS.HEADER_BORDER : COLORS.GRID_LINE}`;
+
   const style: React.CSSProperties = {
     backgroundColor: header ? COLORS.HEADER_BG : COLORS.ROW_BG,
     color: header ? "#fff" : COLORS.TEXT,
@@ -121,22 +172,31 @@ function buildCellStyle(
     borderBottom: header
       ? `1px solid ${COLORS.HEADER_BORDER}`
       : `${isGroupRow ? UI.GROUP_ROW_GAP_PX : UI.ROW_GAP_PX}px solid ${COLORS.TABLE_BG}`,
-    borderRight: `1px solid ${header ? COLORS.HEADER_BORDER : COLORS.GRID_LINE}`,
+    borderRight: baseRightGap,
     padding: "6px",
     fontSize: header ? "0.65rem" : "0.75rem",
     overflow: "hidden",
     textOverflow: "ellipsis",
+    boxSizing: "border-box",
+    boxShadow: gridLineShadow,
   };
 
   if (col.phase && meta) {
-    if (header) style.borderTop = `${UI.RAIL_PX + 1}px solid ${railColor}`;
-    
-    const shadows = [];
+    if (header) {
+      style.borderTop = `${UI.RAIL_PX + 1}px solid ${railColor}`;
+    }
+
+    const shadows: string[] = [gridLineShadow];
+
     if (meta.start === col.id) shadows.push(`inset ${UI.RAIL_PX}px 0 0 0 ${railColor}`);
     if (meta.end === col.id) {
       shadows.push(`inset -${UI.RAIL_PX}px 0 0 0 ${railColor}`);
-      style.borderRight = `${UI.PHASE_GAP_PX}px solid ${COLORS.TABLE_BG}`;
+
+      // add EXTRA phase gap (TABLE_BG) after last col of each phase
+      // still keep grid line via boxShadow
+      style.borderRight = `${UI.COL_GAP_PX + UI.PHASE_GAP_PX}px solid ${COLORS.TABLE_BG}`;
     }
+
     style.boxShadow = shadows.join(", ");
   }
 
@@ -159,7 +219,14 @@ const AssetsGroupedDataTable: React.FC<any> = ({
 
   const phaseMeta = useMemo(() => getPhaseMetadata(visibleColumns), [visibleColumns]);
 
-  const toggle = (key: string) => setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
+  // ✅ makes width match your columns (fixes right whitespace + overlap)
+  const tableWidth = useMemo(
+    () => computeTableWidth(visibleColumns, phaseMeta),
+    [visibleColumns, phaseMeta]
+  );
+
+  const toggle = (key: string) =>
+    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
 
   return (
     <Box width="100%" style={{ backgroundColor: COLORS.TABLE_BG, overflowX: "auto" }}>
@@ -167,8 +234,10 @@ const AssetsGroupedDataTable: React.FC<any> = ({
         size="small"
         stickyHeader
         style={{
-          width: "100%", // Ensures 100% width coverage
-          tableLayout: "fixed", // Crucial: Allows specific column widths
+          // ✅ key fix:
+          width: tableWidth,     // exact content width
+          minWidth: "100%",      // still stretch if content is smaller than viewport
+          tableLayout: "fixed",
           backgroundColor: COLORS.TABLE_BG,
           borderCollapse: "separate",
           borderSpacing: 0,
@@ -176,16 +245,7 @@ const AssetsGroupedDataTable: React.FC<any> = ({
       >
         <colgroup>
           {visibleColumns.map((col) => (
-            <col
-              key={col.id}
-              style={{
-                width:
-                  col.id === "thumbnail" ? UI.THUMB_WIDTH :
-                  col.id === "group_1_name" ? UI.NAME_WIDTH :
-                  col.id === "relation" ? UI.RELATION_WIDTH :
-                  UI.PHASE_COL_WIDTH,
-              }}
-            />
+            <col key={col.id} style={{ width: getColWidth(col) }} />
           ))}
         </colgroup>
 
@@ -201,9 +261,16 @@ const AssetsGroupedDataTable: React.FC<any> = ({
                   cursor: col.sortable ? "pointer" : "default",
                 }}
               >
-                <Box display="flex" alignItems="center" justifyContent={col.id === "group_1_name" ? "flex-start" : "center"}>
-                  <Typography style={{ fontSize: "0.65rem", fontWeight: 900 }}>{col.label}</Typography>
-                  {sortKey === col.id && (sortDir === "asc" ? <ArrowDropUpIcon /> : <ArrowDropDownIcon />)}
+                <Box
+                  display="flex"
+                  alignItems="center"
+                  justifyContent={col.id === "group_1_name" ? "flex-start" : "center"}
+                >
+                  <Typography style={{ fontSize: "0.65rem", fontWeight: 900 }} noWrap>
+                    {col.label}
+                  </Typography>
+                  {sortKey === col.id &&
+                    (sortDir === "asc" ? <ArrowDropUpIcon /> : <ArrowDropDownIcon />)}
                 </Box>
               </TableCell>
             ))}
@@ -228,36 +295,53 @@ const AssetsGroupedDataTable: React.FC<any> = ({
                     }}
                   >
                     <Box display="flex" alignItems="center">
-                      {isCollapsed ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-                      <Typography style={{ color: COLORS.GROUP_TEXT, fontSize: "0.8rem", fontWeight: 800, marginLeft: 8 }}>
+                      {isCollapsed ? (
+                        <ChevronRightIcon fontSize="small" />
+                      ) : (
+                        <ExpandMoreIcon fontSize="small" />
+                      )}
+                      <Typography
+                        style={{
+                          color: COLORS.GROUP_TEXT,
+                          fontSize: "0.8rem",
+                          fontWeight: 800,
+                          marginLeft: 8,
+                        }}
+                        noWrap
+                      >
                         {groupName.toUpperCase()} ({group.items?.length || 0})
                       </Typography>
                     </Box>
                   </TableCell>
                 </TableRow>
 
-                {!isCollapsed && group.items.map((asset: any, idx: number) => (
-                  <TableRow key={`${groupName}-${idx}`}>
-                    {visibleColumns.map((col) => (
-                      <TableCell
-                        key={col.id}
-                        align={col.id === "group_1_name" ? "left" : "center"}
-                        style={buildCellStyle(col, phaseMeta)}
-                      >
-                        {/* Insert your renderAssetField(asset, col) here 
-                          Ensure text-overflow is handled for NAME column 
-                        */}
-                        {col.id === "group_1_name" ? (
-                           <Typography noWrap style={{ fontSize: "0.8rem", fontWeight: 700, paddingLeft: 4 }}>
-                            {asset.group_1}
-                           </Typography>
-                        ) : (
-                          <span>-</span> // Placeholder for other fields
-                        )}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
+                {!isCollapsed &&
+                  group.items?.map((asset: any, idx: number) => (
+                    <TableRow key={`${groupName}-${idx}`}>
+                      {visibleColumns.map((col) => (
+                        <TableCell
+                          key={col.id}
+                          align={col.id === "group_1_name" ? "left" : "center"}
+                          style={buildCellStyle(col, phaseMeta)}
+                        >
+                          {col.id === "group_1_name" ? (
+                            <Typography
+                              noWrap
+                              style={{
+                                fontSize: "0.8rem",
+                                fontWeight: 700,
+                                paddingLeft: 4,
+                              }}
+                            >
+                              {asset.group_1}
+                            </Typography>
+                          ) : (
+                            <span>-</span>
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
               </React.Fragment>
             );
           })}
