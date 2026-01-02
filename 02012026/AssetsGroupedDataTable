@@ -10,16 +10,11 @@ import {
   Typography,
   makeStyles,
   TablePagination,
-  IconButton as MuiIconButton,
 } from "@material-ui/core";
 import ExpandMoreIcon from "@material-ui/icons/ExpandMore";
 import ChevronRightIcon from "@material-ui/icons/ChevronRight";
 import ArrowDropUpIcon from "@material-ui/icons/ArrowDropUp";
 import ArrowDropDownIcon from "@material-ui/icons/ArrowDropDown";
-import FirstPageIcon from "@material-ui/icons/FirstPage";
-import KeyboardArrowLeftIcon from "@material-ui/icons/KeyboardArrowLeft";
-import KeyboardArrowRightIcon from "@material-ui/icons/KeyboardArrowRight";
-import LastPageIcon from "@material-ui/icons/LastPage";
 import { PivotGroup, SortDir } from "./types";
 
 /** ----------------------------------------------------------------
@@ -37,16 +32,15 @@ const COLORS = {
   TEXT: "#e0e0e0",
   MUTED: "#bdbdbd",
 
-  // top/bottom edge line for NON-phase columns
+  // top/bottom edge for NON phase columns
   COL_EDGE: "#6b6b6b",
 
-  // ✅ phase config (lineColor + backgroundColor) — from your screenshot
   PHASE: {
-    mdl: { lineColor: "#3295fd", backgroundColor: "#354d68" },
-    rig: { lineColor: "#c061fd", backgroundColor: "#5e3568" },
-    bld: { lineColor: "#fc2f8c", backgroundColor: "#5a0028" },
-    dsn: { lineColor: "#98f2fb", backgroundColor: "#045660" },
-    ldv: { lineColor: "#fe5cff", backgroundColor: "#683566" },
+    mdl: "#00b7ff",
+    rig: "#a333c8",
+    bld: "#e91e63",
+    dsn: "#00a6a6",
+    ldv: "#d14bff",
   },
 };
 
@@ -58,10 +52,6 @@ const UI = {
   ROW_PAD_Y: 2,
   ROW_PAD_X: 8,
 
-  // ✅ move NAME / THUMBS a bit left
-  THUMB_PAD_X: 6,
-  NAME_PAD_X: 4,
-
   ROW_GAP_PX: 0,
   GROUP_ROW_GAP_PX: 2,
   PHASE_GAP_PX: 1,
@@ -70,19 +60,21 @@ const UI = {
 
   THUMB_WIDTH: 90,
   NAME_WIDTH: 150,
-  RELATION_WIDTH: 50,
-  PHASE_COL_WIDTH: 97,
+  RELATION_WIDTH: 70,
+  PHASE_COL_WIDTH: 110,
 
-  // ✅ top & bottom line thickness (your red marked line)
+  // the “top & bottom line” thickness in header
   COL_EDGE_PX: 2,
 
-  // ✅ thumbs width/height (you asked)
-  THUMB_W: 36,
-  THUMB_H: 28,
+  // ✅ thumbnail size (you asked width + height)
+  THUMB_SIZE: 32,
   THUMB_RADIUS: 2,
 
-  // footer height
-  FOOTER_H: 44,
+  // ✅ move left a bit for THUMB + NAME header/cells
+  LEFT_PAD_THUMB: 6,
+  LEFT_PAD_NAME: 6,
+
+  FOOTER_HEIGHT: 44,
 };
 
 type ColumnId =
@@ -121,11 +113,11 @@ type Props = {
   dateTimeFormat: Intl.DateTimeFormat;
   hiddenColumns?: Set<string>;
 
-  /** ✅ pagination (fixed footer bar) */
+  /** ✅ pagination props (so footer bar is always visible) */
   count?: number;
   page?: number;
   rowsPerPage?: number;
-  onChangePage?: (event: any, newPage: number) => void;
+  onChangePage?: (event: unknown, newPage: number) => void;
   onChangeRowsPerPage?: (event: React.ChangeEvent<HTMLInputElement>) => void;
 };
 
@@ -156,49 +148,72 @@ const COLUMNS: Column[] = [
   { id: "relation", label: "RELATION", sortable: true },
 ];
 
-/** ✅ One scroll only: body scrolls, header + footer stay visible */
+/** ----------------------------------------------------------------
+ *  Layout:
+ *  - ONE horizontal scroll for table + footer
+ *  - ONE vertical scroll only for data area
+ *  - stickyHeader keeps header visible
+ *  - footer is outside vertical scroll => always visible
+ *  ---------------------------------------------------------------- */
 const useStyles = makeStyles(() => ({
   root: {
     width: "100%",
-    height: "100%", // IMPORTANT: parent must give height
+    height: "100%",
+    background: COLORS.PAGE_BG,
     display: "flex",
     flexDirection: "column",
-    background: COLORS.PAGE_BG,
-    overflow: "hidden", // ✅ prevents 2nd scrollbar
+    overflow: "hidden", // ✅ prevents extra scrollbars from parent
   },
 
-  // the ONLY scroll container
-  scrollArea: {
-    flex: "1 1 auto",
-    minHeight: 0, // ✅ allows flex child to actually scroll
-    overflow: "auto",
+  // horizontal scroll container (shared by header/body/footer)
+  scrollX: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    overflowX: "auto",
+    overflowY: "hidden",
+    background: COLORS.PAGE_BG,
+  },
 
-    // keep your clean scrollbar style (optional)
-    scrollbarWidth: "thin" as any,
-    msOverflowStyle: "auto",
+  // vertical scroll ONLY here (data rows)
+  scrollY: {
+    flex: 1,
+    overflowY: "auto",
+    overflowX: "hidden",
   },
 
   footerBar: {
-    flex: "0 0 auto",
-    height: UI.FOOTER_H,
-    background: COLORS.PAGE_BG,
-    borderTop: `1px solid ${COLORS.GRID_LINE}`,
+    height: UI.FOOTER_HEIGHT,
+    minHeight: UI.FOOTER_HEIGHT,
     display: "flex",
     alignItems: "center",
     justifyContent: "flex-end",
-    padding: "0 10px",
+    background: COLORS.TABLE_BG,
+    borderTop: "1px solid #4a4a4a",
+    paddingRight: 10,
   },
 
-  paginationRoot: {
-    color: "#fff",
-  },
-  paginationSelectIcon: {
-    color: "#fff",
-  },
-  paginationActions: {
-    color: "#fff",
+  // TablePagination text/icons look
+  footerPagination: {
+    color: "#e0e0e0",
+    "& .MuiTablePagination-toolbar": {
+      minHeight: UI.FOOTER_HEIGHT,
+      paddingRight: 0,
+    },
+    "& .MuiTablePagination-caption": { color: "#e0e0e0", fontSize: 12 },
+    "& .MuiTablePagination-selectIcon": { color: "#e0e0e0" },
+    "& .MuiIconButton-root": { color: "#e0e0e0" },
   },
 }));
+
+function hexToRgba(hex: string, a: number) {
+  const h = hex.replace("#", "");
+  const bigint = parseInt(h.length === 3 ? h.split("").map((c) => c + c).join("") : h, 16);
+  const r = (bigint >> 16) & 255;
+  const g = (bigint >> 8) & 255;
+  const b = bigint & 255;
+  return "rgba(" + r + "," + g + "," + b + "," + a + ")";
+}
 
 /** phase metadata to know start/end */
 function getPhaseMetadata(visibleCols: Column[]) {
@@ -228,18 +243,19 @@ function statusColor(status?: string) {
   return COLORS.MUTED;
 }
 
-/** ✅ thumbs renderer (width/height from UI.THUMB_W / UI.THUMB_H) */
+/** ✅ thumbnail renderer (square) */
 function renderThumbnail(asset: any) {
   const url = asset.thumbnail_url || asset.thumbnail;
   return (
     <Box display="flex" alignItems="center" justifyContent="flex-start">
       <Box
         style={{
-          width: UI.THUMB_W,
-          height: UI.THUMB_H,
+          width: UI.THUMB_SIZE,
+          height: UI.THUMB_SIZE,
           borderRadius: UI.THUMB_RADIUS,
           backgroundColor: "#2a2a2a",
           overflow: "hidden",
+          marginLeft: 2,
         }}
       >
         {url ? (
@@ -301,9 +317,11 @@ function renderAssetField(asset: any, col: Column) {
 }
 
 /**
- * ✅ Header: top line + bottom line for each column
- * ✅ Remove middle line between THUMBNAIL and NAME
- * ✅ Keep phase rails + gaps
+ * ✅ Header:
+ * - top + bottom line per column (phase uses phase color)
+ * - phase rails only at phase start/end
+ * ✅ Body:
+ * - remove middle line between thumbnail & name
  */
 function buildCellStyle(
   col: Column,
@@ -313,22 +331,18 @@ function buildCellStyle(
   const { header = false, isGroupRow = false } = opts;
 
   const meta = col.phase ? phaseMeta[col.phase] : null;
-
-  const phaseCfg = col.phase ? COLORS.PHASE[col.phase] : null;
-  const railColor = phaseCfg ? phaseCfg.lineColor : "";
-  const headerBg = phaseCfg ? phaseCfg.backgroundColor : COLORS.HEADER_BG;
-
+  const railColor = col.phase ? COLORS.PHASE[col.phase] : "";
   const isPhaseStart = !!(meta && meta.start === col.id);
   const isPhaseEnd = !!(meta && meta.end === col.id);
 
-  const edgeColor = phaseCfg ? phaseCfg.lineColor : COLORS.COL_EDGE;
+  const headerBg = col.phase ? hexToRgba(railColor, 0.45) : COLORS.HEADER_BG;
+  const edgeColor = col.phase ? railColor : COLORS.COL_EDGE;
 
-  const padX =
-    col.id === "group_1_name"
-      ? UI.NAME_PAD_X
-      : col.id === "thumbnail"
-        ? UI.THUMB_PAD_X
-        : UI.ROW_PAD_X;
+  const basePadX = UI.ROW_PAD_X;
+  const padLeft =
+    col.id === "thumbnail" ? UI.LEFT_PAD_THUMB :
+    col.id === "group_1_name" ? UI.LEFT_PAD_NAME :
+    basePadX;
 
   const style: React.CSSProperties = {
     backgroundColor: header ? headerBg : COLORS.ROW_BG,
@@ -336,36 +350,38 @@ function buildCellStyle(
     whiteSpace: "nowrap",
     overflow: "hidden",
     textOverflow: "ellipsis",
-
     height: UI.ROW_HEIGHT,
-    padding: (header ? 8 : UI.ROW_PAD_Y) + "px " + padX + "px",
+    padding: (header ? 8 : UI.ROW_PAD_Y) + "px " + basePadX + "px",
+    paddingLeft: padLeft,
     fontSize: 12,
     fontWeight: header ? 700 : 500,
 
     borderLeft: "0px",
     borderRight: "0px",
-
     borderBottom: header
       ? "1px solid " + COLORS.HEADER_BORDER
       : (isGroupRow ? UI.GROUP_ROW_GAP_PX : UI.ROW_GAP_PX) + "px solid " + COLORS.TABLE_BG,
   };
 
-  const shadows: string[] = [];
-
-  // ✅ TOP + BOTTOM lines in HEADER for each column
+  // ✅ top + bottom line ONLY in header (your red line)
   if (header) {
-    shadows.push(`inset 0 ${UI.COL_EDGE_PX}px 0 0 ${edgeColor}`);
-    shadows.push(`inset 0 -${UI.COL_EDGE_PX}px 0 0 ${edgeColor}`);
+    style.boxShadow = [
+      `inset 0 ${UI.COL_EDGE_PX}px 0 0 ${edgeColor}`,
+      `inset 0 -${UI.COL_EDGE_PX}px 0 0 ${edgeColor}`,
+    ].join(", ");
   }
 
-  // ✅ PHASE rails only on phase start/end
+  // phase rails + gaps
   if (col.phase) {
+    const shadows: string[] = [];
+    if (style.boxShadow) shadows.push(String(style.boxShadow));
     if (isPhaseStart) shadows.push(`inset ${UI.RAIL_PX}px 0 0 0 ${railColor}`);
     if (isPhaseEnd) shadows.push(`inset -${UI.RAIL_PX}px 0 0 0 ${railColor}`);
+    style.boxShadow = shadows.join(", ");
 
     if (isPhaseEnd) style.borderRight = UI.PHASE_GAP_PX + "px solid " + COLORS.TABLE_BG;
   } else {
-    // ✅ remove middle line between THUMBNAIL and NAME
+    // ✅ remove the middle vertical line between THUMBNAIL and NAME
     if (col.id === "thumbnail") {
       style.borderRight = "0px";
     } else {
@@ -373,45 +389,7 @@ function buildCellStyle(
     }
   }
 
-  if (shadows.length) style.boxShadow = shadows.join(", ");
-
   return style;
-}
-
-/** Pagination actions (same style like your footer screenshot) */
-function PaginationActions(props: {
-  count: number;
-  page: number;
-  rowsPerPage: number;
-  onChangePage: (event: any, newPage: number) => void;
-}) {
-  const { count, page, rowsPerPage, onChangePage } = props;
-  const lastPage = Math.max(0, Math.ceil(count / rowsPerPage) - 1);
-
-  return (
-    <Box display="flex" alignItems="center">
-      <MuiIconButton onClick={(e) => onChangePage(e, 0)} disabled={page === 0} size="small">
-        <FirstPageIcon fontSize="small" />
-      </MuiIconButton>
-      <MuiIconButton onClick={(e) => onChangePage(e, page - 1)} disabled={page === 0} size="small">
-        <KeyboardArrowLeftIcon fontSize="small" />
-      </MuiIconButton>
-      <MuiIconButton
-        onClick={(e) => onChangePage(e, page + 1)}
-        disabled={page >= lastPage}
-        size="small"
-      >
-        <KeyboardArrowRightIcon fontSize="small" />
-      </MuiIconButton>
-      <MuiIconButton
-        onClick={(e) => onChangePage(e, lastPage)}
-        disabled={page >= lastPage}
-        size="small"
-      >
-        <LastPageIcon fontSize="small" />
-      </MuiIconButton>
-    </Box>
-  );
 }
 
 const AssetsGroupedDataTable: React.FC<Props> = ({
@@ -419,10 +397,10 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
   sortKey,
   sortDir,
   onSortChange,
-  dateTimeFormat, // kept, not used here
+  dateTimeFormat, // kept (not used here)
   hiddenColumns = new Set(),
 
-  // pagination (optional)
+  // pagination
   count = 0,
   page = 0,
   rowsPerPage = 15,
@@ -443,42 +421,40 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
 
   const phaseMeta = useMemo(() => getPhaseMetadata(visibleColumns), [visibleColumns]);
 
+  // table width behavior: full width if few cols, scroll when many
+  const tableStyle: React.CSSProperties = {
+    width: "max-content",
+    minWidth: "100%",
+    backgroundColor: COLORS.TABLE_BG,
+    tableLayout: "fixed",
+    borderCollapse: "separate",
+    borderSpacing: 0,
+  };
+
+  const showFooter = !!onChangePage && !!onChangeRowsPerPage;
+
   return (
     <Box className={classes.root}>
-      {/* ✅ ONLY body scrolls (keeps header visible because stickyHeader) */}
-      <Box className={classes.scrollArea}>
-        <Table
-          size="small"
-          stickyHeader
-          style={{
-            width: "max-content",
-            minWidth: "100%",
-            backgroundColor: COLORS.TABLE_BG,
-            tableLayout: "fixed",
-            borderCollapse: "separate",
-            borderSpacing: 0,
-          }}
-        >
-          <colgroup>
-            {visibleColumns.map((col) => {
-              let w = UI.PHASE_COL_WIDTH;
-              if (col.id === "thumbnail") w = UI.THUMB_WIDTH;
-              if (col.id === "group_1_name") w = UI.NAME_WIDTH;
-              if (col.id === "relation") w = UI.RELATION_WIDTH;
-              return <col key={col.id} style={{ width: w }} />;
-            })}
-          </colgroup>
-
-          <TableHead>
-            <TableRow>
+      <Box className={classes.scrollX}>
+        {/* ✅ only THIS scrolls vertically (data) */}
+        <Box className={classes.scrollY}>
+          <Table size="small" stickyHeader style={tableStyle}>
+            <colgroup>
               {visibleColumns.map((col) => {
-                const isName = col.id === "group_1_name";
-                const isThumb = col.id === "thumbnail";
+                let w = UI.PHASE_COL_WIDTH;
+                if (col.id === "thumbnail") w = UI.THUMB_WIDTH;
+                if (col.id === "group_1_name") w = UI.NAME_WIDTH;
+                if (col.id === "relation") w = UI.RELATION_WIDTH;
+                return <col key={col.id} style={{ width: w }} />;
+              })}
+            </colgroup>
 
-                return (
+            <TableHead>
+              <TableRow>
+                {visibleColumns.map((col) => (
                   <TableCell
                     key={col.id}
-                    align={isName || isThumb ? "left" : "center"}
+                    align={col.id === "group_1_name" ? "left" : "center"}
                     onClick={() => col.sortable && onSortChange(col.id)}
                     style={{
                       ...buildCellStyle(col, phaseMeta, { header: true }),
@@ -488,7 +464,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                     <Box
                       display="flex"
                       alignItems="center"
-                      justifyContent={isName || isThumb ? "flex-start" : "center"}
+                      justifyContent={col.id === "group_1_name" ? "flex-start" : "center"}
                     >
                       <Typography style={{ fontSize: "0.70rem", fontWeight: 900 }}>
                         {col.label}
@@ -502,108 +478,91 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                         ))}
                     </Box>
                   </TableCell>
-                );
-              })}
-            </TableRow>
-          </TableHead>
+                ))}
+              </TableRow>
+            </TableHead>
 
-          <TableBody>
-            {groups.map((group) => {
-              const groupName = group.top_group_node || "UNASSIGNED";
-              const isCollapsed = !!collapsed[groupName];
+            <TableBody>
+              {groups.map((group) => {
+                const groupName = group.top_group_node || "UNASSIGNED";
+                const isCollapsed = !!collapsed[groupName];
 
-              return (
-                <React.Fragment key={groupName}>
-                  {/* Group row */}
-                  <TableRow onClick={() => toggle(groupName)} style={{ cursor: "pointer" }}>
-                    <TableCell
-                      colSpan={visibleColumns.length}
-                      style={{
-                        backgroundColor: COLORS.GROUP_BG,
-                        color: COLORS.GROUP_TEXT,
-                        borderBottom: UI.GROUP_ROW_GAP_PX + "px solid " + COLORS.TABLE_BG,
-                        padding: "6px 10px",
-                        fontWeight: 900,
-                      }}
-                    >
-                      <Box display="flex" alignItems="center">
-                        <IconButton size="small" style={{ color: COLORS.GROUP_TEXT, padding: 0 }}>
-                          {isCollapsed ? (
-                            <ChevronRightIcon fontSize="small" />
-                          ) : (
-                            <ExpandMoreIcon fontSize="small" />
-                          )}
-                        </IconButton>
+                return (
+                  <React.Fragment key={groupName}>
+                    <TableRow onClick={() => toggle(groupName)} style={{ cursor: "pointer" }}>
+                      <TableCell
+                        colSpan={visibleColumns.length}
+                        style={{
+                          backgroundColor: COLORS.GROUP_BG,
+                          color: COLORS.GROUP_TEXT,
+                          borderBottom: UI.GROUP_ROW_GAP_PX + "px solid " + COLORS.TABLE_BG,
+                          padding: "6px 10px",
+                          fontWeight: 900,
+                        }}
+                      >
+                        <Box display="flex" alignItems="center">
+                          <IconButton size="small" style={{ color: COLORS.GROUP_TEXT, padding: 0 }}>
+                            {isCollapsed ? (
+                              <ChevronRightIcon fontSize="small" />
+                            ) : (
+                              <ExpandMoreIcon fontSize="small" />
+                            )}
+                          </IconButton>
 
-                        <Typography
-                          style={{
-                            color: COLORS.GROUP_TEXT,
-                            fontSize: "0.80rem",
-                            fontWeight: 900,
-                            marginLeft: 10,
-                          }}
-                        >
-                          {groupName.toUpperCase()}{" "}
-                          <span style={{ fontSize: "0.75rem", fontWeight: 800 }}>
-                            ({group.items.length || 0})
-                          </span>
-                        </Typography>
-                      </Box>
-                    </TableCell>
-                  </TableRow>
+                          <Typography
+                            style={{
+                              color: COLORS.GROUP_TEXT,
+                              fontSize: "0.80rem",
+                              fontWeight: 900,
+                              marginLeft: 10,
+                            }}
+                          >
+                            {groupName.toUpperCase()}{" "}
+                            <span style={{ fontSize: "0.75rem", fontWeight: 800 }}>
+                              ({group.items.length || 0})
+                            </span>
+                          </Typography>
+                        </Box>
+                      </TableCell>
+                    </TableRow>
 
-                  {/* Data rows */}
-                  {!isCollapsed &&
-                    (group.items || []).map((asset: any, idx: number) => (
-                      <TableRow key={groupName + "-" + idx} hover>
-                        {visibleColumns.map((col) => {
-                          const isName = col.id === "group_1_name";
-                          const isThumb = col.id === "thumbnail";
-
-                          return (
+                    {!isCollapsed &&
+                      (group.items || []).map((asset: any, idx: number) => (
+                        <TableRow key={groupName + "-" + idx} hover>
+                          {visibleColumns.map((col) => (
                             <TableCell
                               key={col.id}
-                              align={isName || isThumb ? "left" : "center"}
+                              align={col.id === "group_1_name" ? "left" : "center"}
                               style={buildCellStyle(col, phaseMeta)}
                             >
                               {renderAssetField(asset, col)}
                             </TableCell>
-                          );
-                        })}
-                      </TableRow>
-                    ))}
-                </React.Fragment>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </Box>
-
-      {/* ✅ FIXED footer bar (always visible) */}
-      {onChangePage && onChangeRowsPerPage ? (
-        <Box className={classes.footerBar}>
-          <TablePagination
-            component="div"
-            classes={{ root: classes.paginationRoot, selectIcon: classes.paginationSelectIcon }}
-            rowsPerPageOptions={[15, 30, 60, 120, 240]}
-            count={count}
-            rowsPerPage={rowsPerPage}
-            page={Math.min(page, Math.max(0, Math.ceil(count / rowsPerPage) - 1))}
-            onChangePage={onChangePage as any}
-            onChangeRowsPerPage={onChangeRowsPerPage as any}
-            ActionsComponent={(p: any) => (
-              <PaginationActions
-                count={p.count}
-                page={p.page}
-                rowsPerPage={p.rowsPerPage}
-                onChangePage={p.onChangePage}
-              />
-            )}
-          />
+                          ))}
+                        </TableRow>
+                      ))}
+                  </React.Fragment>
+                );
+              })}
+            </TableBody>
+          </Table>
         </Box>
-      ) : (
-        <Box className={classes.footerBar} />
-      )}
+
+        {/* ✅ FOOTER ALWAYS VISIBLE (outside vertical scroll) */}
+        {showFooter && (
+          <Box className={classes.footerBar}>
+            <TablePagination
+              className={classes.footerPagination}
+              component="div"
+              rowsPerPageOptions={[15, 30, 60, 120, 240]}
+              count={count}
+              rowsPerPage={rowsPerPage}
+              page={Math.max(0, Math.min(page, Math.ceil(count / rowsPerPage) - 1))}
+              onChangePage={onChangePage!}
+              onChangeRowsPerPage={onChangeRowsPerPage!}
+            />
+          </Box>
+        )}
+      </Box>
     </Box>
   );
 };
