@@ -1,0 +1,35 @@
+function paginateGroups(
+  groups: any[],
+  page: number,
+  rowsPerPage: number
+) {
+  const start = page * rowsPerPage;
+  const end = start + rowsPerPage;
+
+  // Flatten items in display order
+  const flat: Array<{ key: string; group: any; item: any }> = [];
+  for (const g of groups || []) {
+    const items = Array.isArray(g.items) ? g.items : [];
+    for (const item of items) {
+      flat.push({ key: String(g.top_group_node || ""), group: g, item });
+    }
+  }
+
+  // Slice only the requested page items
+  const slice = flat.slice(start, end);
+
+  // Rebuild groups with sliced items (keep order)
+  const out: any[] = [];
+  const seen = new Map<string, any>();
+
+  for (const row of slice) {
+    if (!seen.has(row.key)) {
+      const ng = { ...row.group, items: [] as any[] };
+      seen.set(row.key, ng);
+      out.push(ng);
+    }
+    seen.get(row.key).items.push(row.item);
+  }
+
+  return out;
+}
