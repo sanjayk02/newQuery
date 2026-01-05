@@ -25,3 +25,24 @@
     Clear all
   </MenuItem>
 </Menu>
+
+
+const filteredGroups = React.useMemo(() => {
+  const list = groups || [];
+  if (!hiddenTopGroups.length) return list;
+
+  const hidden = new Set(hiddenTopGroups.map(s => (s || "").toLowerCase()));
+  return list.filter((g: any) => !hidden.has(String(g.top_group_node || "").toLowerCase()));
+}, [groups, hiddenTopGroups]);
+
+
+onClick={() => {
+  setHiddenTopGroups(prev =>
+    prev.includes(name)
+      ? prev.filter(n => n !== name)   // remove from hidden => visible
+      : [...prev, name]               // add to hidden => hide
+  );
+}}
+
+
+<Checkbox checked={isVisible} />
