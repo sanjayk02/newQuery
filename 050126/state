@@ -1,0 +1,123 @@
+// state
+const [filterAnchorEl, setFilterAnchorEl] = React.useState<null | HTMLElement>(null);
+const [topGroupQuery, setTopGroupQuery] = React.useState("");
+const open = Boolean(filterAnchorEl);
+
+// build counts from current loaded groups (or from API if you have totals)
+const topGroupCounts = React.useMemo(() => {
+  const map = new Map<string, number>();
+  (groups || []).forEach((g: any) => {
+    const name = String(g.top_group_node || "Unassigned");
+    const cnt = Array.isArray(g.items) ? g.items.length : 0;
+    map.set(name, (map.get(name) || 0) + cnt);
+  });
+  return map;
+}, [groups]);
+
+const filteredTopGroupNames = React.useMemo(() => {
+  const q = topGroupQuery.trim().toLowerCase();
+  const names = (topGroupNames || []).slice();
+  if (!q) return names;
+  return names.filter((n) => n.toLowerCase().includes(q));
+}, [topGroupNames, topGroupQuery]);
+
+
+<Menu
+  anchorEl={filterAnchorEl}
+  open={open}
+  onClose={() => setFilterAnchorEl(null)}
+  keepMounted
+  PaperProps={{
+    style: {
+      width: 320,
+      maxHeight: 520,
+      background: "#2f2f2f",
+      color: "#e0e0e0",
+      borderRadius: 6,
+    },
+  }}
+>
+  {/* Clear all */}
+  <MenuItem
+    dense
+    onClick={() => {
+      setSelectedTopGroups([]); // your selection state
+      setTopGroupQuery("");
+    }}
+    style={{ fontWeight: 600 }}
+  >
+    Clear all filters
+  </MenuItem>
+
+  <Divider />
+
+  {/* Search */}
+  <MenuItem disableGutters style={{ padding: "8px 12px" }}>
+    <TextField
+      fullWidth
+      variant="outlined"
+      size="small"
+      placeholder="Enter Asset Group"
+      value={topGroupQuery}
+      onChange={(e) => setTopGroupQuery(e.target.value)}
+      InputProps={{
+        style: { color: "#e0e0e0" },
+      }}
+    />
+  </MenuItem>
+
+  {/* Section header */}
+  <Box
+    px={1.5}
+    py={1}
+    style={{
+      fontSize: 12,
+      fontWeight: 700,
+      opacity: 0.9,
+      textTransform: "none",
+    }}
+  >
+    Asset Type
+  </Box>
+
+  {/* Scroll area */}
+  <Box style={{ maxHeight: 360, overflowY: "auto" }}>
+    {filteredTopGroupNames.map((name) => {
+      const isChecked = selectedTopGroups.includes(name);
+      const count = topGroupCounts.get(name) ?? 0;
+
+      return (
+        <MenuItem
+          key={name}
+          dense
+          onClick={() => {
+            setSelectedTopGroups((prev) =>
+              prev.includes(name)
+                ? prev.filter((n) => n !== name)
+                : [...prev, name]
+            );
+          }}
+        >
+          <Checkbox checked={isChecked} size="small" />
+          <ListItemText
+            primary={name}
+            primaryTypographyProps={{ style: { fontSize: 13 } }}
+          />
+          <Box style={{ marginLeft: 12, opacity: 0.75, fontSize: 12 }}>
+            {count}
+          </Box>
+        </MenuItem>
+      );
+    })}
+  </Box>
+
+  {/* Optional "Show more..." (only if you want it) */}
+  {filteredTopGroupNames.length > 12 && (
+    <>
+      <Divider />
+      <MenuItem dense onClick={() => {/* implement expand */}}>
+        Show more…
+      </MenuItem>
+    </>
+  )}
+</Menu>
