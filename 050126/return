@@ -1,35 +1,25 @@
-{topGroupNames.map((name) => {
-  const isChecked = selectedTopGroups.includes(name);
-
-  return (
-    <MenuItem
-      key={name}
-      onClick={() => {
-        setSelectedTopGroups((prev) =>
-          prev.includes(name)
-            ? prev.filter((n) => n !== name)
-            : [...prev, name]
-        );
-      }}
-    >
-      {/* ✅ THIS IS WHERE IT GOES */}
-      <Checkbox checked={isChecked} />
-
-      <ListItemText primary={name} />
-    </MenuItem>
-  );
-})}
-
-
-const filteredTotal = React.useMemo(() => {
-  if (barView !== "grid") return total || 0;
-
-  // if no group filter -> backend total
-  if (selectedTopGroups.length === 0) return total || 0;
-
-  // sum of items in visible groups
-  return (filteredGroups || []).reduce((acc: number, g: any) => {
-    const items = Array.isArray(g.items) ? g.items : [];
-    return acc + items.length;
-  }, 0);
-}, [barView, total, selectedTopGroups, filteredGroups]);
+AssetsGroupedDataTable
+  groups={filteredGroups}
+  sortKey={uiSortKey}
+  sortDir={uiSortDir}
+  onSortChange={handleSortChange}
+  hiddenColumns={hiddenColumns}
+  dateTimeFormat={dateTimeFormat}
+  tableFooter={
+    <AssetsDataTableFooter
+      count={filteredTotal}         // ✅ CORRECT
+      page={pageProps.page}
+      rowsPerPage={pageProps.rowsPerPage}
+      onChangePage={(e, page) =>
+        setPageProps((p) => ({ ...p, page }))
+      }
+      onChangeRowsPerPage={(e) =>
+        setPageProps((p) => ({
+          ...p,
+          page: 0,
+          rowsPerPage: parseInt(e.target.value, 10),
+        }))
+      }
+    />
+  }
+/>
