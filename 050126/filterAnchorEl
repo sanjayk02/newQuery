@@ -1,0 +1,27 @@
+<Menu
+  anchorEl={filterAnchorEl}
+  open={Boolean(filterAnchorEl)}
+  onClose={() => setFilterAnchorEl(null)}
+>
+  {(topGroupNames || []).map((name) => (
+    <MenuItem
+      key={name}
+      onClick={() => {
+        setSelectedTopGroups((prev) =>
+          prev.includes(name)
+            ? prev.filter((n) => n !== name)
+            : [...prev, name]
+        );
+      }}
+    >
+      <Checkbox checked={selectedTopGroups.includes(name)} />
+      <ListItemText primary={name} />
+    </MenuItem>
+  ))}
+
+  <Divider />
+
+  <MenuItem onClick={() => setSelectedTopGroups([])}>
+    Clear all
+  </MenuItem>
+</Menu>
