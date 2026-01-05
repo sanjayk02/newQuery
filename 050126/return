@@ -1,0 +1,150 @@
+return (
+  <StyledContainer maxWidth={false}>
+    <StyledPaper>
+
+      {/* TOP FILTER BAR (Asset Name / Approval / Work + Columns + Reset etc.) */}
+      <StyledContentDiv>
+        <AssetTableFilter
+          // --------------------------
+          // your existing props here
+          // --------------------------
+          filterAssetName={filterProps.assetNameKey}
+          selectApprovalStatuses={approvalArray}
+          selectWorkStatuses={workArray}
+          onAssetNameChange={(e) =>
+            setFilterProps((p) => ({ ...p, assetNameKey: e.target.value }))
+          }
+          onApprovalStatusesChange={(e) =>
+            setFilterProps((p) => ({ ...p, applovalStatues: e.target.value as string[] }))
+          }
+          onWorkStatusesChange={(e) =>
+            setFilterProps((p) => ({ ...p, workStatues: e.target.value as string[] }))
+          }
+          onApprovalStatusChipDelete={(value) =>
+            setFilterProps((p) => ({
+              ...p,
+              applovalStatues: (approvalArray || []).filter((x) => x !== value),
+            }))
+          }
+          onWorkStatusChipDelete={(value) =>
+            setFilterProps((p) => ({
+              ...p,
+              workStatues: (workArray || []).filter((x) => x !== value),
+            }))
+          }
+          onResetClick={() => {
+            setFilterProps(initFilterProps);
+            setHiddenTopGroups([]); // ✅ reset top-group hiding too
+          }}
+
+          hiddenColumns={hiddenColumns}
+          onHiddenColumnsChange={setHiddenColumns}
+          onToggleColumn={toggleColumn}
+          onShowAll={showAll}
+          onHideAll={hideAll}
+          visibleCount={visibleCount}
+          onSaveColumns={handleSaveColumns}
+        />
+      </StyledContentDiv>
+
+      {/* TABLE AREA */}
+      <StyledTableDiv>
+
+        {/* RIGHT SIDE FILTER BUTTON (Top groups) */}
+        <Box
+          display="flex"
+          justifyContent="flex-end"
+          alignItems="center"
+          style={{ paddingRight: 12, paddingTop: 6, paddingBottom: 6 }}
+        >
+          <Button
+            startIcon={<FilterListIcon />}
+            variant="contained"
+            color="default"
+            onClick={(e) => setFilterAnchorEl(e.currentTarget)}
+          >
+            Filter
+          </Button>
+
+          <Menu
+            anchorEl={filterAnchorEl}
+            open={Boolean(filterAnchorEl)}
+            onClose={() => setFilterAnchorEl(null)}
+            keepMounted
+          >
+            {(topGroupNames || []).map((name) => {
+              const isVisible = !hiddenTopGroups.includes(name); // ✅ checked=visible
+
+              return (
+                <MenuItem
+                  key={name}
+                  onClick={() => {
+                    setHiddenTopGroups((prev) =>
+                      prev.includes(name)
+                        ? prev.filter((n) => n !== name) // remove from hidden => visible
+                        : [...prev, name]                // add to hidden => hide
+                    );
+                  }}
+                >
+                  <Checkbox checked={isVisible} />
+                  <ListItemText primary={name} />
+                </MenuItem>
+              );
+            })}
+
+            <Divider />
+
+            <MenuItem
+              onClick={() => {
+                setHiddenTopGroups([]);     // ✅ show all groups again
+                setFilterAnchorEl(null);
+              }}
+            >
+              Clear all
+            </MenuItem>
+          </Menu>
+        </Box>
+
+        {/* MAIN TABLE RENDER */}
+        {barView === "grid" ? (
+          <AssetsGroupedDataTable
+            // ✅ IMPORTANT: use filteredGroups (not groups)
+            groups={filteredGroups}
+
+            sortKey={uiSortKey}
+            sortDir={uiSortDir}
+            onSortChange={handleSortChange}
+
+            hiddenColumns={hiddenColumns}
+            dateTimeFormat={dateTimeFormat}
+
+            tableFooter={
+              <AssetsDataTableFooter
+                count={total || 0}
+                page={pageProps.page}
+                rowsPerPage={pageProps.rowsPerPage}
+                onChangePage={(e, page) => setPageProps((p) => ({ ...p, page }))}
+                onChangeRowsPerPage={(e) =>
+                  setPageProps((p) => ({
+                    ...p,
+                    page: 0,
+                    rowsPerPage: parseInt(e.target.value, 10),
+                  }))
+                }
+              />
+            }
+          />
+        ) : (
+          <AssetsDataTable
+            assets={filteredAssets}
+            currentSortKey={uiSortKey}
+            currentSortDir={uiSortDir}
+            onSortChange={handleSortChange}
+            hiddenColumns={hiddenColumns}
+            // other props you already pass...
+          />
+        )}
+      </StyledTableDiv>
+    </StyledPaper>
+  </StyledContainer>
+);
