@@ -1,9 +1,16 @@
+const topGroupFilterActive = selectedTopGroups.length > 0;
+
 const filtersActive = useMemo(() => {
   const nameActive = !!(filterProps.assetNameKey || '').trim();
   return (
     nameActive ||
     approvalArray.length > 0 ||
     workArray.length > 0 ||
-    selectedTopGroups.length > 0   // ✅ ADD THIS
+    selectedTopGroups.length > 0
   );
-}, [filterProps.assetNameKey, approvalArray, workArray, selectedTopGroups]);
+}, [
+  filterProps.assetNameKey,
+  approvalArray,
+  workArray,
+  selectedTopGroups,
+]);
