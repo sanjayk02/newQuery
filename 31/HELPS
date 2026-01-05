@@ -1,0 +1,25 @@
+const groupCategories = useMemo(() => {
+  if (!groups) return [];
+  ...
+  groups.forEach((g) => {
+    if (g.top_group_node) { ... }
+  })
+  return cats;
+}, [groups]);
+
+
+const topGroupNames = useMemo(() => {
+  return allGroupCategories
+    .filter(gc => gc.depth === 0)          // or !gc.parent_id
+    .map(gc => gc.name);
+}, [allGroupCategories]);
+
+
+const groupCategories = useMemo(() => { ... }, [groups]);
+
+
+const topGroupNames = useMemo(() => {
+  return allGroupCategories
+    .filter(gc => gc.depth === 0)
+    .map(gc => gc.name);
+}, [allGroupCategories]);
