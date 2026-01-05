@@ -1,0 +1,45 @@
+export function useFetchTopGroupNames(
+  project: Project | null | undefined,
+): { topGroupNames: string[] } {
+  const [topGroupNames, setTopGroupNames] = useState<string[]>([]);
+
+  const projectKey = project ? project.key_name : undefined;
+
+  useEffect(() => {
+    if (!projectKey) return;
+
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const res = await fetchAssetsPivot(
+          projectKey,
+          0,              // page
+          10000,          // rowsPerPage (big)
+          "",             // sortKey
+          "asc",          // sortDir
+          "none",         // phase (or "" / "none" depending backend)
+          "",             // assetNameKey
+          [],             // approval
+          [],             // work
+          "grouped",      // view
+          controller.signal,
+        );
+
+        const groups = Array.isArray((res as any).groups) ? (res as any).groups : [];
+        const names = Array.from(
+          new Set(groups.map((g: any) => String(g.top_group_node || "").trim()).filter(Boolean))
+        );
+
+        setTopGroupNames(names);
+      } catch (e: any) {
+        if (e?.name === "AbortError") return;
+        console.error(e);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [projectKey]);
+
+  return { topGroupNames };
+}
