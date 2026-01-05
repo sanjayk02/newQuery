@@ -19,3 +19,17 @@
     </MenuItem>
   );
 })}
+
+
+const filteredTotal = React.useMemo(() => {
+  if (barView !== "grid") return total || 0;
+
+  // if no group filter -> backend total
+  if (selectedTopGroups.length === 0) return total || 0;
+
+  // sum of items in visible groups
+  return (filteredGroups || []).reduce((acc: number, g: any) => {
+    const items = Array.isArray(g.items) ? g.items : [];
+    return acc + items.length;
+  }, 0);
+}, [barView, total, selectedTopGroups, filteredGroups]);
