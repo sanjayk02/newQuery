@@ -1,25 +1,9 @@
-AssetsGroupedDataTable
-  groups={filteredGroups}
-  sortKey={uiSortKey}
-  sortDir={uiSortDir}
-  onSortChange={handleSortChange}
-  hiddenColumns={hiddenColumns}
-  dateTimeFormat={dateTimeFormat}
-  tableFooter={
-    <AssetsDataTableFooter
-      count={filteredTotal}         // ✅ CORRECT
-      page={pageProps.page}
-      rowsPerPage={pageProps.rowsPerPage}
-      onChangePage={(e, page) =>
-        setPageProps((p) => ({ ...p, page }))
-      }
-      onChangeRowsPerPage={(e) =>
-        setPageProps((p) => ({
-          ...p,
-          page: 0,
-          rowsPerPage: parseInt(e.target.value, 10),
-        }))
-      }
-    />
-  }
-/>
+const filtersActive = useMemo(() => {
+  const nameActive = !!(filterProps.assetNameKey || '').trim();
+  return (
+    nameActive ||
+    approvalArray.length > 0 ||
+    workArray.length > 0 ||
+    selectedTopGroups.length > 0   // ✅ ADD THIS
+  );
+}, [filterProps.assetNameKey, approvalArray, workArray, selectedTopGroups]);
