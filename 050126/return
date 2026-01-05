@@ -1,33 +1,21 @@
-const filteredGroups = useMemo(() => {
-  const list = groups || [];
+{topGroupNames.map((name) => {
+  const isChecked = selectedTopGroups.includes(name);
 
-  // ✅ NO selection → show EVERYTHING
-  if (selectedTopGroups.length === 0) {
-    return list;
-  }
+  return (
+    <MenuItem
+      key={name}
+      onClick={() => {
+        setSelectedTopGroups((prev) =>
+          prev.includes(name)
+            ? prev.filter((n) => n !== name)
+            : [...prev, name]
+        );
+      }}
+    >
+      {/* ✅ THIS IS WHERE IT GOES */}
+      <Checkbox checked={isChecked} />
 
-  // ✅ At least one checked → show ONLY checked
-  const allowed = new Set(
-    selectedTopGroups.map(g => g.toLowerCase())
+      <ListItemText primary={name} />
+    </MenuItem>
   );
-
-  return list.filter((g: any) =>
-    allowed.has(String(g.top_group_node || "").toLowerCase())
-  );
-}, [groups, selectedTopGroups]);
-
-
-const isChecked = selectedTopGroups.includes(name);
-
-<Checkbox checked={isChecked} />
-
-<MenuItem
-  key={name}
-  onClick={() => {
-    setSelectedTopGroups(prev =>
-      prev.includes(name)
-        ? prev.filter(n => n !== name)
-        : [...prev, name]
-    );
-  }}
->
+})}
