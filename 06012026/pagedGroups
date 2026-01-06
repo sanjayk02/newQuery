@@ -1,0 +1,20 @@
+const pagedGroups = React.useMemo(() => {
+  const pg = paginateGroups(
+    filteredGroups || [],
+    pageProps.page,
+    pageProps.rowsPerPage
+  );
+
+  return pg.map((g: any) => {
+    const name = String(g.top_group_node || "Unassigned");
+    return {
+      ...g,
+      totalCount: topGroupTotalCounts.get(name) ?? (g.items?.length ?? 0),
+    };
+  });
+}, [
+  filteredGroups,
+  pageProps.page,
+  pageProps.rowsPerPage,
+  topGroupTotalCounts,
+]);
