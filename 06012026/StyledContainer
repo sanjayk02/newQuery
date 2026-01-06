@@ -1,0 +1,37 @@
+const StyledContainer = styled(Container)(({ theme }) => ({
+  position: 'relative',
+  display: 'flex',
+  flexDirection: 'column',
+  padding: 0,
+  height: '100%',
+  minHeight: 0,
+
+  '& > *': {
+    display: 'flex',
+    padding: theme.spacing(1),
+    paddingBottom: 0,
+    minHeight: 0,        // ✅ ADD
+    overflow: 'hidden',  // ✅ ADD (prevents outer scrollbars)
+  },
+
+  '& > *:last-child': {
+    paddingBottom: theme.spacing(1),
+  },
+}));
+
+
+const StyledPaper = styled(Paper)({
+  width: '100%',
+  display: 'flex',
+  flexDirection: 'column',
+  overflow: 'hidden',
+  minHeight: 0,
+  flex: 1,
+});
+
+const StyledTableDiv = styled('div')({
+  paddingBottom: 8,
+  flex: 1,
+  minHeight: 0,       // ✅ ADD
+  overflow: 'auto',   // ✅ ADD  (list-view scrollbar here)
+});
