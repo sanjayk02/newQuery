@@ -1,0 +1,64 @@
+const useStyles = makeStyles(() => ({
+  rootContainer: {
+    height: "100%",
+    width: "100%",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+    minHeight: 0, // IMPORTANT (flex scroll)
+  },
+  scrollBox: {
+    flex: 1,
+    minHeight: 0, // IMPORTANT (flex scroll)
+    overflow: "auto",
+    backgroundColor: COLORS.PAGE_BG,
+    position: "relative",
+  },
+
+  table: {
+    minWidth: "100%",
+    borderCollapse: "separate",
+  },
+
+  headerCell: {
+    backgroundColor: COLORS.HEADER_BG,
+    color: COLORS.TEXT,
+    fontWeight: "bold",
+    borderBottom: `1px solid ${COLORS.GRID_LINE}`,
+    zIndex: 10,
+  },
+
+  stickyGroupRow: {
+    position: "sticky",
+    top: 48,
+    zIndex: 5,
+    backgroundColor: COLORS.GROUP_BG,
+    "& td": { borderBottom: `1px solid ${COLORS.GRID_LINE}` },
+  },
+
+  footerWrapper: {
+    position: "sticky",
+    bottom: 0,
+    zIndex: 20,
+    backgroundColor: COLORS.TABLE_BG,
+    borderTop: `1px solid ${COLORS.GRID_LINE}`,
+  },
+}));
+
+
+return (
+  <Box className={classes.rootContainer}>
+    <Box className={classes.scrollBox}>
+      <Table className={classes.table} stickyHeader>
+        {/* ...TableHead / TableBody... */}
+      </Table>
+
+      {/* ✅ Footer must be inside the scroll container */}
+      {tableFooter && (
+        <Box className={classes.footerWrapper}>
+          {tableFooter}
+        </Box>
+      )}
+    </Box>
+  </Box>
+);
