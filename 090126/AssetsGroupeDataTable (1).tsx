@@ -34,31 +34,47 @@ const COLORS = {
 };
 
 const useStyles = makeStyles((theme) => ({
-  // 1. Scroll container to contain the sticky elements
-  scrollContainer: {
-    height: "calc(100vh - 200px)", // Adjust this value to fit your layout
+  // Creates a local scroll context so sticky elements stay in view
+  rootContainer: {
+    height: "100%",
+    width: "100%",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+  },
+  scrollBox: {
+    flex: 1,
     overflow: "auto",
-    position: "relative",
     backgroundColor: COLORS.PAGE_BG,
+    position: "relative",
   },
   table: {
-    minWidth: 800,
-    borderCollapse: "separate", // Required for sticky header borders
+    minWidth: "100%",
+    borderCollapse: "separate", // Required for sticky borders to render correctly
   },
-  // 2. Ensure header background is solid
   headerCell: {
     backgroundColor: COLORS.HEADER_BG,
     color: COLORS.TEXT,
+    fontWeight: "bold",
     borderBottom: `1px solid ${COLORS.GRID_LINE}`,
-    zIndex: 10,
+    zIndex: 10, // Higher than group rows
   },
-  // 3. Make the group name bars sticky as well
-  stickyGroupHeader: {
+  stickyGroupRow: {
     position: "sticky",
-    top: 48, // Height of the main table header
+    top: 48, // Offset by the height of the main TableHead
     zIndex: 5,
     backgroundColor: COLORS.GROUP_BG,
+    "& td": {
+      borderBottom: `1px solid ${COLORS.GRID_LINE}`,
+    }
   },
+  footerWrapper: {
+    position: "sticky",
+    bottom: 0,
+    zIndex: 10,
+    backgroundColor: COLORS.TABLE_BG,
+    borderTop: `1px solid ${COLORS.GRID_LINE}`,
+  }
 }));
 
 interface Props {
@@ -105,98 +121,97 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
   }, []);
 
   return (
-    <Box className={classes.scrollContainer}>
-      <Table className={classes.table} stickyHeader>
-        <TableHead>
-          <TableRow>
-            {visibleColumns.map((col) => {
-              const isSorted = currentSortKey === col.id;
-              return (
-                <TableCell
-                  key={col.id}
-                  align={col.id === "group_1_name" || col.id === "thumbnail" ? "left" : "center"}
-                  className={classes.headerCell}
-                  onClick={() => onSortChange(col.id)}
-                  style={{ cursor: "pointer" }}
-                >
-                  <Box display="flex" alignItems="center" justifyContent={col.id === "group_1_name" ? "flex-start" : "center"}>
-                    {col.label}
-                    {isSorted && (
-                      currentSortDir === "asc" ? <ArrowDropUpIcon /> : <ArrowDropDownIcon />
-                    )}
-                  </Box>
-                </TableCell>
-              );
-            })}
-          </TableRow>
-        </TableHead>
-
-        <TableBody>
-          {groups.map((group) => {
-            const groupName = group.top_group_node || "Unknown";
-            const isCollapsed = collapsedGroups.has(groupName);
-            const totalCount = group.total_count_in_group || 0;
-            const visibleCount = (group.items || []).length;
-
-            return (
-              <React.Fragment key={groupName}>
-                {/* Sticky Group Header Row */}
-                <TableRow className={classes.stickyGroupHeader}>
+    <Box className={classes.rootContainer}>
+      <Box className={classes.scrollBox}>
+        <Table className={classes.table} stickyHeader>
+          <TableHead>
+            <TableRow>
+              {visibleColumns.map((col) => {
+                const isSorted = currentSortKey === col.id;
+                return (
                   <TableCell
-                    colSpan={visibleColumns.length}
-                    style={{
-                      padding: "4px 12px",
-                      borderBottom: `1px solid ${COLORS.GRID_LINE}`,
-                    }}
+                    key={col.id}
+                    className={classes.headerCell}
+                    align={col.id === "group_1_name" || col.id === "thumbnail" ? "left" : "center"}
+                    onClick={() => onSortChange(col.id)}
+                    style={{ cursor: "pointer" }}
                   >
-                    <Box display="flex" alignItems="center">
-                      <IconButton
-                        size="small"
-                        onClick={() => toggleGroup(groupName)}
-                        style={{ color: COLORS.GROUP_TEXT }}
-                      >
-                        {isCollapsed ? <ChevronRightIcon /> : <ExpandMoreIcon />}
-                      </IconButton>
-                      <Typography
-                        variant="subtitle2"
-                        style={{
-                          color: COLORS.GROUP_TEXT,
-                          fontWeight: 700,
-                          marginLeft: 10,
-                        }}
-                      >
-                        {groupName.toUpperCase()}{" "}
-                        <span style={{ fontSize: "0.75rem", fontWeight: 800 }}>
-                          ({visibleCount} of {totalCount})
-                        </span>
-                      </Typography>
+                    <Box display="flex" alignItems="center" justifyContent={col.id === "group_1_name" ? "flex-start" : "center"}>
+                      {col.label}
+                      {isSorted && (
+                        currentSortDir === "asc" ? <ArrowDropUpIcon /> : <ArrowDropDownIcon />
+                      )}
                     </Box>
                   </TableCell>
-                </TableRow>
+                );
+              })}
+            </TableRow>
+          </TableHead>
 
-                {/* Data rows */}
-                {!isCollapsed &&
-                  (group.items || []).map((asset: any, idx: number) => (
-                    <TableRow key={groupName + "-" + idx} hover>
-                      {visibleColumns.map((col) => (
-                        <TableCell
-                          key={col.id}
-                          align={col.id === "group_1_name" || col.id === "thumbnail" ? "left" : "center"}
-                          style={buildCellStyle(col, phaseMeta)}
+          <TableBody>
+            {groups.map((group) => {
+              const groupName = group.top_group_node || "Unknown";
+              const isCollapsed = collapsedGroups.has(groupName);
+              const totalCount = group.total_count_in_group || 0;
+              const visibleCount = (group.items || []).length;
+
+              return (
+                <React.Fragment key={groupName}>
+                  {/* Sticky Group Header */}
+                  <TableRow className={classes.stickyGroupRow}>
+                    <TableCell colSpan={visibleColumns.length} style={{ padding: "4px 12px" }}>
+                      <Box display="flex" alignItems="center">
+                        <IconButton
+                          size="small"
+                          onClick={() => toggleGroup(groupName)}
+                          style={{ color: COLORS.GROUP_TEXT }}
                         >
-                          {renderAssetField(asset, col)}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))}
-              </React.Fragment>
-            );
-          })}
-        </React.Fragment>
-      </TableBody>
-      
-      {/* Sticky footer renders here inside the scroll container */}
-      {tableFooter && tableFooter}
+                          {isCollapsed ? <ChevronRightIcon /> : <ExpandMoreIcon />}
+                        </IconButton>
+                        <Typography
+                          variant="subtitle2"
+                          style={{ color: COLORS.GROUP_TEXT, fontWeight: 700, marginLeft: 10 }}
+                        >
+                          {groupName.toUpperCase()}{" "}
+                          <span style={{ fontSize: "0.75rem", fontWeight: 800 }}>
+                            ({visibleCount} of {totalCount})
+                          </span>
+                        </Typography>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+
+                  {/* Data Rows */}
+                  {!isCollapsed &&
+                    (group.items || []).map((asset: any, idx: number) => (
+                      <TableRow key={`${groupName}-${idx}`} hover>
+                        {visibleColumns.map((col) => (
+                          <TableCell
+                            key={col.id}
+                            align={col.id === "group_1_name" || col.id === "thumbnail" ? "left" : "center"}
+                            style={{ 
+                              ...buildCellStyle(col, phaseMeta), 
+                              borderBottom: `1px solid ${COLORS.GRID_LINE}` 
+                            }}
+                          >
+                            {renderAssetField(asset, col)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                </React.Fragment>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </Box>
+
+      {/* Sticky Footer - renders at the bottom of the container */}
+      {tableFooter && (
+        <Box className={classes.footerWrapper}>
+          {tableFooter}
+        </Box>
+      )}
     </Box>
   );
 };
