@@ -1,0 +1,342 @@
+import React, { useCallback, useMemo, useState } from "react";
+import {
+  Box,
+  IconButton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Typography,
+  makeStyles,
+} from "@material-ui/core";
+import ExpandMoreIcon from "@material-ui/icons/ExpandMore";
+import ChevronRightIcon from "@material-ui/icons/ChevronRight";
+import ArrowDropUpIcon from "@material-ui/icons/ArrowDropUp";
+import ArrowDropDownIcon from "@material-ui/icons/ArrowDropDown";
+import { PivotGroup, SortDir } from "./types";
+
+/** ----------------------------------------------------------------
+ * COLORS (match list view look)
+ * ---------------------------------------------------------------- */
+const COLORS = {
+  PAGE_BG: "#3d3d3dff",
+  TABLE_BG: "#3d3d3dff",
+  HEADER_BG: "#3d3d3dff",
+  HEADER_BORDER: "#3d3d3dff",
+  GRID_LINE: "#555555",
+  ROW_BG: "#3d3d3dff",
+  GROUP_BG: "#3a3838ff",
+  GROUP_TEXT: "#00b7ff",
+  TEXT: "#e0e0e0",
+  MUTED: "#bdbdbd",
+  COL_EDGE: "#6b6b6b",
+};
+
+/** ----------------------------------------------------------------
+ * Sorting helpers (used for Group View)
+ * ---------------------------------------------------------------- */
+function toComparable(v: any) {
+  if (v == null) return null;
+
+  // If backend returns objects like { value: ... }
+  if (typeof v === "object" && "value" in v) {
+    // @ts-ignore
+    v = v.value;
+  }
+
+  // numbers
+  if (typeof v === "number") return v;
+
+  // dates (number or parseable string)
+  if (v instanceof Date) return v.getTime();
+  if (typeof v === "string") {
+    const t = Date.parse(v);
+    if (!Number.isNaN(t)) return t;
+    return v.toLowerCase();
+  }
+
+  return String(v).toLowerCase();
+}
+
+function compareByKey(a: any, b: any, key: string, dir: SortDir) {
+  const av = toComparable(a?.[key]);
+  const bv = toComparable(b?.[key]);
+
+  if (av == null && bv == null) return 0;
+  if (av == null) return dir === "asc" ? 1 : -1;
+  if (bv == null) return dir === "asc" ? -1 : 1;
+
+  // numbers
+  if (typeof av === "number" && typeof bv === "number") {
+    return dir === "asc" ? av - bv : bv - av;
+  }
+
+  // strings
+  const as = String(av);
+  const bs = String(bv);
+  return dir === "asc" ? as.localeCompare(bs) : bs.localeCompare(as);
+}
+
+type Column = {
+  id: string;
+  label: string;
+  align?: "left" | "center" | "right";
+  width?: number | string;
+  group?: string;
+  kind?: "thumb" | "name" | "work" | "appr" | "submitted";
+};
+
+type Props = {
+  groups?: PivotGroup[];
+
+  // sorting
+  sortKey: string;
+  sortDir: SortDir;
+  onSortChange: (key: string) => void;
+
+  dateTimeFormat: Intl.DateTimeFormat;
+  hiddenColumns?: Set<string>;
+
+  /** Footer from Panel (pagination) */
+  tableFooter?: React.ReactNode;
+};
+
+const COLUMNS: Column[] = [
+  { id: "thumbnail", label: "THUMBNAIL", align: "left", kind: "thumb" },
+  { id: "group_1_name", label: "NAME", align: "left", kind: "name" },
+
+  { id: "mdl_work", label: "MDL WORK", align: "center", group: "MDL", kind: "work" },
+  { id: "mdl_appr", label: "MDL APPR", align: "center", group: "MDL", kind: "appr" },
+  { id: "mdl_submitted", label: "MDL SUBMITTED AT", align: "center", group: "MDL", kind: "submitted" },
+
+  { id: "rig_work", label: "RIG WORK", align: "center", group: "RIG", kind: "work" },
+  { id: "rig_appr", label: "RIG APPR", align: "center", group: "RIG", kind: "appr" },
+  { id: "rig_submitted", label: "RIG SUBMITTED AT", align: "center", group: "RIG", kind: "submitted" },
+
+  { id: "bld_work", label: "BLD WORK", align: "center", group: "BLD", kind: "work" },
+  { id: "bld_appr", label: "BLD APPR", align: "center", group: "BLD", kind: "appr" },
+  { id: "bld_submitted", label: "BLD SUBMITTED AT", align: "center", group: "BLD", kind: "submitted" },
+
+  { id: "dsn_work", label: "DSN WORK", align: "center", group: "DSN", kind: "work" },
+  { id: "dsn_appr", label: "DSN APPR", align: "center", group: "DSN", kind: "appr" },
+  { id: "dsn_submitted", label: "DSN SUBMITTED AT", align: "center", group: "DSN", kind: "submitted" },
+
+  { id: "ldv_work", label: "LDV WORK", align: "center", group: "LDV", kind: "work" },
+  { id: "ldv_appr", label: "LDV APPR", align: "center", group: "LDV", kind: "appr" },
+  { id: "ldv_submitted", label: "LDV SUBMITTED AT", align: "center", group: "LDV", kind: "submitted" },
+
+  { id: "relation", label: "RELATION", align: "center" },
+];
+
+const useStyles = makeStyles(() => ({
+  root: {
+    height: "100%",
+    width: "100%",
+    display: "flex",
+    flexDirection: "column",
+
+    // IMPORTANT: no nested scroll in group view; parent panel scrolls
+    overflow: "hidden",
+    minHeight: 0,
+    flex: 1,
+  },
+
+  scroller: {
+    // IMPORTANT: do not create a scroll container here
+    flex: 1,
+    minHeight: 0,
+    overflow: "visible",
+    backgroundColor: COLORS.PAGE_BG,
+    position: "relative",
+  },
+
+  table: {
+    minWidth: "100%",
+    borderCollapse: "separate",
+    backgroundColor: COLORS.TABLE_BG,
+  },
+
+  headerCell: {
+    backgroundColor: COLORS.HEADER_BG,
+    color: COLORS.TEXT,
+    fontWeight: 700,
+    borderBottom: `1px solid ${COLORS.GRID_LINE}`,
+    zIndex: 10,
+    whiteSpace: "nowrap",
+  },
+
+  groupRow: {
+    position: "sticky",
+    top: 48,
+    zIndex: 5,
+    backgroundColor: COLORS.GROUP_BG,
+    "& td": {
+      borderBottom: `1px solid ${COLORS.GRID_LINE}`,
+    },
+  },
+
+  nameText: {
+    color: COLORS.TEXT,
+    fontWeight: 600,
+    fontSize: "0.85rem",
+  },
+
+  rowCell: {
+    color: COLORS.TEXT,
+    borderBottom: `1px solid ${COLORS.GRID_LINE}`,
+    whiteSpace: "nowrap",
+  },
+
+  dash: {
+    color: COLORS.MUTED,
+  },
+}));
+
+const AssetsGroupedDataTable: React.FC<Props> = ({
+  groups = [],
+  sortKey,
+  sortDir,
+  onSortChange,
+  dateTimeFormat, // kept
+  hiddenColumns = new Set(),
+  tableFooter,
+}) => {
+  const classes = useStyles();
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  const visibleColumns = useMemo(() => {
+    return COLUMNS.filter((c) => !hiddenColumns.has(c.id) || c.id === "thumbnail" || c.id === "group_1_name");
+  }, [hiddenColumns]);
+
+  const toggleGroup = useCallback((groupName: string) => {
+    setCollapsed((prev) => ({ ...prev, [groupName]: !prev[groupName] }));
+  }, []);
+
+  return (
+    <Box className={classes.root}>
+      <Box className={classes.scroller}>
+        <Table className={classes.table} stickyHeader>
+          <TableHead>
+            <TableRow>
+              {visibleColumns.map((col) => {
+                const isSorted = sortKey === col.id;
+                const align = col.align || "center";
+                return (
+                  <TableCell
+                    key={col.id}
+                    className={classes.headerCell}
+                    align={align}
+                    onClick={() => onSortChange(col.id)}
+                    style={{ cursor: "pointer" }}
+                  >
+                    <Box
+                      display="flex"
+                      alignItems="center"
+                      justifyContent={align === "left" ? "flex-start" : align === "right" ? "flex-end" : "center"}
+                    >
+                      {col.label}
+                      {isSorted &&
+                        (sortDir === "asc" ? <ArrowDropUpIcon fontSize="small" /> : <ArrowDropDownIcon fontSize="small" />)}
+                    </Box>
+                  </TableCell>
+                );
+              })}
+            </TableRow>
+          </TableHead>
+
+          <TableBody>
+            {groups.map((group) => {
+              const groupName = group.top_group_node || "UNASSIGNED";
+              const isCollapsed = !!collapsed[groupName];
+              const visibleCount = (group.items || []).length;
+
+              // ✅ Sort items inside each group by current sort key/dir
+              const sortedItems = [...(group.items || [])].sort((a, b) => compareByKey(a, b, sortKey, sortDir));
+
+              return (
+                <React.Fragment key={groupName}>
+                  {/* Sticky Group Header */}
+                  <TableRow className={classes.groupRow}>
+                    <TableCell colSpan={visibleColumns.length} style={{ padding: "4px 12px" }}>
+                      <Box display="flex" alignItems="center">
+                        <IconButton
+                          size="small"
+                          onClick={() => toggleGroup(groupName)}
+                          style={{ color: COLORS.GROUP_TEXT }}
+                        >
+                          {isCollapsed ? <ChevronRightIcon /> : <ExpandMoreIcon />}
+                        </IconButton>
+
+                        <Typography
+                          variant="subtitle2"
+                          style={{ color: COLORS.GROUP_TEXT, fontWeight: 700, marginLeft: 10 }}
+                        >
+                          {groupName.toUpperCase()}{" "}
+                          <span style={{ fontSize: "0.75rem", fontWeight: 800 }}>
+                            ({visibleCount} of {group.total_count_in_group || 0})
+                          </span>
+                        </Typography>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+
+                  {/* Data Rows */}
+                  {!isCollapsed &&
+                    sortedItems.map((asset: any, rowIdx: number) => (
+                      <TableRow key={`${groupName}-${rowIdx}`} hover>
+                        {visibleColumns.map((col) => (
+                          <TableCell key={col.id} className={classes.rowCell} align={col.align || "center"}>
+                            {renderAssetField(asset, col, dateTimeFormat, classes)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                </React.Fragment>
+              );
+            })}
+          </TableBody>
+
+          {/* ✅ Footer pagination (kept only once, no duplicates) */}
+          {tableFooter ? tableFooter : null}
+        </Table>
+      </Box>
+    </Box>
+  );
+};
+
+function renderThumbnail(asset: any) {
+  // keep your existing thumbnail rendering style
+  const url = asset?.thumbnail_url || asset?.thumbnail || "";
+  if (!url) return <span style={{ color: COLORS.MUTED }}>—</span>;
+  return (
+    <img
+      src={url}
+      alt="Thumbnail"
+      style={{ width: 44, height: 28, objectFit: "cover", borderRadius: 3 }}
+    />
+  );
+}
+
+function renderAssetField(asset: any, col: Column, dateTimeFormat: Intl.DateTimeFormat, classes: any) {
+  if (col.id === "thumbnail") return renderThumbnail(asset);
+
+  if (col.id === "group_1_name") {
+    return <Typography className={classes.nameText}>{asset?.group_1_name || asset?.name || "—"}</Typography>;
+  }
+
+  const v = asset?.[col.id];
+
+  // submitted columns -> format date if possible
+  if (col.kind === "submitted") {
+    if (!v) return <span className={classes.dash}>—</span>;
+    const t = Date.parse(v);
+    if (!Number.isNaN(t)) return <span>{dateTimeFormat.format(new Date(t))}</span>;
+    return <span>{String(v)}</span>;
+  }
+
+  if (v == null || v === "") return <span className={classes.dash}>—</span>;
+  return <span>{String(v)}</span>;
+}
+
+export default AssetsGroupedDataTable;
