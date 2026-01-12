@@ -467,4 +467,126 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
               {visibleColumns.map((col) => (
                 <TableCell
                   key={col.id}
-                  align={col.id === "group_1_name" || col.id === "thumbnail"
+                  align={col.id === "group_1_name" || col.id === "thumbnail" ? "left" : "center"}
+                  onClick={() => col.sortable && onSortChange(col.id)}
+                  style={{
+                    ...buildCellStyle(col, phaseMeta, { header: true }),
+                    cursor: col.sortable ? "pointer" : "default",
+                    zIndex: 5,
+                  }}
+                >
+                  <Box
+                    display="flex"
+                    alignItems="center"
+                    justifyContent={col.id === "group_1_name" || col.id === "thumbnail" ? "flex-start" : "center"}
+                  >
+                    <Typography style={{ fontSize: "0.70rem", fontWeight: 900 }}>
+                      {col.label}
+                    </Typography>
+
+                    {renderSortIndicator(col.id)}
+                  </Box>
+                </TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+
+          <TableBody>
+            {groups.map((group) => {
+              const groupName = group.top_group_node || "UNASSIGNED";
+              const isCollapsed = !!collapsed[groupName];
+              const visibleCount = (group.items || []).length;
+              const totalCount = (group as any).totalCount || visibleCount;
+
+              return (
+                <React.Fragment key={groupName}>
+                  {/* Group row */}
+                  <TableRow 
+                    className={classes.groupHeader}
+                    onClick={() => {
+                      toggle(groupName);
+                      if (onGroupSortToggle) onGroupSortToggle();
+                    }} 
+                    style={{ cursor: "pointer" }}
+                  >
+                    <TableCell
+                      colSpan={visibleColumns.length}
+                      style={{
+                        backgroundColor: COLORS.GROUP_BG,
+                        color: COLORS.GROUP_TEXT,
+                        borderBottom: UI.GROUP_ROW_GAP_PX + "px solid " + COLORS.TABLE_BG,
+                        padding: "6px 10px",
+                        fontWeight: 900,
+                        position: "relative",
+                      }}
+                    >
+                      <Box display="flex" alignItems="center" justifyContent="space-between">
+                        <Box display="flex" alignItems="center">
+                          <IconButton size="small" style={{ color: COLORS.GROUP_TEXT, padding: 0 }}>
+                            {isCollapsed ? (
+                              <ChevronRightIcon fontSize="small" />
+                            ) : (
+                              <ExpandMoreIcon fontSize="small" />
+                            )}
+                          </IconButton>
+
+                          <Typography
+                            style={{
+                              color: COLORS.GROUP_TEXT,
+                              fontSize: "0.80rem",
+                              fontWeight: 900,
+                              marginLeft: 10,
+                            }}
+                          >
+                            {groupName.toUpperCase()}
+                          </Typography>
+                          
+                          {/* Group name sort indicator */}
+                          <Box ml={1} display="flex" alignItems="center">
+                            {groupSortDir === 'asc' ? (
+                              <ArrowDropUpIcon fontSize="small" style={{ color: COLORS.GROUP_TEXT }} />
+                            ) : (
+                              <ArrowDropDownIcon fontSize="small" style={{ color: COLORS.GROUP_TEXT }} />
+                            )}
+                          </Box>
+                        </Box>
+
+                        {/* Count display */}
+                        <Box display="flex" alignItems="center">
+                          <Typography style={{ fontSize: "0.75rem", fontWeight: 800 }}>
+                            ({visibleCount} of {totalCount})
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+
+                  {/* Data rows */}
+                  {!isCollapsed &&
+                    (group.items || []).map((asset: any, idx: number) => (
+                      <TableRow key={groupName + "-" + idx} hover>
+                        {visibleColumns.map((col) => (
+                          <TableCell
+                            key={col.id}
+                            align={col.id === "group_1_name" || col.id === "thumbnail" ? "left" : "center"}
+                            style={buildCellStyle(col, phaseMeta)}
+                          >
+                            {renderAssetField(asset, col)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                </React.Fragment>
+              );
+            })}
+          </TableBody>
+
+          {/* ✅ Sticky footer pagination */}
+          {tableFooter ? tableFooter : null}
+        </Table>
+      </Box>
+    </Box>
+  );
+};
+
+export default AssetsGroupedDataTable;

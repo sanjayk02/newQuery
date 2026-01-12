@@ -54,15 +54,6 @@ import { SelectProps } from "@material-ui/core/Select";
 
 export type SortDir = 'asc' | 'desc' | 'none';
 
-// Group sorting modes
-export type GroupSortMode = 'group_name' | 'group_count' | 'item_field';
-
-export interface GroupSortConfig {
-  mode: GroupSortMode;
-  field?: string;
-  direction: SortDir;
-}
-
 export interface AssetsDataTableProps {
   project: Project | null | undefined;
   assets: Asset[];
