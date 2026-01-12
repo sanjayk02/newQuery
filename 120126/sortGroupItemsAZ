@@ -1,0 +1,31 @@
+import { SortDir } from "./types"; // make sure this import exists
+
+function normalizeSortValue(v: any): string | null {
+  if (v == null) return null;
+  if (v === "-" || v === "—") return null;
+  return String(v).toLowerCase();
+}
+
+function sortGroupItemsAZ(
+  groups: PivotGroup[],
+  sortKey: string,
+  sortDir: SortDir
+) {
+  // ✅ map "none" to "asc" (or you can early-return groups)
+  const dir: "asc" | "desc" = sortDir === "desc" ? "desc" : "asc";
+
+  return groups.map((g) => ({
+    ...g,
+    items: [...(g.items || [])].sort((a, b) => {
+      const av = normalizeSortValue(a?.[sortKey]);
+      const bv = normalizeSortValue(b?.[sortKey]);
+
+      // empty values always bottom
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+
+      return dir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+    }),
+  }));
+}
