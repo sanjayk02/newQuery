@@ -17,7 +17,7 @@
   * - 07-11-2025 - SanjayK PSI - Column visibility toggling implementation.
   * - 20-11-2025 - SanjayK PSI - Fixed typo in filter property names handling.
   * - 24-11-2025 - SanjayK PSI - Added detailed doc comments for functions and types.
-  * - [Current Date] - Added Group View sorting functionality
+  * - [Current Date] - Added Group View name sorting functionality
 
   Functions:
   * - resolveServerSort: Resolves column key to server-side sort and phase.
@@ -66,13 +66,13 @@ import DialogTitle from '@material-ui/core/DialogTitle';
 import Button from '@material-ui/core/Button';
 import { fetchGenerateAssetCsv } from './api';
 import {
-  useFetchAssetsPivot, // imported useFetchAssetsPivot
+  useFetchAssetsPivot,
   useFetchAssets,
   useFetchLatestAssetComponents,
   useFetchPipelineSettingAssetComponents,
   useFetchTopGroupNames
 } from './hooks';
-import { FilterProps, PageProps, SortDir } from './types'; // Added SortDir import
+import { FilterProps, PageProps, SortDir } from './types';
 import AssetsDataTable from './AssetsDataTable'
 import AssetTableFilter from './AssetDataTableFilter';
 import AssetsDataTableFooter from './AssetsDataTableFooter';
@@ -83,8 +83,7 @@ import { useCurrentStudio } from '../../studio/hooks';
 import { queryConfig } from '../../new-pipeline-setting/api';
 import { theme } from '../../theme';
 
-// Add IconButton import for icon buttons listView and gridView
-import IconButton from '@material-ui/core/IconButton';  // Import IconButton for icon buttons
+import IconButton from '@material-ui/core/IconButton';
 import ViewModuleIcon from '@material-ui/icons/ViewModule';
 import ViewListIcon from '@material-ui/icons/ViewList';
 import FilterListIcon from '@material-ui/icons/FilterList';
@@ -97,7 +96,6 @@ import ExpandLess from '@material-ui/icons/ExpandLess';
 import ExpandMore from '@material-ui/icons/ExpandMore';
 import FolderIcon from '@material-ui/icons/Folder';
 
-// Import Group Data Table component
 import AssetsGroupedDataTable from './AssetsGroupeDataTable';
 
 const StyledContainer = styled(Container)(({ theme }) => ({
@@ -246,36 +244,6 @@ const workStatuses = [
 
 /**
  * The main panel component for displaying and managing the asset data table within a project context.
- *
- * `AssetsDataTablePanel` provides a comprehensive UI for viewing, filtering, sorting, paginating, and exporting
- * asset data. It integrates with project and studio context, supports server-side and client-side sorting and filtering,
- * and allows users to customize column visibility with persistence to both localStorage and backend pipeline settings.
- *
- * ### Features
- * - Fetches and displays asset data for the current project, supporting both backend and client-side filtering/sorting.
- * - Supports filtering by asset name, approval status, and work status, with robust handling of property name typos.
- * - Provides server-side and client-side sorting, including phase-specific sorting logic.
- * - Allows users to toggle column visibility, with persistence across sessions and projects.
- * - Handles pagination, with dynamic adjustment based on filter state.
- * - Integrates with pipeline phase components and latest asset components.
- * - Supports CSV export of asset data.
- * - Handles timezone formatting based on studio settings.
- *
- * ### Props
- * This component does not accept any props directly; it relies on context hooks and internal state.
- *
- * @component
- * @example
- * ```tsx
- * <AssetsDataTablePanel />
- * ```
- *
- * @remarks
- * - Uses multiple hooks for fetching data and managing state.
- * - Designed for extensibility, with placeholders for future filter expansion.
- * - Handles both backend and client-side logic for optimal performance and user experience.
- *
- * @returns {JSX.Element} The rendered asset data table panel UI.
  */
 const AssetsDataTablePanel: React.FC<RouteComponentProps> = () => {
   const initPageProps = {
@@ -299,13 +267,12 @@ const AssetsDataTablePanel: React.FC<RouteComponentProps> = () => {
     applovalStatues: [],
     workStatues: [],
 
-    /* Add unused filter props for future use expansion possibility */
-    selectPhasePriority: '',  // Unused but kept for future use expansion possibility - phase priority filter
-    selectApprovalStatus: '', // Unused but kept for future use expansion possibility - approval status filter
-    selectWorkStatus: '', // Unused but kept for future use expansion possibility - work status filter
-    onPhasePriorityChange: undefined, // Unused but kept for future use expansion possibility - phase priority filter
-    onApprovalStatusChange: undefined, // Unused but kept for future use expansion possibility - approval status filter
-    onWorkStatusChange: undefined, // Unused but kept for future use expansion possibility - work status filter
+    selectPhasePriority: '',
+    selectApprovalStatus: '',
+    selectWorkStatus: '',
+    onPhasePriorityChange: undefined,
+    onApprovalStatusChange: undefined,
+    onWorkStatusChange: undefined,
   };
 
   const [pageProps, setPageProps]     = useState<PageProps>(initPageProps);
@@ -325,11 +292,10 @@ const AssetsDataTablePanel: React.FC<RouteComponentProps> = () => {
   const [sortKey, setSortKey] = useState<string>('group_1');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
-  /* Group sorting state */
-  const [groupSortKey, setGroupSortKey] = useState<string>('group_name');
+  /* Group name sorting state */
   const [groupSortDir, setGroupSortDir] = useState<SortDir>('asc');
 
-  /* Phase priority filter state (for future use expansion possibility) */
+  /* Phase priority filter state */
   const [phasePriority, setPhasePriority] = useState<string>('none');
 
   /* Client-side sorting (UI state) */
@@ -735,15 +701,10 @@ const AssetsDataTablePanel: React.FC<RouteComponentProps> = () => {
   };
 
   /**
-   * Handles group sorting changes.
+   * Handles group name sorting toggle.
    */
-  const handleGroupSortChange = (key: string) => {
-    const nextDir = groupSortKey === key 
-      ? (groupSortDir === 'asc' ? 'desc' : 'asc')
-      : 'asc';
-    
-    setGroupSortKey(key);
-    setGroupSortDir(nextDir);
+  const handleGroupSortToggle = () => {
+    setGroupSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
   };
 
   /* Toggle column visibility */
@@ -1007,33 +968,23 @@ const AssetsDataTablePanel: React.FC<RouteComponentProps> = () => {
     }, 0);
   }, [barView, total, selectedTopGroups, filteredGroups]);
 
-  // Sort groups before pagination
+  // Sort groups by name before pagination
   const sortedGroups = React.useMemo(() => {
     const groupsToSort = filteredGroups || [];
     
-    // Apply group-level sorting
+    // Apply group name sorting
     const sorted = [...groupsToSort];
     
-    if (groupSortKey === 'group_name') {
-      sorted.sort((a, b) => {
-        const nameA = (a.top_group_node || 'Unassigned').toLowerCase();
-        const nameB = (b.top_group_node || 'Unassigned').toLowerCase();
-        return groupSortDir === 'asc' 
-          ? nameA.localeCompare(nameB)
-          : nameB.localeCompare(nameA);
-      });
-    } else if (groupSortKey === 'group_count') {
-      sorted.sort((a, b) => {
-        const countA = (a.items || []).length;
-        const countB = (b.items || []).length;
-        return groupSortDir === 'asc' 
-          ? countA - countB 
-          : countB - countA;
-      });
-    }
+    sorted.sort((a, b) => {
+      const nameA = (a.top_group_node || 'Unassigned').toLowerCase();
+      const nameB = (b.top_group_node || 'Unassigned').toLowerCase();
+      return groupSortDir === 'asc' 
+        ? nameA.localeCompare(nameB)
+        : nameB.localeCompare(nameA);
+    });
     
     return sorted;
-  }, [filteredGroups, groupSortKey, groupSortDir]);
+  }, [filteredGroups, groupSortDir]);
 
   // Sort items within each group
   const sortedGroupsWithItems = React.useMemo(() => {
@@ -1189,7 +1140,7 @@ const AssetsDataTablePanel: React.FC<RouteComponentProps> = () => {
               />
             </IconButton>
 
-            {/* Group sorting controls */}
+            {/* Group sorting toggle */}
             {isGrouped && (
               <Box display="flex" alignItems="center" ml={2} gap={1}>
                 <Typography variant="caption" style={{ color: '#aaa', fontSize: 11 }}>
@@ -1197,33 +1148,18 @@ const AssetsDataTablePanel: React.FC<RouteComponentProps> = () => {
                 </Typography>
                 <Button
                   size="small"
-                  variant={groupSortKey === 'group_name' ? 'contained' : 'outlined'}
-                  onClick={() => handleGroupSortChange('group_name')}
+                  variant="outlined"
+                  onClick={handleGroupSortToggle}
                   style={{
                     height: 24,
                     fontSize: 11,
-                    minWidth: 60,
+                    minWidth: 80,
                     padding: '0 6px',
-                    backgroundColor: groupSortKey === 'group_name' ? '#00b7ff' : 'transparent',
-                    color: groupSortKey === 'group_name' ? '#fff' : '#b0b0b0',
+                    color: '#00b7ff',
+                    borderColor: '#00b7ff',
                   }}
                 >
-                  Name {groupSortKey === 'group_name' && (groupSortDir === 'asc' ? '↑' : '↓')}
-                </Button>
-                <Button
-                  size="small"
-                  variant={groupSortKey === 'group_count' ? 'contained' : 'outlined'}
-                  onClick={() => handleGroupSortChange('group_count')}
-                  style={{
-                    height: 24,
-                    fontSize: 11,
-                    minWidth: 60,
-                    padding: '0 6px',
-                    backgroundColor: groupSortKey === 'group_count' ? '#00b7ff' : 'transparent',
-                    color: groupSortKey === 'group_count' ? '#fff' : '#b0b0b0',
-                  }}
-                >
-                  Count {groupSortKey === 'group_count' && (groupSortDir === 'asc' ? '↑' : '↓')}
+                  Name {groupSortDir === 'asc' ? 'A-Z ↑' : 'Z-A ↓'}
                 </Button>
               </Box>
             )}
@@ -1487,7 +1423,6 @@ const AssetsDataTablePanel: React.FC<RouteComponentProps> = () => {
     </div>
   )}
   filterAssetName={filterProps.assetNameKey}
-  /* Fix possible misspellings in filterProps property names */
   selectApprovalStatuses={
     (filterProps as any).approvalStatuses ||
     filterProps.applovalStatues
@@ -1529,10 +1464,9 @@ const AssetsDataTablePanel: React.FC<RouteComponentProps> = () => {
             groups={pagedGroups}
             sortKey={uiSortKey}
             sortDir={uiSortDir}
-            groupSortKey={groupSortKey}
             groupSortDir={groupSortDir}
             onSortChange={handleSortChange}
-            onGroupSortChange={handleGroupSortChange}
+            onGroupSortToggle={handleGroupSortToggle}
             hiddenColumns={hiddenColumns}
             dateTimeFormat={dateTimeFormat}
             tableFooter={
