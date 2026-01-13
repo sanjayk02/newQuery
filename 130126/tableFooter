@@ -1,8 +1,5 @@
-// Replace the footer section at the bottom of your component with this:
-
-{/* ✅ NUCLEAR OPTION: Force footer to be right-aligned */}
 {tableFooter && (
-  <Box 
+  <div 
     style={{
       position: 'sticky',
       bottom: 0,
@@ -12,40 +9,31 @@
       borderTop: `1px solid ${COLORS.GRID_LINE}`,
       zIndex: 100,
       padding: '8px 0',
+      textAlign: 'right' as const, // Force text alignment
     }}
   >
-    <Box 
+    <div 
       style={{
-        width: '100%',
-        display: 'flex',
-        justifyContent: 'flex-end',
-        alignItems: 'center',
+        display: 'flex !important',
+        justifyContent: 'flex-end !important',
+        alignItems: 'center !important',
+        width: '100% !important',
+        padding: '0 16px !important',
       }}
     >
-      {/* ✅ This wrapper forces ALL children to be right-aligned */}
-      <Box 
-        style={{
-          display: 'flex',
-          justifyContent: 'flex-end',
-          alignItems: 'center',
-          width: '100%',
-          maxWidth: '100%',
-          overflow: 'hidden',
-        }}
-      >
-        {/* ✅ Force ALL direct children of tableFooter to be inline-flex */}
-        <Box 
-          style={{
-            display: 'inline-flex',
-            justifyContent: 'flex-end',
-            alignItems: 'center',
-            marginLeft: 'auto', // Pushes to right
-            padding: '0 16px',
-          }}
-        >
-          {tableFooter}
-        </Box>
-      </Box>
-    </Box>
-  </Box>
+      {/* ✅ Clone the footer element and inject right-align styles */}
+      {React.isValidElement(tableFooter) 
+        ? React.cloneElement(tableFooter as React.ReactElement, {
+            style: {
+              ...((tableFooter as any).props?.style || {}),
+              display: 'flex !important',
+              justifyContent: 'flex-end !important',
+              alignItems: 'center !important',
+              width: '100% !important',
+              marginLeft: 'auto !important',
+            }
+          })
+        : tableFooter}
+    </div>
+  </div>
 )}
