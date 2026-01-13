@@ -1,0 +1,35 @@
+{tableFooter && (
+  <Box 
+    style={{
+      position: 'sticky',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      backgroundColor: COLORS.PAGE_BG,
+      borderTop: `1px solid ${COLORS.GRID_LINE}`,
+      zIndex: 100,
+      padding: '8px 0',
+    }}
+  >
+    {/* Debug wrapper - will show what's actually rendered */}
+    <Box 
+      id="footer-debug"
+      style={{
+        border: '2px solid red',
+        backgroundColor: 'rgba(255,0,0,0.1)',
+        padding: '4px',
+        margin: '0 16px',
+      }}
+    >
+      <Box 
+        style={{
+          border: '2px solid blue',
+          backgroundColor: 'rgba(0,0,255,0.1)',
+          padding: '4px',
+        }}
+      >
+        {tableFooter}
+      </Box>
+    </Box>
+  </Box>
+)}
