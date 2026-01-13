@@ -1,0 +1,51 @@
+// Replace the footer section at the bottom of your component with this:
+
+{/* ✅ NUCLEAR OPTION: Force footer to be right-aligned */}
+{tableFooter && (
+  <Box 
+    style={{
+      position: 'sticky',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      backgroundColor: COLORS.PAGE_BG,
+      borderTop: `1px solid ${COLORS.GRID_LINE}`,
+      zIndex: 100,
+      padding: '8px 0',
+    }}
+  >
+    <Box 
+      style={{
+        width: '100%',
+        display: 'flex',
+        justifyContent: 'flex-end',
+        alignItems: 'center',
+      }}
+    >
+      {/* ✅ This wrapper forces ALL children to be right-aligned */}
+      <Box 
+        style={{
+          display: 'flex',
+          justifyContent: 'flex-end',
+          alignItems: 'center',
+          width: '100%',
+          maxWidth: '100%',
+          overflow: 'hidden',
+        }}
+      >
+        {/* ✅ Force ALL direct children of tableFooter to be inline-flex */}
+        <Box 
+          style={{
+            display: 'inline-flex',
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            marginLeft: 'auto', // Pushes to right
+            padding: '0 16px',
+          }}
+        >
+          {tableFooter}
+        </Box>
+      </Box>
+    </Box>
+  </Box>
+)}
