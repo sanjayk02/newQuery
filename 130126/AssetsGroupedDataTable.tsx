@@ -517,13 +517,13 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
 
               return (
                 <React.Fragment key={groupName}>
-                  {/* Group row */}
-                  <TableRow 
+                  {/* Group row (click only expands/collapses) */}
+                  <TableRow
                     className={classes.groupHeader}
                     onClick={() => {
+                      // ✅ Group row click should ONLY expand/collapse
                       toggle(groupName);
-                      if (onGroupSortToggle) onGroupSortToggle();
-                    }} 
+                    }}
                     style={{ cursor: "pointer" }}
                   >
                     <TableCell
@@ -539,7 +539,15 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                     >
                       <Box display="flex" alignItems="center" justifyContent="space-between">
                         <Box display="flex" alignItems="center">
-                          <IconButton size="small" style={{ color: COLORS.GROUP_TEXT, padding: 0 }}>
+                          <IconButton
+                            size="small"
+                            style={{ color: COLORS.GROUP_TEXT, padding: 0 }}
+                            onClick={(e) => {
+                              // ✅ clicking the chevron should only toggle (and not bubble to other handlers)
+                              e.stopPropagation();
+                              toggle(groupName);
+                            }}
+                          >
                             {isCollapsed ? (
                               <ChevronRightIcon fontSize="small" />
                             ) : (
