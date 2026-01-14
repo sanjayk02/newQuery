@@ -1,0 +1,19 @@
+<Menu
+  anchorEl={filterAnchorEl}
+  open={open}
+  onClose={handleFilterClose}
+  anchorOrigin={{
+    vertical: 'bottom',
+    horizontal: 'right',
+  }}
+  transformOrigin={{
+    vertical: 'top',
+    horizontal: 'right',
+  }}
+  PaperProps={{
+    style: {
+      marginTop: 48, // 👈 MOVE FILTER DOWN (adjust if needed)
+      maxHeight: 'calc(100vh - 120px)',
+    },
+  }}
+>
