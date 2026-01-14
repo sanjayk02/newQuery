@@ -72,6 +72,11 @@ const UI = {
   THUMB_BOX_W: 40, // Reduced from 50
   THUMB_BOX_H: 24, // Reduced from 28
   THUMB_RADIUS: 2,
+  
+  // ✅ Font sizes matching your image
+  FONT_SIZE_HEADER: 11,    // Column headers
+  FONT_SIZE_CONTENT: 11,   // Content text
+  FONT_SIZE_GROUP: 12,     // Group header text
 };
 
 type ColumnId =
@@ -178,7 +183,6 @@ const useStyles = makeStyles(() => ({
     tableLayout: "fixed",
     borderCollapse: "separate",
     borderSpacing: 0,
-    fontSize: "0.75rem", // Smaller font for table
   },
 
   groupHeader: {
@@ -273,7 +277,10 @@ function renderAssetField(asset: any, col: Column) {
 
   if (col.id === "group_1_name") {
     return (
-      <Typography noWrap style={{ fontSize: 11, fontWeight: 500 }}> {/* Reduced from 12 */}
+      <Typography noWrap style={{ 
+        fontSize: UI.FONT_SIZE_CONTENT, 
+        fontWeight: 500 
+      }}>
         {formatForDisplay(asset.group_1 || asset.group_1_name)}
       </Typography>
     );
@@ -281,7 +288,10 @@ function renderAssetField(asset: any, col: Column) {
 
   if (col.id === "relation") {
     return (
-      <Typography style={{ fontSize: 11, fontWeight: 500 }}> {/* Reduced from 12 */}
+      <Typography style={{ 
+        fontSize: UI.FONT_SIZE_CONTENT, 
+        fontWeight: 500 
+      }}>
         {formatForDisplay(asset.relation)}
       </Typography>
     );
@@ -294,7 +304,10 @@ function renderAssetField(asset: any, col: Column) {
     const submittedAt = asset[phase + "_submitted_at_utc"];
     const formatted = formatSubmitted(submittedAt);
     return (
-      <Typography style={{ fontSize: 11, fontWeight: 500 }}> {/* Reduced from 12 */}
+      <Typography style={{ 
+        fontSize: UI.FONT_SIZE_CONTENT, 
+        fontWeight: 500 
+      }}>
         {formatted}
       </Typography>
     );
@@ -305,7 +318,11 @@ function renderAssetField(asset: any, col: Column) {
   const text = formatForDisplay(raw);
 
   return (
-    <Typography style={{ fontSize: 11, fontWeight: 500, color: statusColor(text === '—' ? '' : text) }}> {/* Reduced from 12 */}
+    <Typography style={{ 
+      fontSize: UI.FONT_SIZE_CONTENT, 
+      fontWeight: 500, 
+      color: statusColor(text === '—' ? '' : text) 
+    }}>
       {text}
     </Typography>
   );
@@ -343,9 +360,9 @@ function buildCellStyle(
     overflow: "hidden",
     textOverflow: "ellipsis",
     height: UI.ROW_HEIGHT,
-    padding: `${header ? 4 : UI.ROW_PAD_Y}px ${paddingX}px`, // Reduced header padding from 8 to 4
-    fontSize: 11, // Reduced from 12 for tighter fit
-    fontWeight: header ? 700 : 500, // Reduced from 800/500
+    padding: `${header ? 4 : UI.ROW_PAD_Y}px ${paddingX}px`,
+    fontSize: header ? UI.FONT_SIZE_HEADER : UI.FONT_SIZE_CONTENT,
+    fontWeight: header ? 700 : 500,
     borderLeft: "0px",
     borderRight: "0px",
     borderBottom: header
@@ -496,7 +513,10 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                     alignItems="center"
                     justifyContent={col.id === "group_1_name" || col.id === "thumbnail" ? "flex-start" : "center"}
                   >
-                    <Typography style={{ fontSize: "0.70rem", fontWeight: 900 }}>
+                    <Typography style={{ 
+                      fontSize: UI.FONT_SIZE_HEADER, 
+                      fontWeight: 900 
+                    }}>
                       {col.label}
                     </Typography>
 
@@ -557,28 +577,19 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                           <Typography
                             style={{
                               color: COLORS.GROUP_TEXT,
-                              fontSize: "0.80rem",
+                              fontSize: UI.FONT_SIZE_GROUP,
                               fontWeight: 900,
-                              // marginLeft: 2,
                             }}
                           >
                             {groupName.toUpperCase()}
                           </Typography>
                           <Typography
                             style={{
-                              fontSize: "0.75rem",
+                              fontSize: UI.FONT_SIZE_GROUP - 1,
                               fontWeight: 800,
                               marginLeft: 6,
                             }}>
                              ({visibleCount} of {totalCount})
-                          </Typography>
-
-                        </Box>
-
-                        {/* Count display */}
-                        <Box display="flex" alignItems="center">
-                          <Typography style={{ fontSize: "0.75rem", fontWeight: 800 }}>
-                            {/* ({visibleCount} of {totalCount}) */}
                           </Typography>
                         </Box>
                       </Box>
