@@ -1,0 +1,19 @@
+// Replace the current renderSortIndicator function:
+const renderSortIndicator = (colId: string) => {
+  if (sortKey !== colId) return null;
+  
+  return (
+    <Box ml={0.5} display="inline-flex" alignItems="center">
+      {/* Single arrow only */}
+      <span style={{ 
+        fontSize: 12,
+        color: '#00b7ff',
+        lineHeight: '12px',
+        marginLeft: 4,
+        fontWeight: 'bold'
+      }}>
+        {sortDir === "asc" ? "▲" : "▼"}
+      </span>
+    </Box>
+  );
+};
