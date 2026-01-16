@@ -1,0 +1,129 @@
+func (r *ReviewInfo) ListLatestSubmissionsDynamic(
+	ctx context.Context,
+	project string,
+	root string,
+	preferredPhase string,
+	orderKey string,
+	direction string,
+	limit, offset int,
+	assetNameKey string,
+	approvalStatuses []string,
+	workStatuses []string,
+) ([]LatestSubmissionRow, error) {
+
+	if project == "" {
+		return nil, fmt.Errorf("project is required")
+	}
+	if root == "" {
+		root = "assets"
+	}
+	if limit <= 0 {
+		limit = 60
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	// normalize direction
+	direction = strings.ToUpper(strings.TrimSpace(direction))
+	if direction != "ASC" && direction != "DESC" {
+		direction = "ASC"
+	}
+
+	db := r.db.WithContext(ctx)
+
+	// ------------------------------
+	// Latest per asset × phase
+	// ------------------------------
+	latestPhase := db.Model(&model.ReviewInfo{}).
+		Select(`
+			project,
+			root,
+			group_1,
+			relation,
+			phase,
+			work_status,
+			approval_status,
+			submitted_at_utc,
+			modified_at_utc,
+			ROW_NUMBER() OVER (
+				PARTITION BY project, root, group_1, relation, phase
+				ORDER BY modified_at_utc DESC
+			) AS rn
+		`).
+		Where("project = ?", project).
+		Where("root = ?", root).
+		Where("deleted = 0")
+
+	if strings.TrimSpace(assetNameKey) != "" {
+		latestPhase = latestPhase.Where(
+			"LOWER(group_1) LIKE ?",
+			strings.ToLower(strings.TrimSpace(assetNameKey))+"%",
+		)
+	}
+
+	latestPhase = db.Table("(?) AS lp", latestPhase).Where("rn = 1")
+
+	// ------------------------------
+	// Apply status filters
+	// ------------------------------
+	if len(approvalStatuses) > 0 || len(workStatuses) > 0 {
+		where, args := buildPhaseAwareStatusWhere(
+			preferredPhase,
+			approvalStatuses,
+			workStatuses,
+		)
+		if where != "" {
+			latestPhase = latestPhase.Where(where[4:], args...)
+		}
+	}
+
+	// ------------------------------
+	// Rank ONE ROW per asset (GLOBAL)
+	// ------------------------------
+	ranked := db.Table("(?) AS b", latestPhase).
+		Select(`
+			b.project,
+			b.root,
+			b.group_1,
+			b.relation,
+			b.phase,
+			b.submitted_at_utc,
+			ROW_NUMBER() OVER (
+				PARTITION BY b.project, b.root, b.group_1, b.relation
+				ORDER BY
+					CASE
+						WHEN ? != '' AND b.phase = ? THEN 0
+						ELSE 1
+					END,
+					CASE
+						WHEN ? = 'mdl_submitted' THEN b.submitted_at_utc
+						WHEN ? = 'rig_submitted' THEN b.submitted_at_utc
+						WHEN ? = 'bld_submitted' THEN b.submitted_at_utc
+						WHEN ? = 'dsn_submitted' THEN b.submitted_at_utc
+						WHEN ? = 'ldv_submitted' THEN b.submitted_at_utc
+						ELSE b.modified_at_utc
+					END `+direction+`,
+					LOWER(b.group_1) ASC,
+					LOWER(b.relation) ASC
+			) AS _rank
+		`,
+			preferredPhase, preferredPhase,
+			orderKey, orderKey, orderKey, orderKey, orderKey,
+		)
+
+	var rows []LatestSubmissionRow
+	err := db.Table("(?) AS r", ranked).
+		Select("root, project, group_1, relation, phase, submitted_at_utc").
+		Where("_rank = 1").
+		Order("_rank ASC").
+		Limit(limit).
+		Offset(offset).
+		Scan(&rows).Error
+
+	if err != nil {
+		return nil, fmt.Errorf("ListLatestSubmissionsDynamic: %w", err)
+	}
+
+	return rows, nil
+}
