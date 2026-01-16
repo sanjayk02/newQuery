@@ -1,0 +1,10 @@
+type phaseRow struct {
+	Project        string     `gorm:"column:project"`
+	Root           string     `gorm:"column:root"`
+	Group1         string     `gorm:"column:group_1"`
+	Relation       string     `gorm:"column:relation"`
+	Phase          string     `gorm:"column:phase"`
+	WorkStatus     *string    `gorm:"column:work_status"`
+	ApprovalStatus *string    `gorm:"column:approval_status"`
+	SubmittedAtUTC *time.Time `gorm:"column:submitted_at_utc"`
+}
