@@ -14,6 +14,7 @@
 	* - 17-11-2025 - SanjayK PSI - Added phase-aware status filtering and sorting.
 	* - 22-11-2025 - SanjayK PSI - Fixed bugs related to phase-specific filtering and sorting.
 	* - [Current Date] - Refactored to use GORM query builder instead of raw SQL
+	* - [Current Date] - Fixed global sorting issue with pivot data
 
 	Functions:
 	* - List: Lists review information based on provided parameters.
@@ -29,6 +30,8 @@
 	* - buildPhaseAwareStatusWhere: Constructs a WHERE clause for phase-aware status filtering.
 	* - buildOrderClause: Constructs an ORDER BY clause based on sorting parameters.
 	* - ListAssetsPivot: Lists pivoted assets with filtering and sorting options.
+	* - getPivotColumnValue: Gets pivot column value for sorting.
+	* - sortPivotRowsByPhase: Sorts pivot rows by phase-specific columns.
 
 	────────────────────────────────────────────────────────────────────────── */
 
@@ -662,7 +665,7 @@ func buildStatusCondition(db *gorm.DB, approvalStatuses, workStatuses []string) 
 	return db.Where("("+strings.Join(conditions, " OR ")+")", args...)
 }
 
-// ORDER BY builder
+// ORDER BY builder - FIXED for global sorting
 func buildOrderClause(alias, key, dir string) string {
 	dir = strings.ToUpper(strings.TrimSpace(dir))
 	if dir != "ASC" && dir != "DESC" {
@@ -680,66 +683,172 @@ func buildOrderClause(alias, key, dir string) string {
 	case "submitted_at_utc", "modified_at_utc", "phase":
 		return col(key) + " " + dir
 
-	case "group1_only":
+	case "group1_only", "name", "group_1":
 		return fmt.Sprintf(
-			"LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			"LOWER(%s) %s, LOWER(%s) %s",
 			col("group_1"), dir,
-			col("relation"),
-			col("submitted_at_utc"),
-			col("submitted_at_utc"), dir,
+			col("relation"), dir,
 		)
 
 	case "relation_only":
 		return fmt.Sprintf(
-			"LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			"LOWER(%s) %s, LOWER(%s) %s",
 			col("relation"), dir,
-			col("group_1"),
-			col("submitted_at_utc"),
-			col("submitted_at_utc"), dir,
+			col("group_1"), dir,
 		)
 
 	case "group_rel_submitted":
 		return fmt.Sprintf(
-			"LOWER(%s) ASC, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			"LOWER(%s) %s, LOWER(%s) %s, (%s IS NULL) ASC, %s %s",
+			col("group_1"), dir,
+			col("relation"), dir,
+			col("submitted_at_utc"),
+			col("submitted_at_utc"), dir,
+		)
+
+	// Phase-specific sorting - these will be handled in post-processing
+	case "mdl_submitted", "rig_submitted", "bld_submitted", "dsn_submitted", "ldv_submitted",
+		"mdl_work", "rig_work", "bld_work", "dsn_work", "ldv_work",
+		"mdl_appr", "rig_appr", "bld_appr", "dsn_appr", "ldv_appr":
+		// Default ordering for SQL query - final sorting done in memory
+		return fmt.Sprintf(
+			"LOWER(%s) ASC, LOWER(%s) ASC",
 			col("group_1"),
 			col("relation"),
-			col("submitted_at_utc"),
-			col("submitted_at_utc"), dir,
-		)
-
-	case "mdl_submitted", "rig_submitted", "bld_submitted", "dsn_submitted", "ldv_submitted":
-		return fmt.Sprintf(
-			"(%s IS NULL) ASC, %s %s, LOWER(%s) ASC",
-			col("submitted_at_utc"),
-			col("submitted_at_utc"), dir,
-			col("group_1"),
-		)
-
-	case "mdl_work", "rig_work", "bld_work", "dsn_work", "ldv_work", "work_status":
-		return fmt.Sprintf(
-			"(%s IS NULL) ASC, LOWER(%s) %s, LOWER(%s) ASC",
-			col("work_status"),
-			col("work_status"), dir,
-			col("group_1"),
-		)
-
-	case "mdl_appr", "rig_appr", "bld_appr", "dsn_appr", "ldv_appr":
-		return fmt.Sprintf(
-			"(%s IS NULL) ASC, LOWER(%s) %s, LOWER(%s) ASC",
-			col("approval_status"),
-			col("approval_status"), dir,
-			col("group_1"),
 		)
 
 	default:
 		return fmt.Sprintf(
-			"LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			"LOWER(%s) %s, LOWER(%s) %s",
 			col("group_1"), dir,
-			col("relation"),
-			col("submitted_at_utc"),
-			col("submitted_at_utc"), dir,
+			col("relation"), dir,
 		)
 	}
+}
+
+// Get pivot column value for sorting
+func getPivotColumnValue(row AssetPivot, orderKey string) interface{} {
+	parts := strings.Split(orderKey, "_")
+	if len(parts) < 2 {
+		return nil
+	}
+
+	phase := strings.ToUpper(parts[0])
+	column := strings.Join(parts[1:], "_")
+
+	switch phase {
+	case "MDL":
+		switch column {
+		case "work":
+			return row.MDLWorkStatus
+		case "appr":
+			return row.MDLApprovalStatus
+		case "submitted":
+			return row.MDLSubmittedAtUTC
+		}
+	case "RIG":
+		switch column {
+		case "work":
+			return row.RIGWorkStatus
+		case "appr":
+			return row.RIGApprovalStatus
+		case "submitted":
+			return row.RIGSubmittedAtUTC
+		}
+	case "BLD":
+		switch column {
+		case "work":
+			return row.BLDWorkStatus
+		case "appr":
+			return row.BLDApprovalStatus
+		case "submitted":
+			return row.BLDSubmittedAtUTC
+		}
+	case "DSN":
+		switch column {
+		case "work":
+			return row.DSNWorkStatus
+		case "appr":
+			return row.DSNApprovalStatus
+		case "submitted":
+			return row.DSNSubmittedAtUTC
+		}
+	case "LDV":
+		switch column {
+		case "work":
+			return row.LDVWorkStatus
+		case "appr":
+			return row.LDVApprovalStatus
+		case "submitted":
+			return row.LDVSubmittedAtUTC
+		}
+	}
+
+	return nil
+}
+
+// Compare two values for sorting
+func compareValues(a, b interface{}, direction string) bool {
+	if a == nil && b == nil {
+		return false
+	}
+	if a == nil {
+		return direction == "DESC" // NULLs last for ASC, first for DESC
+	}
+	if b == nil {
+		return direction != "DESC" // NULLs last for ASC, first for DESC
+	}
+
+	switch v := a.(type) {
+	case *string:
+		if v != nil && b.(*string) != nil {
+			si := strings.ToLower(*v)
+			sj := strings.ToLower(*b.(*string))
+			result := si < sj
+			if direction == "DESC" {
+				return !result
+			}
+			return result
+		}
+	case *time.Time:
+		if v != nil && b.(*time.Time) != nil {
+			ti := *v
+			tj := *b.(*time.Time)
+			result := ti.Before(tj)
+			if direction == "DESC" {
+				return !result
+			}
+			return result
+		}
+	}
+	return false
+}
+
+// Sort pivot rows by phase-specific columns
+func sortPivotRowsByPhase(rows []AssetPivot, orderKey, direction string) []AssetPivot {
+	sort.SliceStable(rows, func(i, j int) bool {
+		iVal := getPivotColumnValue(rows[i], orderKey)
+		jVal := getPivotColumnValue(rows[j], orderKey)
+
+		// First compare by the phase-specific column
+		result := compareValues(iVal, jVal, direction)
+		if result || (iVal == nil && jVal == nil) {
+			// If values are equal or both nil, then sort by name
+			gi := strings.ToLower(rows[i].Group1)
+			gj := strings.ToLower(rows[j].Group1)
+			if gi != gj {
+				return gi < gj
+			}
+			// If names are equal, sort by relation
+			ri := strings.ToLower(rows[i].Relation)
+			rj := strings.ToLower(rows[j].Relation)
+			return ri < rj
+		}
+
+		return result
+	})
+
+	return rows
 }
 
 // ========================================================================
@@ -885,6 +994,7 @@ func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 	joinQuery = buildStatusCondition(joinQuery, approvalStatuses, workStatuses)
 
 	// Step 3: Window function to rank assets with phase preference
+	// FIXED: Removed conflicting ordering from window function
 	rankedQuery := r.db.WithContext(ctx).
 		Select(`
 			*,
@@ -896,8 +1006,6 @@ func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 						WHEN phase = ? THEN 0
 						ELSE 1
 					END,
-					LOWER(group_1) ASC,
-					LOWER(relation) ASC,
 					modified_at_utc DESC
 			) as asset_rank
 		`, func() int {
@@ -908,7 +1016,7 @@ func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 		}(), preferredPhase).
 		Table("(?) as jq", joinQuery)
 
-	// Step 4: Final query with ordering and pagination
+	// Step 4: Final query with ordering
 	finalQuery := r.db.WithContext(ctx).
 		Select(`
 			root,
@@ -1104,6 +1212,17 @@ func (r *ReviewInfo) ListAssetsPivot(
 	ordered := make([]AssetPivot, len(orderedPtrs))
 	for i, ap := range orderedPtrs {
 		ordered[i] = *ap
+	}
+
+	// 8) Apply phase-specific sorting if needed (post-processing)
+	isPhaseSpecificSort := strings.HasPrefix(orderKey, "mdl_") ||
+		strings.HasPrefix(orderKey, "rig_") ||
+		strings.HasPrefix(orderKey, "bld_") ||
+		strings.HasPrefix(orderKey, "dsn_") ||
+		strings.HasPrefix(orderKey, "ldv_")
+
+	if isPhaseSpecificSort {
+		ordered = sortPivotRowsByPhase(ordered, orderKey, direction)
 	}
 
 	return ordered, total, nil
