@@ -1,203 +1,184 @@
-// ListAssetsPivot returns the fully pivoted rows + total count.
-// Uses a hybrid approach: GORM for building queries, raw SQL for execution.
 func (r *ReviewInfo) ListAssetsPivot(
 	ctx context.Context,
-	project, root, preferredPhase, orderKey, direction string,
-	limit, offset int,
+	project string,
+	root string,
+	preferredPhase string, // ✅ BACK
+	sortKey string,
+	direction string,
+	limit int,
+	offset int,
 	assetNameKey string,
 	approvalStatuses []string,
 	workStatuses []string,
 ) ([]AssetPivot, int64, error) {
-	if project == "" {
-		return nil, 0, fmt.Errorf("project is required")
-	}
+
+	db := r.db.WithContext(ctx)
+
 	if root == "" {
 		root = "assets"
 	}
+	if limit <= 0 {
+		limit = 15
+	}
+	if offset < 0 {
+		offset = 0
+	}
 
-	// 1) Get total count
-	total, err := r.CountLatestSubmissions(
-		ctx,
-		project,
-		root,
-		assetNameKey,
-		preferredPhase,
-		approvalStatuses,
-		workStatuses,
-	)
-	if err != nil {
+	// -------------------------------------------------------
+	// SUBQUERY: latest per asset × relation × phase
+	// -------------------------------------------------------
+	latestPerPhase := db.
+		Model(&model.ReviewInfo{}).
+		Select(`
+			project,
+			root,
+			group_1,
+			relation,
+			phase,
+			MAX(modified_at_utc) AS modified_at_utc
+		`).
+		Where("deleted = 0").
+		Where("project = ?", project).
+		Where("root = ?", root).
+		Group("project, root, group_1, relation, phase")
+
+	// -------------------------------------------------------
+	// JOIN BACK
+	// -------------------------------------------------------
+	query := db.
+		Table("(?) AS a", latestPerPhase).
+		Joins(`
+			JOIN t_review_info AS b
+			  ON a.project = b.project
+			 AND a.root = b.root
+			 AND a.group_1 = b.group_1
+			 AND a.relation = b.relation
+			 AND a.phase = b.phase
+			 AND a.modified_at_utc = b.modified_at_utc
+		`)
+
+	// -------------------------------------------------------
+	// FILTERS
+	// -------------------------------------------------------
+	if assetNameKey != "" {
+		query = query.Where("b.group_1 LIKE ?", assetNameKey+"%")
+	}
+
+	if len(approvalStatuses) > 0 {
+		query = query.Where("b.approval_status IN ?", approvalStatuses)
+	}
+
+	if len(workStatuses) > 0 {
+		query = query.Where("b.work_status IN ?", workStatuses)
+	}
+
+	// -------------------------------------------------------
+	// COUNT
+	// -------------------------------------------------------
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
-	// 2) Get page keys
-	keys, err := r.ListLatestSubmissionsDynamic(
-		ctx,
-		project,
-		root,
-		preferredPhase,
-		orderKey,
-		direction,
-		limit,
-		offset,
-		assetNameKey,
-		approvalStatuses,
-		workStatuses,
-	)
-	if err != nil {
+	// -------------------------------------------------------
+	// SORTING (phase priority first)
+	// -------------------------------------------------------
+	dir := "ASC"
+	if strings.EqualFold(direction, "desc") {
+		dir = "DESC"
+	}
+
+	if preferredPhase != "" {
+		query = query.Order(
+			gorm.Expr("b.phase = ? DESC", preferredPhase),
+		)
+	}
+
+	order := "b.group_1 ASC"
+
+	switch sortKey {
+	case "submitted_at_utc":
+		order = "b.submitted_at_utc " + dir
+	case "mdl_work", "rig_work", "bld_work", "dsn_work", "ldv_work":
+		order = "b.work_status " + dir
+	case "mdl_appr", "rig_appr", "bld_appr", "dsn_appr", "ldv_appr":
+		order = "b.approval_status " + dir
+	}
+
+	query = query.Order(order)
+
+	// -------------------------------------------------------
+	// FETCH
+	// -------------------------------------------------------
+	var rows []phaseRow
+	if err := query.
+		Select(`
+			b.project,
+			b.root,
+			b.group_1,
+			b.relation,
+			b.phase,
+			b.work_status,
+			b.approval_status,
+			b.submitted_at_utc
+		`).
+		Limit(limit).
+		Offset(offset).
+		Scan(&rows).Error; err != nil {
 		return nil, 0, err
 	}
-	if len(keys) == 0 {
-		return []AssetPivot{}, total, nil
+
+	// -------------------------------------------------------
+	// PIVOT
+	// -------------------------------------------------------
+	pivot := map[string]*AssetPivot{}
+
+	keyOf := func(r phaseRow) string {
+		return r.Project + "|" + r.Group1 + "|" + r.Relation
 	}
 
-	// 3) Build WHERE conditions dynamically
-	var whereBuilder strings.Builder
-	var params []interface{}
-	
-	params = append(params, project, root)
-	
-	whereBuilder.WriteString("ri.project = ? AND ri.root = ? AND ri.deleted = 0 AND (")
-	
-	for i, k := range keys {
-		if i > 0 {
-			whereBuilder.WriteString(" OR ")
-		}
-		whereBuilder.WriteString("(ri.group_1 = ? AND ri.relation = ?)")
-		params = append(params, k.Group1, k.Relation)
-	}
-	whereBuilder.WriteString(")")
+	for _, r := range rows {
+		k := keyOf(r)
 
-	// 4) Build the query using GORM-style building but execute as raw SQL
-	db := r.db.WithContext(ctx)
-	
-	// Build the base query parts
-	selectClause := `
-SELECT
-	ri.project,
-	ri.root,
-	ri.group_1,
-	ri.relation,
-	ri.phase,
-	ri.work_status,
-	ri.approval_status,
-	ri.submitted_at_utc,
-	ri.modified_at_utc,
-	JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]')) AS leaf_group_name,
-	gc.path AS group_category_path,
-	SUBSTRING_INDEX(gc.path, '/', 1) AS top_group_node,
-	ROW_NUMBER() OVER (
-		PARTITION BY ri.project, ri.root, ri.group_1, ri.relation, ri.phase
-		ORDER BY ri.modified_at_utc DESC
-	) AS rn`
-
-	fromClause := `
-FROM t_review_info AS ri
-LEFT JOIN t_group_category_group AS gcg ON gcg.project = ri.project 
-	AND gcg.deleted = 0 
-	AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]'))
-LEFT JOIN t_group_category AS gc ON gc.id = gcg.group_category_id 
-	AND gc.deleted = 0 
-	AND gc.root = 'assets'`
-
-	// Combine into final query
-	finalQuery := fmt.Sprintf(`
-WITH latest_phase AS (
-	%s
-	%s
-	WHERE %s
-)
-SELECT
-	project,
-	root,
-	group_1,
-	relation,
-	phase,
-	work_status,
-	approval_status,
-	submitted_at_utc,
-	leaf_group_name,
-	group_category_path,
-	top_group_node
-FROM latest_phase
-WHERE rn = 1`, selectClause, fromClause, whereBuilder.String())
-
-	// 5) Execute query
-	var phases []struct {
-		Project            string     `gorm:"column:project"`
-		Root               string     `gorm:"column:root"`
-		Group1             string     `gorm:"column:group_1"`
-		Relation           string     `gorm:"column:relation"`
-		Phase              string     `gorm:"column:phase"`
-		WorkStatus         *string    `gorm:"column:work_status"`
-		ApprovalStatus     *string    `gorm:"column:approval_status"`
-		SubmittedAtUTC     *time.Time `gorm:"column:submitted_at_utc"`
-		LeafGroupName      string     `gorm:"column:leaf_group_name"`
-		GroupCategoryPath  string     `gorm:"column:group_category_path"`
-		TopGroupNode       string     `gorm:"column:top_group_node"`
-	}
-
-	if err := db.Raw(finalQuery, params...).Scan(&phases).Error; err != nil {
-		return nil, 0, fmt.Errorf("ListAssetsPivot.phaseFetch: %w", err)
-	}
-
-	// 6) Process results (same mapping logic)
-	type keyStruct struct {
-		p, r, g, rel string
-	}
-
-	m := make(map[keyStruct]*AssetPivot, len(keys))
-	orderedPtrs := make([]*AssetPivot, 0, len(keys))
-
-	for _, k := range keys {
-		id := keyStruct{k.Project, k.Root, k.Group1, k.Relation}
-		ap := &AssetPivot{
-			Root:     k.Root,
-			Project:  k.Project,
-			Group1:   k.Group1,
-			Relation: k.Relation,
-		}
-		m[id] = ap
-		orderedPtrs = append(orderedPtrs, ap)
-	}
-
-	for _, pr := range phases {
-		id := keyStruct{pr.Project, pr.Root, pr.Group1, pr.Relation}
-		if ap, ok := m[id]; ok {
-			if ap.LeafGroupName == "" {
-				ap.LeafGroupName = pr.LeafGroupName
-				ap.GroupCategoryPath = pr.GroupCategoryPath
-				ap.TopGroupNode = pr.TopGroupNode
-			}
-
-			switch strings.ToLower(pr.Phase) {
-			case "mdl":
-				ap.MDLWorkStatus = pr.WorkStatus
-				ap.MDLApprovalStatus = pr.ApprovalStatus
-				ap.MDLSubmittedAtUTC = pr.SubmittedAtUTC
-			case "rig":
-				ap.RIGWorkStatus = pr.WorkStatus
-				ap.RIGApprovalStatus = pr.ApprovalStatus
-				ap.RIGSubmittedAtUTC = pr.SubmittedAtUTC
-			case "bld":
-				ap.BLDWorkStatus = pr.WorkStatus
-				ap.BLDApprovalStatus = pr.ApprovalStatus
-				ap.BLDSubmittedAtUTC = pr.SubmittedAtUTC
-			case "dsn":
-				ap.DSNWorkStatus = pr.WorkStatus
-				ap.DSNApprovalStatus = pr.ApprovalStatus
-				ap.DSNSubmittedAtUTC = pr.SubmittedAtUTC
-			case "ldv":
-				ap.LDVWorkStatus = pr.WorkStatus
-				ap.LDVApprovalStatus = pr.ApprovalStatus
-				ap.LDVSubmittedAtUTC = pr.SubmittedAtUTC
+		if _, ok := pivot[k]; !ok {
+			pivot[k] = &AssetPivot{
+				Project:  r.Project,
+				Root:     r.Root,
+				Group1:   r.Group1,
+				Relation: r.Relation,
 			}
 		}
+
+		p := pivot[k]
+
+		switch strings.ToLower(r.Phase) {
+		case "mdl":
+			p.MDLWorkStatus = r.WorkStatus
+			p.MDLApprovalStatus = r.ApprovalStatus
+			p.MDLSubmittedAtUTC = r.SubmittedAtUTC
+		case "rig":
+			p.RIGWorkStatus = r.WorkStatus
+			p.RIGApprovalStatus = r.ApprovalStatus
+			p.RIGSubmittedAtUTC = r.SubmittedAtUTC
+		case "bld":
+			p.BLDWorkStatus = r.WorkStatus
+			p.BLDApprovalStatus = r.ApprovalStatus
+			p.BLDSubmittedAtUTC = r.SubmittedAtUTC
+		case "dsn":
+			p.DSNWorkStatus = r.WorkStatus
+			p.DSNApprovalStatus = r.ApprovalStatus
+			p.DSNSubmittedAtUTC = r.SubmittedAtUTC
+		case "ldv":
+			p.LDVWorkStatus = r.WorkStatus
+			p.LDVApprovalStatus = r.ApprovalStatus
+			p.LDVSubmittedAtUTC = r.SubmittedAtUTC
+		}
 	}
 
-	ordered := make([]AssetPivot, len(orderedPtrs))
-	for i, ap := range orderedPtrs {
-		ordered[i] = *ap
+	out := make([]AssetPivot, 0, len(pivot))
+	for _, v := range pivot {
+		out = append(out, *v)
 	}
 
-	return ordered, total, nil
+	return out, total, nil
 }
