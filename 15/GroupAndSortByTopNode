@@ -1,0 +1,61 @@
+func GroupAndSortByTopNode(
+	rows []AssetPivot,
+	dir SortDirection,
+) []GroupedAssetBucket {
+
+	grouped := make(map[string][]AssetPivot)
+	order := make([]string, 0)
+
+	// ---- group rows preserving order ----
+	for _, row := range rows {
+		key := strings.TrimSpace(row.TopGroupNode)
+		if key == "" {
+			key = "Unassigned"
+		}
+
+		if _, exists := grouped[key]; !exists {
+			grouped[key] = []AssetPivot{}
+			order = append(order, key)
+		}
+
+		grouped[key] = append(grouped[key], row)
+	}
+
+	// ---- sort group headers ----
+	isUnassigned := func(s string) bool {
+		return strings.EqualFold(strings.TrimSpace(s), "unassigned")
+	}
+
+	sort.SliceStable(order, func(i, j int) bool {
+		ai := strings.TrimSpace(order[i])
+		aj := strings.TrimSpace(order[j])
+
+		aui := isUnassigned(ai)
+		auj := isUnassigned(aj)
+
+		// Unassigned always last
+		if aui && !auj {
+			return false
+		}
+		if !aui && auj {
+			return true
+		}
+
+		return strings.ToLower(ai) < strings.ToLower(aj)
+	})
+
+	// ---- build result ----
+	result := make([]GroupedAssetBucket, 0, len(order))
+	for _, key := range order {
+		items := grouped[key]
+		count := len(items)
+
+		result = append(result, GroupedAssetBucket{
+			TopGroupNode: key,
+			ItemCount:    count,
+			Items:        items,
+		})
+	}
+
+	return result
+}
