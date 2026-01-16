@@ -1,102 +1,89 @@
-export const fetchAssetsPivot = async (
-  project: string,
-  page: number,
-  rowsPerPage: number,
-  sortKey: string,
-  sortDir: string,
-  phase: string,
-  assetNameKey: string,
-  approvalStatuses: string[],
-  workStatuses: string[],
-  view: 'list' | 'grouped',
-  signal?: AbortSignal | null,
-): Promise<AssetsPivotResponse> => {
+export const fetchAssetsPivot = async ({
+  project,
+  page,
+  rowsPerPage,
+  orderKey = 'group1_only',
+  direction = 'ASC',
+  root = 'assets',
+  assetNameKey = '',
+  approvalStatuses = [],
+  workStatuses = [],
+  preferredPhase = 'none',
+  view = 'list',
+  signal,
+}: {
+  project: string;
+  page: number;
+  rowsPerPage: number;
+  orderKey?: string;
+  direction?: string;
+  root?: string;
+  assetNameKey?: string;
+  approvalStatuses?: string[];
+  workStatuses?: string[];
+  preferredPhase?: string;
+  view?: 'list' | 'grouped';
+  signal?: AbortSignal | null;
+}): Promise<AssetsPivotResponse> => {
   const headers = getAuthHeader();
-  let url = `/api/projects/${encodeURIComponent(project)}/reviews/assets/pivot`;
-
+  
+  // Correct endpoint - matches your main.go route
+  let url = `/api/projects/${project}/reviews/assets/pivot`;
+  
   const params = new URLSearchParams();
-  params.set('per_page', String(rowsPerPage));
-  params.set('page', String(page + 1));
-  if (sortKey && sortKey !== 'none') params.set('sort', sortKey);
-  if (sortDir && sortDir !== 'none') params.set('dir', sortDir.toUpperCase());
-  if (phase && phase !== 'none') params.set('phase', phase);
-
-  // View mode parameter
-  if (view) params.set('view', view);
-
-  const trimmed = (typeof assetNameKey === 'string' ? assetNameKey : '').trim();
-  if (trimmed) {
-    params.set('name', trimmed);
-    params.set('name_mode', 'prefix');
+  
+  // ✅ CORRECT: Backend expects 'sort' not 'order_key'
+  params.set('sort', orderKey);
+  
+  // ✅ CORRECT: Backend expects 'dir' not 'direction'
+  params.set('dir', direction.toUpperCase());
+  
+  // ✅ CORRECT: Backend expects 'name' not 'asset_name_key'
+  if (assetNameKey.trim()) {
+    params.set('name', assetNameKey.trim());
   }
-  if (Array.isArray(workStatuses) && workStatuses.length > 0) {
-    params.set('work', workStatuses.join(','));
+  
+  // ✅ CORRECT: Backend expects 'approval_status' not 'approvalStatuses'
+  if (approvalStatuses.length > 0) {
+    params.set('approval_status', approvalStatuses.join(','));
   }
-  if (Array.isArray(approvalStatuses) && approvalStatuses.length > 0) {
-    params.set('appr', approvalStatuses.join(','));
+  
+  // ✅ CORRECT: Backend expects 'work_status' not 'workStatuses'
+  if (workStatuses.length > 0) {
+    params.set('work_status', workStatuses.join(','));
   }
-
+  
+  // ✅ CORRECT: Backend expects 'phase' not 'preferred_phase'
+  if (preferredPhase && preferredPhase !== 'none') {
+    params.set('phase', preferredPhase);
+  }
+  
+  // Other parameters
+  params.set('page', String(page)); // ✅ Correct
+  params.set('per_page', String(rowsPerPage)); // ✅ Correct
+  params.set('root', root); // ✅ Correct
+  params.set('view', view); // ✅ Correct
+  
   url += `?${params.toString()}`;
-
-  console.log('🔍 [DEBUG] Fetch Assets Pivot:', {
-    fullUrl: url,
-    project,
-    page,
-    rowsPerPage,
-    sortKey,
-    sortDir,
-    phase,
-    assetNameKey: trimmed,
-    approvalStatuses,
-    workStatuses,
-    view,
-    queryParams: Object.fromEntries(params.entries())
+  
+  console.log('🔍 Fetching Assets Pivot with URL:', url); // Debug log
+  
+  const res = await fetch(url, {
+    method: 'GET',
+    headers,
+    mode: 'cors',
+    signal: signal || undefined,
   });
 
-  try {
-    const res = await fetch(url, {
-      method: 'GET',
-      headers,
-      mode: 'cors',
-      signal: signal || undefined,
-    });
-
-    console.log('🔍 [DEBUG] Response Status:', res.status, res.statusText);
-
-    if (res.status === 401) {
-      console.error('❌ [DEBUG] 401 Unauthorized');
-      throw new AuthorizationError();
-    }
-    
-    if (!res.ok) {
-      let errorBody = '';
-      try {
-        errorBody = await res.text();
-        console.error('❌ [DEBUG] Response Error Body:', errorBody);
-      } catch (e) {
-        console.error('❌ [DEBUG] Could not read error response');
-      }
-      
-      throw new Error(`Failed to fetch pivoted assets. Status: ${res.status} ${res.statusText}. ${errorBody}`);
-    }
-
-    setNewToken(res);
-    const json = (await res.json()) as AssetsPivotResponse;
-    
-    console.log('✅ [DEBUG] Pivot Response Success:', {
-      hasData: !!json,
-      assetsCount: json?.assets?.length || 0,
-      groupsCount: json?.groups?.length || 0,
-      total: json?.total || 0,
-      responseKeys: Object.keys(json || {})
-    });
-    
-    return json;
-  } catch (error) {
-    console.error('❌ [DEBUG] fetchAssetsPivot Catch Error:', error);
-    if (error instanceof TypeError && error.message.includes('fetch')) {
-      console.error('❌ [DEBUG] Network error - check CORS or server availability');
-    }
-    throw error;
+  if (res.status === 401) throw new AuthorizationError();
+  if (!res.ok) {
+    console.error('❌ Failed to fetch pivoted assets. Status:', res.status, 'Status Text:', res.statusText);
+    throw new Error(`Failed to fetch pivoted assets: ${res.statusText}`);
   }
+
+  setNewToken(res);
+  const json = await res.json();
+  console.log('✅ Pivot Response JSON:', json); // Debug log
+  
+  return json as AssetsPivotResponse;
 };
