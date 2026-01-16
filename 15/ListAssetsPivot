@@ -1,0 +1,194 @@
+func (r *ReviewInfo) ListAssetsPivot(
+	db *gorm.DB,
+	p ListAssetsPivotParams,
+) (*ListAssetsPivotResult, error) {
+
+	if p.Project == "" {
+		return nil, fmt.Errorf("project is required")
+	}
+
+	if p.Root == "" {
+		p.Root = "assets"
+	}
+
+	if p.PerPage <= 0 {
+		p.PerPage = 15
+	}
+	if p.Page <= 0 {
+		p.Page = 1
+	}
+
+	limit := p.PerPage
+	offset := (p.Page - 1) * p.PerPage
+
+	// normalize dir
+	dir := strings.ToUpper(strings.TrimSpace(p.Direction))
+	if dir != "ASC" && dir != "DESC" {
+		dir = "ASC"
+	}
+
+	isGroupedView :=
+		p.View == "group" ||
+			p.View == "grouped" ||
+			p.View == "category"
+
+	// ---------------------------------------------------------------------
+	// BASE PIVOT QUERY (ALREADY EXISTS IN YOUR FILE)
+	// ---------------------------------------------------------------------
+	pivotQuery := r.buildAssetPivotQuery(db, p)
+
+	// ---------------------------------------------------------------------
+	// GLOBAL SUBMITTED AT (FOR GLOBAL SORTING)
+	// ---------------------------------------------------------------------
+	globalSubmittedExpr := `
+		GREATEST(
+			mdl_submitted_at_utc,
+			rig_submitted_at_utc,
+			bld_submitted_at_utc,
+			dsn_submitted_at_utc,
+			ldv_submitted_at_utc
+		)
+	`
+
+	// =====================================================================
+	// ============================ LIST VIEW ===============================
+	// =====================================================================
+	if !isGroupedView {
+
+		q := db.Table("(?) AS p", pivotQuery).
+			Select("p.*, "+globalSubmittedExpr+" AS global_submitted_at")
+
+		// ---------- FILTERS ----------
+		if len(p.ApprovalStatuses) > 0 {
+			q = q.Where(
+				"(mdl_approval_status IN ? OR rig_approval_status IN ? OR bld_approval_status IN ? OR dsn_approval_status IN ? OR ldv_approval_status IN ?)",
+				p.ApprovalStatuses,
+				p.ApprovalStatuses,
+				p.ApprovalStatuses,
+				p.ApprovalStatuses,
+				p.ApprovalStatuses,
+			)
+		}
+
+		if len(p.WorkStatuses) > 0 {
+			q = q.Where(
+				"(mdl_work_status IN ? OR rig_work_status IN ? OR bld_work_status IN ? OR dsn_work_status IN ? OR ldv_work_status IN ?)",
+				p.WorkStatuses,
+				p.WorkStatuses,
+				p.WorkStatuses,
+				p.WorkStatuses,
+				p.WorkStatuses,
+			)
+		}
+
+		// ---------- COUNT ----------
+		var total int64
+		if err := q.Count(&total).Error; err != nil {
+			return nil, err
+		}
+
+		// ---------- SORT COLUMN ----------
+		orderCol := "global_submitted_at"
+
+		switch p.OrderKey {
+		case "mdl_submitted":
+			orderCol = "mdl_submitted_at_utc"
+		case "rig_submitted":
+			orderCol = "rig_submitted_at_utc"
+		case "bld_submitted":
+			orderCol = "bld_submitted_at_utc"
+		case "dsn_submitted":
+			orderCol = "dsn_submitted_at_utc"
+		case "ldv_submitted":
+			orderCol = "ldv_submitted_at_utc"
+		}
+
+		q = q.Order(fmt.Sprintf("%s %s NULLS LAST", orderCol, dir)).
+			Limit(limit).
+			Offset(offset)
+
+		var rows []AssetPivot
+		if err := q.Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+
+		lastPage := int(math.Ceil(float64(total) / float64(limit)))
+
+		return &ListAssetsPivotResult{
+			Assets:   rows,
+			Total:    total,
+			Page:     p.Page,
+			PerPage:  p.PerPage,
+			PageLast: lastPage,
+			HasNext:  p.Page < lastPage,
+			HasPrev:  p.Page > 1,
+			Sort:     p.OrderKey,
+			Dir:      dir,
+		}, nil
+	}
+
+	// =====================================================================
+	// ========================== GROUPED VIEW ==============================
+	// =====================================================================
+
+	q := db.Table("(?) AS p", pivotQuery).
+		Select("p.*, "+globalSubmittedExpr+" AS global_submitted_at")
+
+	// ---------- FILTERS ----------
+	if len(p.ApprovalStatuses) > 0 {
+		q = q.Where(
+			"(mdl_approval_status IN ? OR rig_approval_status IN ? OR bld_approval_status IN ? OR dsn_approval_status IN ? OR ldv_approval_status IN ?)",
+			p.ApprovalStatuses,
+			p.ApprovalStatuses,
+			p.ApprovalStatuses,
+			p.ApprovalStatuses,
+			p.ApprovalStatuses,
+		)
+	}
+
+	if len(p.WorkStatuses) > 0 {
+		q = q.Where(
+			"(mdl_work_status IN ? OR rig_work_status IN ? OR bld_work_status IN ? OR dsn_work_status IN ? OR ldv_work_status IN ?)",
+			p.WorkStatuses,
+			p.WorkStatuses,
+			p.WorkStatuses,
+			p.WorkStatuses,
+			p.WorkStatuses,
+		)
+	}
+
+	// ---------- SORT COLUMN ----------
+	orderCol := "global_submitted_at"
+
+	switch p.OrderKey {
+	case "mdl_submitted":
+		orderCol = "mdl_submitted_at_utc"
+	case "rig_submitted":
+		orderCol = "rig_submitted_at_utc"
+	case "bld_submitted":
+		orderCol = "bld_submitted_at_utc"
+	case "dsn_submitted":
+		orderCol = "dsn_submitted_at_utc"
+	case "ldv_submitted":
+		orderCol = "ldv_submitted_at_utc"
+	}
+
+	q = q.Order(fmt.Sprintf("%s %s NULLS LAST", orderCol, dir))
+
+	var rows []AssetPivot
+	if err := q.Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	// ---------- GROUP (ORDER PRESERVED) ----------
+	groups := GroupAndSortByTopNode(rows, SortDirection(dir))
+
+	return &ListAssetsPivotResult{
+		Groups:  groups,
+		Total:   int64(len(rows)),
+		Page:    1,
+		PerPage: len(rows),
+		Sort:    p.OrderKey,
+		Dir:     dir,
+	}, nil
+}
