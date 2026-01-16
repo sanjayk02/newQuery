@@ -1,0 +1,57 @@
+export const fetchAssetsPivot = async ({
+  project,
+  page,
+  rowsPerPage,
+  view = "list",
+  sortKey = "",
+  sortDir = "asc",
+  approvalStatuses = [],
+  workStatuses = [],
+}: {
+  project: string;
+  page: number;
+  rowsPerPage: number;
+  view?: "list" | "grouped" | "group";
+  sortKey?: string;
+  sortDir?: "asc" | "desc";
+  approvalStatuses?: string[];
+  workStatuses?: string[];
+}) => {
+  const params = new URLSearchParams();
+
+  // REQUIRED
+  params.set("page", String(page));
+  params.set("per_page", String(rowsPerPage));
+  params.set("view", view);
+
+  // OPTIONAL (only send if present)
+  if (sortKey) {
+    params.set("order_key", sortKey);
+    params.set("direction", sortDir);
+  }
+
+  if (approvalStatuses.length > 0) {
+    params.set("approval_statuses", approvalStatuses.join(","));
+  }
+
+  if (workStatuses.length > 0) {
+    params.set("work_statuses", workStatuses.join(","));
+  }
+
+  const url = `/api/projects/${project}/reviews/assets/pivot?${params.toString()}`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    console.error("Pivot fetch failed:", res.status, text);
+    throw new Error("Failed to fetch pivoted assets");
+  }
+
+  return res.json();
+};
