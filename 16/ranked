@@ -1,40 +1,40 @@
 ranked := db.Table("(?) AS b", latestPhase).
 	Select(`
-		b.project,
-		b.root,
-		b.group_1,
-		b.relation,
-		b.phase,
-		b.submitted_at_utc,
-		ROW_NUMBER() OVER (
-			PARTITION BY b.project, b.root, b.group_1, b.relation
-			ORDER BY
-				-- preferred phase first (if provided)
-				CASE
-					WHEN ? != '' AND b.phase = ? THEN 0
-					ELSE 1
-				END,
+	b.project,
+	b.root,
+	b.group_1,
+	b.relation,
+	b.phase,
+	b.submitted_at_utc,
+	ROW_NUMBER() OVER (
+		PARTITION BY b.project, b.root, b.group_1, b.relation
+		ORDER BY
+			-- preferred phase first
+			CASE
+				WHEN ? != '' AND b.phase = ? THEN 0
+				ELSE 1
+			END,
 
-				-- 🔥 push NULLs LAST for submitted sort
-				CASE
-					WHEN ? IN ('mdl_submitted','rig_submitted','bld_submitted','dsn_submitted','ldv_submitted')
-					THEN (b.submitted_at_utc IS NULL)
-					ELSE 0
-				END ASC,
+			-- push NULLs LAST when sorting submitted_at
+			CASE
+				WHEN ? = 'submitted_at_utc' AND b.phase = ?
+				THEN (b.submitted_at_utc IS NULL)
+				ELSE 0
+			END ASC,
 
-				-- actual date sort
-				CASE
-					WHEN ? IN ('mdl_submitted','rig_submitted','bld_submitted','dsn_submitted','ldv_submitted')
-					THEN b.submitted_at_utc
-					ELSE b.modified_at_utc
-				END `+direction+`,
+			-- actual submitted date sort
+			CASE
+				WHEN ? = 'submitted_at_utc' AND b.phase = ?
+				THEN b.submitted_at_utc
+				ELSE b.modified_at_utc
+			END `+direction+`,
 
-				-- stable fallback
-				LOWER(b.group_1) ASC,
-				LOWER(b.relation) ASC
-		) AS _rank
-	`,
+			-- stable fallback
+			LOWER(b.group_1) ASC,
+			LOWER(b.relation) ASC
+	) AS _rank
+`,
 	preferredPhase, preferredPhase,
-	orderKey,
-	orderKey,
+	orderKey, preferredPhase,
+	orderKey, preferredPhase,
 )
