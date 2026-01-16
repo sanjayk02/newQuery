@@ -1,0 +1,6 @@
+// In main.go, around line 353:
+assetNameKey := strings.TrimSpace(c.Query("name"))
+approvalStatuses := parseStatusParam(c, "approval_status")
+workStatuses := parseStatusParam(c, "work_status")
+sortParam := c.DefaultQuery("sort", "group_1")
+dirParam := c.DefaultQuery("dir", "ASC")
