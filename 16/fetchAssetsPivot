@@ -1,0 +1,89 @@
+export const fetchAssetsPivot = async (
+  project: string,
+  page: number,
+  rowsPerPage: number,
+  sortKey: string,
+  sortDir: string,
+  phase: string,
+  assetNameKey: string,
+  approvalStatuses: string[],
+  workStatuses: string[],
+  view: 'list' | 'grouped',
+  signal?: AbortSignal | null,
+): Promise<AssetsPivotResponse> => {
+  const headers = getAuthHeader();
+  let url = `/api/projects/${(project)}/reviews/assets/pivot`;
+
+  const params = new URLSearchParams();
+  params.set('per_page', String(rowsPerPage));
+  params.set('page', String(page + 1));
+  if (sortKey) params.set('sort', sortKey);
+  if (sortDir) params.set('dir', sortDir.toUpperCase());
+  if (phase && phase !== 'none') params.set('phase', phase);
+
+  // View mode parameter
+  if (view) params.set('view', view);
+
+  const trimmed = (typeof assetNameKey === 'string' ? assetNameKey : '').trim();
+  if (trimmed) {
+    params.set('name', trimmed);
+    params.set('name_mode', 'prefix');
+  }
+  if (Array.isArray(workStatuses) && workStatuses.length > 0) {
+    params.set('work', workStatuses.join(','));
+  }
+  if (Array.isArray(approvalStatuses) && approvalStatuses.length > 0) {
+    params.set('appr', approvalStatuses.join(','));
+  }
+
+  url += `?${params.toString()}`;
+
+  console.log('🔍 [DEBUG] Fetch Assets Pivot Request:', {
+    url,
+    project,
+    page,
+    rowsPerPage,
+    sortKey,
+    sortDir,
+    phase,
+    assetNameKey: trimmed,
+    approvalStatuses,
+    workStatuses,
+    view,
+    params: Object.fromEntries(params.entries())
+  });
+
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers,
+      mode: 'cors',
+      signal: signal || undefined,
+    });
+
+    console.log('🔍 [DEBUG] Response Status:', res.status, res.statusText);
+
+    if (res.status === 401) throw new AuthorizationError();
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error('❌ [DEBUG] Response Error Text:', errorText);
+      throw new Error(`Failed to fetch pivoted assets. Status: ${res.status}. Response: ${errorText}`);
+    }
+
+    setNewToken(res);
+    const json = (await res.json()) as AssetsPivotResponse;
+    
+    console.log('✅ [DEBUG] Pivot Response:', {
+      hasData: !!json,
+      assetsCount: json?.assets?.length || 0,
+      groupsCount: json?.groups?.length || 0,
+      total: json?.total || 0,
+      keys: Object.keys(json || {})
+    });
+    
+    return json;
+  } catch (error) {
+    console.error('❌ [DEBUG] fetchAssetsPivot Error:', error);
+    throw error;
+  }
+};
