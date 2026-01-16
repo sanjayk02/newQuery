@@ -21,7 +21,7 @@ func (r *ReviewInfo) ListAssetsPivot(
 	limit := p.PerPage
 	offset := (p.Page - 1) * p.PerPage
 
-	// normalize dir
+	// normalize direction
 	dir := strings.ToUpper(strings.TrimSpace(p.Direction))
 	if dir != "ASC" && dir != "DESC" {
 		dir = "ASC"
@@ -33,12 +33,12 @@ func (r *ReviewInfo) ListAssetsPivot(
 			p.View == "category"
 
 	// ---------------------------------------------------------------------
-	// BASE PIVOT QUERY (ALREADY EXISTS IN YOUR FILE)
+	// BASE PIVOT QUERY
 	// ---------------------------------------------------------------------
 	pivotQuery := r.buildAssetPivotQuery(db, p)
 
 	// ---------------------------------------------------------------------
-	// GLOBAL SUBMITTED AT (FOR GLOBAL SORTING)
+	// GLOBAL SUBMITTED AT (for global sorting)
 	// ---------------------------------------------------------------------
 	globalSubmittedExpr := `
 		GREATEST(
@@ -56,7 +56,7 @@ func (r *ReviewInfo) ListAssetsPivot(
 	if !isGroupedView {
 
 		q := db.Table("(?) AS p", pivotQuery).
-			Select("p.*, "+globalSubmittedExpr+" AS global_submitted_at")
+			Select("p.*, " + globalSubmittedExpr + " AS global_submitted_at")
 
 		// ---------- FILTERS ----------
 		if len(p.ApprovalStatuses) > 0 {
@@ -89,7 +89,6 @@ func (r *ReviewInfo) ListAssetsPivot(
 
 		// ---------- SORT COLUMN ----------
 		orderCol := "global_submitted_at"
-
 		switch p.OrderKey {
 		case "mdl_submitted":
 			orderCol = "mdl_submitted_at_utc"
@@ -132,7 +131,7 @@ func (r *ReviewInfo) ListAssetsPivot(
 	// =====================================================================
 
 	q := db.Table("(?) AS p", pivotQuery).
-		Select("p.*, "+globalSubmittedExpr+" AS global_submitted_at")
+		Select("p.*, " + globalSubmittedExpr + " AS global_submitted_at")
 
 	// ---------- FILTERS ----------
 	if len(p.ApprovalStatuses) > 0 {
@@ -159,7 +158,6 @@ func (r *ReviewInfo) ListAssetsPivot(
 
 	// ---------- SORT COLUMN ----------
 	orderCol := "global_submitted_at"
-
 	switch p.OrderKey {
 	case "mdl_submitted":
 		orderCol = "mdl_submitted_at_utc"
@@ -180,7 +178,16 @@ func (r *ReviewInfo) ListAssetsPivot(
 		return nil, err
 	}
 
-	// ---------- GROUP (ORDER PRESERVED) ----------
+	// ------------------------------------------------------------------
+	// 🔥 FIX: Populate asset NAME for grouped view
+	// ------------------------------------------------------------------
+	for i := range rows {
+		if strings.TrimSpace(rows[i].Group1) == "" {
+			rows[i].Group1 = rows[i].LeafGroupName
+		}
+	}
+
+	// ---------- GROUP (order preserved) ----------
 	groups := GroupAndSortByTopNode(rows, SortDirection(dir))
 
 	return &ListAssetsPivotResult{
