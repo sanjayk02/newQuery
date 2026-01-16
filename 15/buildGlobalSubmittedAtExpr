@@ -1,0 +1,11 @@
+func buildGlobalSubmittedAtExpr() string {
+	return `
+		GREATEST(
+			mdl_submitted_at_utc,
+			rig_submitted_at_utc,
+			bld_submitted_at_utc,
+			dsn_submitted_at_utc,
+			ldv_submitted_at_utc
+		)
+	`
+}
