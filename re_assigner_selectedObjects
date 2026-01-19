@@ -1,0 +1,61 @@
+import json
+import maya.cmds as cmds
+
+def re_assigner_selectedObjects(json_path, selectedObjs):
+    """
+    Reassign shaders (materials or shading groups) to selected objects in Maya.
+    Fixes 'NOT A SET' by resolving shading groups if a material is given.
+    Works in Python 2.7
+    """
+
+    if not selectedObjs:
+        print("⚠ No objects selected.")
+        return False
+
+    # Normalize selected object transform names (no shapes)
+    selected_transforms = set()
+    for obj in selectedObjs:
+        if cmds.objectType(obj) == "mesh":
+            parents = cmds.listRelatives(obj, p=True, f=True) or []
+            selected_transforms.update(parents)
+        else:
+            selected_transforms.add(cmds.ls(obj, l=True)[0])
+
+    # Load JSON
+    try:
+        with open(json_path, "r") as f:
+            data = json.load(f)
+    except Exception as e:
+        print("❌ Failed to parse JSON: {}".format(e))
+        return False
+
+    shader_connections = data.get("shader_connections", {})
+
+    for shader, info in shader_connections.items():
+        objects = info.get("connected_objects", [])
+
+        if not cmds.objExists(shader):
+            print("⚠ Shader not found: {}".format(shader))
+            continue
+
+        sg = get_shading_group(shader)
+        if not sg or not cmds.objExists(sg):
+            print("⚠ No shading group found for: {}".format(shader))
+            continue
+
+        for obj in objects:
+            # Resolve full path in scene
+            matches = cmds.ls(obj, l=True) or []
+            if not matches:
+                print("⚠ Object not found in scene: {}".format(obj))
+                continue
+
+            for scene_obj in matches:
+                if scene_obj in selected_transforms:
+                    try:
+                        cmds.sets(scene_obj, e=True, forceElement=sg)
+                        print("✅ Assigned {} → {}".format(sg, scene_obj))
+                    except Exception as e:
+                        print("❌ Failed assigning {} → {} ({})".format(sg, scene_obj, e))
+
+    return True
