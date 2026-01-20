@@ -1,0 +1,21 @@
+import sys
+
+# Add current directory to Python path if needed
+sys.path.append(r"C:\path\to\your\script\folder")
+
+# Try importing
+try:
+    from dominant_color_sampler import DominantColorSampler
+    print("Import successful!")
+    
+    # Create instance
+    sampler = DominantColorSampler()
+    
+    # Test it
+    results = sampler.get_dominant_color_for_selected()
+    
+except ImportError as e:
+    print(f"Import error: {e}")
+    print("Make sure the file is in the correct location.")
+except Exception as e:
+    print(f"Error: {e}")
