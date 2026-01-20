@@ -1,17 +1,20 @@
 # -*- coding: utf-8 -*-
-# Dominant Color Sampler for Maya (Python 2.7)
+# UV-based Dominant Color Sampler for Maya (Python 2.7)
+# Samples actual UV coordinates to get object-specific colors
 
 import os
 import re
+import math
 import maya.cmds as cmds
 
 
-class DominantColorSampler(object):
+class UVDominantColorSampler(object):
     
     def __init__(self):
-        pass
+        self.image_cache = {}  # Cache loaded images
     
     def get_selected_shapes(self):
+        """Get mesh shapes from selected objects."""
         selection = cmds.ls(sl=True, long=True) or []
         if not selection:
             return []
@@ -32,6 +35,7 @@ class DominantColorSampler(object):
         return shapes
     
     def get_shader_from_shape(self, shape):
+        """Get the material assigned to a shape."""
         shading_groups = cmds.listConnections(shape, type='shadingEngine') or []
         if not shading_groups:
             return None
@@ -44,6 +48,7 @@ class DominantColorSampler(object):
         return materials[0] if materials else None
     
     def get_texture_from_shader(self, shader):
+        """Get file texture node from shader."""
         color_attrs = ["color", "diffuseColor", "diffuseLitColor", 
                       "albedoColor", "baseColor", "outColor"]
         
@@ -61,6 +66,7 @@ class DominantColorSampler(object):
         return None
     
     def get_texture_path(self, file_node):
+        """Get file path from file texture node."""
         if not cmds.objExists("%s.fileTextureName" % file_node):
             return None
         
@@ -70,6 +76,7 @@ class DominantColorSampler(object):
             return None
     
     def get_color_from_shader(self, shader):
+        """Get solid color from shader if no texture."""
         color_attrs = ["color", "diffuseColor", "diffuseLitColor", 
                       "albedoColor", "baseColor", "outColor"]
         
@@ -87,14 +94,21 @@ class DominantColorSampler(object):
                 except:
                     continue
         
-        return None
+        return [128, 128, 128]  # Default gray
     
     def resolve_udim_texture(self, texture_path):
-        if not texture_path or not os.path.exists(os.path.dirname(texture_path)):
-            return texture_path, None
+        """Resolve UDIM texture pattern to actual file paths."""
+        if not texture_path:
+            return []
         
         folder, filename = os.path.split(texture_path)
         
+        if not os.path.exists(folder):
+            return []
+        
+        results = []
+        
+        # Handle <f> format
         if "<f>" in filename:
             base_regex = re.escape(filename).replace("\\<f\\>", r"(\d{4})")
             
@@ -103,8 +117,9 @@ class DominantColorSampler(object):
                 if match:
                     udim_number = match.group(1)
                     resolved_path = os.path.join(folder, fname).replace("\\", "/")
-                    return resolved_path, int(udim_number)
+                    results.append((int(udim_number), resolved_path))
         
+        # Handle <UDIM> format
         elif "<UDIM>" in filename:
             base_regex = re.escape(filename).replace("\\<UDIM\\>", r"(\d{4})")
             
@@ -113,66 +128,130 @@ class DominantColorSampler(object):
                 if match:
                     udim_number = match.group(1)
                     resolved_path = os.path.join(folder, fname).replace("\\", "/")
-                    return resolved_path, int(udim_number)
+                    results.append((int(udim_number), resolved_path))
         
-        return texture_path, None
+        # Already a concrete path - check if it exists
+        elif os.path.exists(texture_path):
+            results.append((1001, texture_path))  # Default to 1001
+        
+        return sorted(results)  # Sort by UDIM number
     
-    def get_dominant_color_simple(self, image_path):
-        if not os.path.exists(image_path):
-            return [128, 128, 128]
+    def load_image(self, image_path):
+        """Load image using Maya's colorAtPoint (no PIL dependency)."""
+        if image_path in self.image_cache:
+            return self.image_cache[image_path]
         
+        # Create a temporary file node to sample from
+        temp_file = cmds.createNode("file", name="temp_texture_sampler")
+        cmds.setAttr("%s.fileTextureName" % temp_file, image_path, type="string")
+        
+        self.image_cache[image_path] = temp_file
+        return temp_file
+    
+    def sample_uv_point(self, file_node, u, v):
+        """Sample color at specific UV coordinate using Maya's colorAtPoint."""
         try:
-            temp_file = cmds.createNode("file", name="temp_color_sampler")
-            cmds.setAttr("%s.fileTextureName" % temp_file, image_path, type="string")
+            # Use colorAtPoint to sample texture at UV coordinate
+            color = cmds.colorAtPoint(
+                "%s.outColor" % file_node, 
+                u=u, v=v, 
+                o="RGB", 
+                x=1, y=1
+            )
             
-            samples = []
-            for u in [0.3, 0.5, 0.7]:
-                for v in [0.3, 0.5, 0.7]:
-                    try:
-                        # Python 2.7 compatible colorAtPoint
-                        color = cmds.colorAtPoint(
-                            "%s.outColor" % temp_file, 
-                            u=u, v=v, 
-                            o="RGB", 
-                            x=1, y=1
-                        )
-                        if color:
-                            samples.append([
-                                int(color[0][0] * 255),
-                                int(color[0][1] * 255),
-                                int(color[0][2] * 255)
-                            ])
-                    except:
-                        pass
-            
-            cmds.delete(temp_file)
-            
-            if samples:
-                avg_r = sum(c[0] for c in samples) // len(samples)
-                avg_g = sum(c[1] for c in samples) // len(samples)
-                avg_b = sum(c[2] for c in samples) // len(samples)
-                return [avg_r, avg_g, avg_b]
-            
+            if color:
+                # Convert from 0-1 to 0-255
+                r = int(color[0][0] * 255)
+                g = int(color[0][1] * 255)
+                b = int(color[0][2] * 255)
+                return [r, g, b]
+        
         except Exception as e:
-            print "Color sampling error: %s" % e
+            print "UV sampling error at (%.3f, %.3f): %s" % (u, v, e)
         
-        filename = os.path.basename(image_path).lower()
-        color_map = {
-            'red': [255, 0, 0],
-            'green': [0, 255, 0],
-            'blue': [0, 0, 255],
-            'white': [255, 255, 255],
-            'black': [0, 0, 0],
-            'gray': [128, 128, 128],
-        }
+        return [128, 128, 128]  # Gray fallback
+    
+    def sample_uvs_for_shape(self, shape, texture_path):
+        """Sample multiple UV points from a shape to get average color."""
         
-        for color_name, color_value in color_map.items():
-            if color_name in filename:
-                return color_value
+        # Get all UVs for the shape
+        uv_components = cmds.polyListComponentConversion(shape, toUV=True)
+        uv_components = cmds.ls(uv_components, flatten=True) or []
         
-        return [128, 128, 128]
+        if not uv_components:
+            return [128, 128, 128]  # No UVs, return gray
+        
+        # Sample a maximum number of UVs (for performance)
+        max_samples = min(50, len(uv_components))
+        step = max(1, len(uv_components) / max_samples)
+        
+        colors = []
+        udim_textures = self.resolve_udim_texture(texture_path)
+        
+        for i in range(0, len(uv_components), step):
+            uv = uv_components[i]
+            
+            try:
+                # Get UV coordinate
+                uv_coords = cmds.polyEditUV(uv, query=True)
+                if not uv_coords:
+                    continue
+                
+                u, v = uv_coords
+                
+                # For UDIM: find which tile this UV belongs to
+                if udim_textures:
+                    # UDIM layout: 1001 is (0,0), 1002 is (1,0), etc.
+                    tile_u = int(math.floor(u))
+                    tile_v = int(math.floor(v))
+                    udim_number = 1001 + tile_u + tile_v * 10
+                    
+                    # Find the texture for this UDIM
+                    texture_file = None
+                    for udim, path in udim_textures:
+                        if udim == udim_number:
+                            # Load and sample from this texture
+                            file_node = self.load_image(path)
+                            
+                            # Adjust UV for tile-local coordinates
+                            local_u = u - tile_u
+                            local_v = v - tile_v
+                            
+                            color = self.sample_uv_point(file_node, local_u, local_v)
+                            colors.append(color)
+                            break
+                
+                else:
+                    # Non-UDIM texture
+                    file_node = self.load_image(texture_path)
+                    color = self.sample_uv_point(file_node, u, v)
+                    colors.append(color)
+            
+            except Exception as e:
+                print "Error sampling UV %s: %s" % (uv, e)
+                continue
+        
+        # Clean up temporary file nodes
+        for file_node in self.image_cache.values():
+            if "temp_texture_sampler" in file_node:
+                try:
+                    cmds.delete(file_node)
+                except:
+                    pass
+        
+        self.image_cache.clear()
+        
+        # Calculate average color from samples
+        if colors:
+            avg_r = sum(c[0] for c in colors) / len(colors)
+            avg_g = sum(c[1] for c in colors) / len(colors)
+            avg_b = sum(c[2] for c in colors) / len(colors)
+            return [int(avg_r), int(avg_g), int(avg_b)]
+        
+        return [128, 128, 128]  # Default gray
     
     def get_dominant_color_for_selected(self):
+        """Main method: Get UV-based dominant color for selected objects."""
         shapes = self.get_selected_shapes()
         if not shapes:
             cmds.warning("No mesh shapes selected.")
@@ -181,41 +260,49 @@ class DominantColorSampler(object):
         results = []
         
         for shape in shapes:
+            # Get parent transform
             transform = cmds.listRelatives(shape, parent=True, fullPath=True)
             transform = transform[0] if transform else shape
             
+            # Get shader
             shader = self.get_shader_from_shape(shape)
             if not shader:
                 print "No shader found for: %s" % shape
                 continue
             
+            # Get texture or solid color
             file_node = self.get_texture_from_shader(shader)
             dominant_color = None
             texture_info = None
             
             if file_node:
+                # Has texture - sample from actual UVs
                 texture_path = self.get_texture_path(file_node)
-                if texture_path:
-                    resolved_path, udim = self.resolve_udim_texture(texture_path)
+                if texture_path and os.path.exists(os.path.dirname(texture_path)):
+                    texture_info = {
+                        "path": texture_path,
+                        "file_node": file_node
+                    }
                     
-                    if os.path.exists(resolved_path):
-                        dominant_color = self.get_dominant_color_simple(resolved_path)
-                        texture_info = {
-                            "path": texture_path,
-                            "resolved_path": resolved_path,
-                            "udim": udim,
-                            "file_node": file_node
-                        }
-                    else:
-                        print "Texture not found: %s" % resolved_path
+                    # Sample actual UV coordinates
+                    print "Sampling UVs for: %s" % transform.split('|')[-1]
+                    dominant_color = self.sample_uvs_for_shape(shape, texture_path)
+                    
+                    # Get UDIM info
+                    udim_textures = self.resolve_udim_texture(texture_path)
+                    if udim_textures:
+                        texture_info["udim_tiles"] = [udim for udim, path in udim_textures]
+                        texture_info["is_udim"] = True
             
             if not dominant_color:
+                # No texture or sampling failed - use shader color
                 dominant_color = self.get_color_from_shader(shader)
-                if not dominant_color:
-                    dominant_color = [128, 128, 128]
+                texture_info = None
             
+            # Get UV sets info
             uv_sets = cmds.polyUVSet(shape, query=True, allUVSets=True) or []
             
+            # Store result
             result = {
                 "object": transform,
                 "shape": shape,
@@ -233,70 +320,109 @@ class DominantColorSampler(object):
             
             results.append(result)
             
+            # Print result
+            print "=" * 50
             print "Object: %s" % transform.split('|')[-1]
             print "  Shader: %s" % shader
             if texture_info:
                 print "  Texture: %s" % os.path.basename(texture_info['path'])
-                if texture_info['udim']:
-                    print "  UDIM: %s" % texture_info['udim']
-            print "  Dominant Color: RGB%s" % str(dominant_color)
+                if texture_info.get("is_udim"):
+                    print "  UDIM Tiles: %s" % len(texture_info.get("udim_tiles", []))
+            print "  Dominant Color: RGB(%s, %s, %s)" % (
+                dominant_color[0], dominant_color[1], dominant_color[2])
             print "  Color Hex: %s" % result['color_hex']
             print "  UV Sets: %s" % len(uv_sets)
-            print "-" * 40
+            print ""
         
         return results
     
     def print_color_summary(self, results):
+        """Print a color summary table."""
         if not results:
             return
         
-        print "\n" + "=" * 60
-        print "DOMINANT COLOR SUMMARY"
-        print "=" * 60
+        print "\n" + "=" * 70
+        print "UV-BASED DOMINANT COLOR SUMMARY"
+        print "=" * 70
+        print "%-5s %-25s %-20s %-15s %-15s" % (
+            "No.", "Object", "Shader", "RGB Color", "Hex Color"
+        )
+        print "-" * 70
         
         for i, result in enumerate(results, 1):
-            obj_name = result['object'].split('|')[-1]
-            shader_name = result['shader'].split('|')[-1]
+            obj_name = result['object'].split('|')[-1][:25]
+            shader_name = result['shader'].split('|')[-1][:20]
             color = result['dominant_color']
             
-            print "%2s. %-30s %-25s RGB(%3s, %3s, %3s)  %s" % (
-                i, obj_name, shader_name, 
+            print "%-5s %-25s %-20s RGB(%-3s,%-3s,%-3s) %-15s" % (
+                i, 
+                obj_name, 
+                shader_name, 
                 color[0], color[1], color[2],
                 result['color_hex']
             )
         
-        print "=" * 60
-
+        print "=" * 70
+        print ""
 
 # -------------------------------------------------------
-# Convenience functions
+# Quick usage functions
 # -------------------------------------------------------
 
-def get_dominant_colors():
-    sampler = DominantColorSampler()
+def get_uv_dominant_colors():
+    """Quick function to get UV-based dominant colors."""
+    sampler = UVDominantColorSampler()
     results = sampler.get_dominant_color_for_selected()
     if results:
         sampler.print_color_summary(results)
     return results
 
+def compare_colors():
+    """Compare colors of selected objects to see if they're different."""
+    sampler = UVDominantColorSampler()
+    results = sampler.get_dominant_color_for_selected()
+    
+    if len(results) > 1:
+        colors = [tuple(r['dominant_color']) for r in results]
+        unique_colors = set(colors)
+        
+        print "\n" + "=" * 50
+        print "COLOR COMPARISON"
+        print "=" * 50
+        print "Total objects: %s" % len(results)
+        print "Unique colors: %s" % len(unique_colors)
+        
+        if len(unique_colors) == 1:
+            print "WARNING: All objects have the SAME color!"
+            print "This might mean:"
+            print "  1. Objects share the same texture/shader"
+            print "  2. UVs are sampling similar parts of texture"
+            print "  3. Texture is uniform/single-color"
+        else:
+            print "Objects have DIFFERENT colors (UV-based sampling working!)"
+        
+        print "=" * 50
+    
+    return results
+
 
 # -------------------------------------------------------
-# How to use in Maya Python 2.7:
+# Example usage in Maya:
 # -------------------------------------------------------
 
 """
-# Save this file as: dominant_color_sampler.py
-# Then in Maya Script Editor:
+# Save as: uv_color_sampler.py
 
-# Option 1: Import and use
-import dominant_color_sampler
-sampler = dominant_color_sampler.DominantColorSampler()
+# In Maya Script Editor:
+import uv_color_sampler
+
+# Method 1: Get colors with UV sampling
+sampler = uv_color_sampler.UVDominantColorSampler()
 results = sampler.get_dominant_color_for_selected()
 
-# Option 2: Use convenience function
-dominant_color_sampler.get_dominant_colors()
+# Method 2: Quick function
+uv_color_sampler.get_uv_dominant_colors()
 
-# Option 3: Quick one-liner
-from dominant_color_sampler import get_dominant_colors
-get_dominant_colors()
+# Method 3: Compare if colors are different
+uv_color_sampler.compare_colors()
 """
