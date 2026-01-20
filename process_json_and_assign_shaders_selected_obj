@@ -1,0 +1,79 @@
+def process_json_and_assign_shaders_selected_obj(self):
+    selected_objects = cmds.ls(selection=True, long=True) or []
+    if not selected_objects:
+        print("No objects selected.")
+        return []
+
+    results = []
+
+    for obj in selected_objects:
+        # --------------------------------------------------
+        # Get shape nodes (skip intermediates)
+        # --------------------------------------------------
+        shapes = cmds.listRelatives(
+            obj,
+            shapes=True,
+            fullPath=True,
+            noIntermediate=True
+        ) or []
+
+        if not shapes:
+            print("No renderable shape found for:", obj)
+            continue
+
+        for shape in shapes:
+            # --------------------------------------------------
+            # Get shading engine
+            # --------------------------------------------------
+            shading_engines = cmds.listConnections(
+                shape,
+                type="shadingEngine",
+                destination=True,
+                source=False
+            ) or []
+
+            if not shading_engines:
+                print("No shading engine found for shape:", shape)
+                continue
+
+            for sg in shading_engines:
+                # --------------------------------------------------
+                # Get surface shader
+                # --------------------------------------------------
+                surface_shader = cmds.listConnections(
+                    sg + ".surfaceShader",
+                    source=True,
+                    destination=False
+                ) or []
+
+                if not surface_shader:
+                    print("No surface shader connected to:", sg)
+                    continue
+
+                shader = surface_shader[0]
+
+                # --------------------------------------------------
+                # Get diffuseLitColor connection (if exists)
+                # --------------------------------------------------
+                diffuse_lit_color = cmds.listConnections(
+                    shader + ".diffuseLitColor",
+                    source=True,
+                    destination=False
+                ) or []
+
+                print(
+                    "Object:", obj,
+                    "| Shape:", shape,
+                    "| Shader:", shader,
+                    "| diffuseLitColor:", diffuse_lit_color
+                )
+
+                results.append({
+                    "transform": obj,
+                    "shape": shape,
+                    "shading_engine": sg,
+                    "shader": shader,
+                    "diffuseLitColor": diffuse_lit_color
+                })
+
+    return results
