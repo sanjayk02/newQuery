@@ -1,0 +1,422 @@
+# -*- coding: utf-8 -*-
+
+# Dominant Color Sampler for Maya (Python 2.7)
+# Gets dominant color from shaders/textures for selected objects
+
+import os
+import re
+import maya.cmds as cmds
+
+
+class DominantColorSampler(object):
+    
+    def __init__(self):
+        pass
+    
+    # -------------------------------------------------------
+    # Utility Methods
+    # -------------------------------------------------------
+    
+    def get_selected_shapes(self):
+        """Get mesh shapes from selected objects."""
+        selection = cmds.ls(sl=True, long=True) or []
+        if not selection:
+            return []
+        
+        shapes = []
+        for obj in selection:
+            # If it's already a shape
+            if cmds.objectType(obj) == "mesh":
+                shapes.append(obj)
+            else:
+                # Get shapes from transform
+                shape_list = cmds.listRelatives(
+                    obj, 
+                    shapes=True, 
+                    fullPath=True, 
+                    type="mesh"
+                ) or []
+                shapes.extend(shape_list)
+        
+        return shapes
+    
+    # -------------------------------------------------------
+    # Shader/Texture Methods
+    # -------------------------------------------------------
+    
+    def get_shader_from_shape(self, shape):
+        """Get the material assigned to a shape."""
+        shading_groups = cmds.listConnections(shape, type='shadingEngine') or []
+        if not shading_groups:
+            return None
+        
+        # Get materials from shading group
+        materials = cmds.ls(
+            cmds.listConnections(shading_groups[0]), 
+            materials=True
+        ) or []
+        
+        return materials[0] if materials else None
+    
+    def get_texture_from_shader(self, shader):
+        """Get file texture node from shader."""
+        # Check common color attributes for file connections
+        color_attrs = ["color", "diffuseColor", "diffuseLitColor", 
+                      "albedoColor", "baseColor", "outColor"]
+        
+        for attr in color_attrs:
+            if cmds.attributeQuery(attr, node=shader, exists=True):
+                connections = cmds.listConnections(
+                    f"{shader}.{attr}", 
+                    type='file', 
+                    source=True, 
+                    destination=False
+                )
+                if connections:
+                    return connections[0]
+        
+        return None
+    
+    def get_texture_path(self, file_node):
+        """Get file path from file texture node."""
+        if not cmds.objExists(f"{file_node}.fileTextureName"):
+            return None
+        
+        try:
+            return cmds.getAttr(f"{file_node}.fileTextureName")
+        except:
+            return None
+    
+    def get_color_from_shader(self, shader):
+        """Get solid color from shader if no texture."""
+        color_attrs = ["color", "diffuseColor", "diffuseLitColor", 
+                      "albedoColor", "baseColor", "outColor"]
+        
+        for attr in color_attrs:
+            if cmds.attributeQuery(attr, node=shader, exists=True):
+                try:
+                    color = cmds.getAttr(f"{shader}.{attr}")
+                    if color:
+                        # Convert 0-1 to 0-255
+                        if isinstance(color[0], (list, tuple)):
+                            rgb = color[0]
+                        else:
+                            rgb = color[:3]
+                        
+                        return [int(c * 255) for c in rgb]
+                except:
+                    continue
+        
+        return None
+    
+    # -------------------------------------------------------
+    # UDIM Methods
+    # -------------------------------------------------------
+    
+    def resolve_udim_texture(self, texture_path):
+        """
+        Resolve UDIM texture to first available tile.
+        Returns: (resolved_path, udim_number)
+        """
+        if not texture_path or not os.path.exists(os.path.dirname(texture_path)):
+            return texture_path, None
+        
+        folder, filename = os.path.split(texture_path)
+        
+        # Handle <f> format
+        if "<f>" in filename:
+            base_regex = re.escape(filename).replace("\\<f\\>", r"(\d{4})")
+            
+            for fname in os.listdir(folder):
+                match = re.match(base_regex, fname)
+                if match:
+                    udim_number = match.group(1)
+                    resolved_path = os.path.join(folder, fname).replace("\\", "/")
+                    return resolved_path, int(udim_number)
+        
+        # Handle <UDIM> format
+        elif "<UDIM>" in filename:
+            base_regex = re.escape(filename).replace("\\<UDIM\\>", r"(\d{4})")
+            
+            for fname in os.listdir(folder):
+                match = re.match(base_regex, fname)
+                if match:
+                    udim_number = match.group(1)
+                    resolved_path = os.path.join(folder, fname).replace("\\", "/")
+                    return resolved_path, int(udim_number)
+        
+        # Already a concrete path
+        return texture_path, None
+    
+    # -------------------------------------------------------
+    # Dominant Color Methods
+    # -------------------------------------------------------
+    
+    def get_dominant_color_simple(self, image_path):
+        """
+        Simple dominant color using Maya's colorAtPoint.
+        Returns: [R, G, B] in 0-255 range
+        """
+        if not os.path.exists(image_path):
+            return [128, 128, 128]  # Gray fallback
+        
+        try:
+            # Create temp file node
+            temp_file = cmds.createNode("file", name="temp_color_sampler")
+            cmds.setAttr(f"{temp_file}.fileTextureName", image_path, type="string")
+            
+            # Sample a few points
+            samples = []
+            for u in [0.3, 0.5, 0.7]:
+                for v in [0.3, 0.5, 0.7]:
+                    try:
+                        # Use colorAtPoint via MEL
+                        color = cmds.colorAtPoint(
+                            f"{temp_file}.outColor", 
+                            u=u, v=v, 
+                            o="RGB", 
+                            x=1, y=1
+                        )
+                        if color:
+                            samples.append([
+                                int(color[0][0] * 255),
+                                int(color[0][1] * 255),
+                                int(color[0][2] * 255)
+                            ])
+                    except:
+                        pass
+            
+            # Clean up
+            cmds.delete(temp_file)
+            
+            if samples:
+                # Average all samples
+                avg_r = sum(c[0] for c in samples) // len(samples)
+                avg_g = sum(c[1] for c in samples) // len(samples)
+                avg_b = sum(c[2] for c in samples) // len(samples)
+                return [avg_r, avg_g, avg_b]
+            
+        except Exception as e:
+            print(f"Color sampling error: {e}")
+        
+        # Fallback to filename-based color
+        filename = os.path.basename(image_path).lower()
+        color_map = {
+            'red': [255, 0, 0],
+            'green': [0, 255, 0],
+            'blue': [0, 0, 255],
+            'white': [255, 255, 255],
+            'black': [0, 0, 0],
+            'gray': [128, 128, 128],
+        }
+        
+        for color_name, color_value in color_map.items():
+            if color_name in filename:
+                return color_value
+        
+        return [128, 128, 128]  # Default gray
+    
+    # -------------------------------------------------------
+    # Main Method - Get Dominant Color for Selected
+    # -------------------------------------------------------
+    
+    def get_dominant_color_for_selected(self):
+        """
+        Main method: Get dominant color for all selected objects.
+        Returns list of dictionaries with object info and dominant color.
+        """
+        shapes = self.get_selected_shapes()
+        if not shapes:
+            cmds.warning("No mesh shapes selected.")
+            return []
+        
+        results = []
+        
+        for shape in shapes:
+            # Get parent transform
+            transform = cmds.listRelatives(shape, parent=True, fullPath=True)
+            transform = transform[0] if transform else shape
+            
+            # Get shader
+            shader = self.get_shader_from_shape(shape)
+            if not shader:
+                print(f"No shader found for: {shape}")
+                continue
+            
+            # Get texture or color
+            file_node = self.get_texture_from_shader(shader)
+            dominant_color = None
+            texture_info = None
+            
+            if file_node:
+                # Has texture
+                texture_path = self.get_texture_path(file_node)
+                if texture_path:
+                    # Resolve UDIM if needed
+                    resolved_path, udim = self.resolve_udim_texture(texture_path)
+                    
+                    if os.path.exists(resolved_path):
+                        dominant_color = self.get_dominant_color_simple(resolved_path)
+                        texture_info = {
+                            "path": texture_path,
+                            "resolved_path": resolved_path,
+                            "udim": udim,
+                            "file_node": file_node
+                        }
+                    else:
+                        print(f"Texture not found: {resolved_path}")
+            
+            if not dominant_color:
+                # Try to get solid color from shader
+                dominant_color = self.get_color_from_shader(shader)
+                if not dominant_color:
+                    dominant_color = [128, 128, 128]  # Default gray
+            
+            # Get UV sets
+            uv_sets = cmds.polyUVSet(shape, query=True, allUVSets=True) or []
+            
+            # Create result
+            result = {
+                "object": transform,
+                "shape": shape,
+                "shader": shader,
+                "dominant_color": dominant_color,
+                "color_hex": "#{:02x}{:02x}{:02x}".format(
+                    dominant_color[0], 
+                    dominant_color[1], 
+                    dominant_color[2]
+                ),
+                "uv_sets": uv_sets,
+                "has_texture": file_node is not None,
+                "texture_info": texture_info
+            }
+            
+            results.append(result)
+            
+            # Print result
+            print(f"Object: {transform.split('|')[-1]}")
+            print(f"  Shader: {shader}")
+            if texture_info:
+                print(f"  Texture: {os.path.basename(texture_info['path'])}")
+                if texture_info['udim']:
+                    print(f"  UDIM: {texture_info['udim']}")
+            print(f"  Dominant Color: RGB{dominant_color}")
+            print(f"  Color Hex: {result['color_hex']}")
+            print(f"  UV Sets: {len(uv_sets)}")
+            print("-" * 40)
+        
+        return results
+    
+    def print_color_summary(self, results):
+        """Print a color summary table."""
+        if not results:
+            return
+        
+        print("\n" + "=" * 60)
+        print("DOMINANT COLOR SUMMARY")
+        print("=" * 60)
+        
+        for i, result in enumerate(results, 1):
+            obj_name = result['object'].split('|')[-1]
+            shader_name = result['shader'].split('|')[-1]
+            color = result['dominant_color']
+            
+            print(f"{i:2}. {obj_name:30} {shader_name:25} "
+                  f"RGB({color[0]:3}, {color[1]:3}, {color[2]:3})  "
+                  f"{result['color_hex']}")
+        
+        print("=" * 60)
+    
+    def set_viewport_background(self, color):
+        """Set viewport background to the dominant color."""
+        try:
+            # Convert 0-255 to 0-1
+            normalized = [c/255.0 for c in color]
+            cmds.displayRGBColor("background", *normalized)
+            print(f"Viewport background set to RGB{color}")
+        except:
+            print("Could not set viewport background")
+
+
+# -------------------------------------------------------
+# Convenience Functions
+# -------------------------------------------------------
+
+def get_dominant_colors():
+    """Quick function to get dominant colors for selected objects."""
+    sampler = DominantColorSampler()
+    results = sampler.get_dominant_color_for_selected()
+    if results:
+        sampler.print_color_summary(results)
+    return results
+
+def sample_and_set_background():
+    """Sample dominant color and set as viewport background."""
+    sampler = DominantColorSampler()
+    results = sampler.get_dominant_color_for_selected()
+    
+    if results:
+        sampler.print_color_summary(results)
+        
+        # Use first object's color
+        if len(results) > 0:
+            sampler.set_viewport_background(results[0]['dominant_color'])
+    
+    return results
+
+
+# -------------------------------------------------------
+# UI (Simple Version)
+# -------------------------------------------------------
+
+def show_simple_ui():
+    """Show a simple UI using Maya's native UI."""
+    window_name = "dominantColorUI"
+    
+    if cmds.window(window_name, exists=True):
+        cmds.deleteUI(window_name)
+    
+    window = cmds.window(
+        window_name,
+        title="Dominant Color Sampler",
+        widthHeight=(300, 150),
+        sizeable=False
+    )
+    
+    cmds.columnLayout(adjustableColumn=True, rowSpacing=5)
+    
+    cmds.text(label="Dominant Color Sampler", font="boldLabelFont")
+    cmds.separator(height=10, style='single')
+    
+    cmds.text(label="Select objects and click:", align='left')
+    cmds.separator(height=5, style='none')
+    
+    cmds.button(
+        label="Get Dominant Colors",
+        command=lambda x: get_dominant_colors(),
+        height=40
+    )
+    
+    cmds.button(
+        label="Sample & Set Background",
+        command=lambda x: sample_and_set_background(),
+        height=40
+    )
+    
+    cmds.separator(height=10, style='none')
+    cmds.button(label="Close", command=f'cmds.deleteUI("{window_name}")')
+    
+    cmds.showWindow(window)
+
+
+# -------------------------------------------------------
+# Main
+# -------------------------------------------------------
+
+if __name__ == "__main__":
+    # Quick usage:
+    # sampler = DominantColorSampler()
+    # colors = sampler.get_dominant_color_for_selected()
+    
+    # Show UI
+    show_simple_ui()
