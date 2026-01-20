@@ -1,0 +1,277 @@
+# -*- coding: utf-8 -*-
+# UDIM Sampler for Maya (Python 2.7 Compatible)
+# Module: select_object_shaderAssigner
+
+import os
+import re
+import maya.cmds as cmds
+
+
+class ShaderAssignerSelectedObjects(object):
+
+    def __init__(self):
+        pass
+
+    # -------------------------------------------------------
+    # Utility
+    # -------------------------------------------------------
+
+    def _get_shape(self, transform):
+        shapes = cmds.listRelatives(
+            transform,
+            shapes=True,
+            noIntermediate=True,
+            fullPath=True
+        ) or []
+        return shapes[0] if shapes else None
+
+    def _get_uv_sets(self, shape):
+        if not shape or not cmds.objExists(shape):
+            return []
+        return cmds.polyUVSet(shape, q=True, allUVSets=True) or []
+
+    # -------------------------------------------------------
+    # Shader / Texture Queries
+    # -------------------------------------------------------
+
+    def _get_shader_from_shape(self, shape):
+        sgs = cmds.listConnections(shape, type="shadingEngine") or []
+        for sg in sgs:
+            if sg != "initialShadingGroup":
+                return sg
+        return None
+
+    def _get_material_from_sg(self, sg):
+        mats = cmds.listConnections(sg + ".surfaceShader") or []
+        return mats[0] if mats else None
+
+    def _get_file_node(self, material):
+        history = cmds.listHistory(material, pruneDagObjects=True) or []
+        for node in history:
+            if cmds.nodeType(node) == "file":
+                return node
+        return None
+
+    # -------------------------------------------------------
+    # UDIM Helpers
+    # -------------------------------------------------------
+
+    def _detect_udim(self, texture_path):
+        """
+        Returns:
+            (udim_mode, tiles)
+
+        udim_mode:
+            None
+            '<UDIM>'
+            '<u><v>'
+            '1001'
+
+        tiles:
+            list of detected tile numbers (strings) or None
+        """
+
+        if not texture_path:
+            return None, []
+
+        # Token-based UDIMs
+        if "<UDIM>" in texture_path:
+            return "<UDIM>", None
+
+        if "<u>" in texture_path.lower() and "<v>" in texture_path.lower():
+            return "<u><v>", None
+
+        # Numeric UDIMs (1001+)
+        dirname = os.path.dirname(texture_path)
+        basename = os.path.basename(texture_path)
+
+        match = re.search(r"(.*?)[._-](1\d{3})(\D.*|$)", basename)
+        if not match:
+            return None, []
+
+        prefix, tile, suffix = match.groups()
+        tile_pattern = re.compile(
+            re.escape(prefix) + r"[._-](1\d{3})" + re.escape(suffix)
+        )
+
+        tiles = []
+        if os.path.isdir(dirname):
+            for f in os.listdir(dirname):
+                m = tile_pattern.match(f)
+                if m:
+                    tiles.append(m.group(1))
+
+        tiles.sort()
+        return "1001", tiles
+
+    # -------------------------------------------------------
+    # Color Sampling (Safe Stub)
+    # -------------------------------------------------------
+
+    def get_dominant_color(self, texture_path):
+        """
+        Placeholder dominant color sampler.
+        Replace with OpenImageIO / PIL if needed.
+        """
+        return (1.0, 1.0, 1.0)
+
+    # -------------------------------------------------------
+    # Public API
+    # -------------------------------------------------------
+
+    def get_diffuse_lit_color_for_object(self, selection=None):
+
+        if not selection:
+            selection = cmds.ls(sl=True, long=True)
+
+        if not selection:
+            cmds.warning("Nothing selected.")
+            return
+
+        for obj in selection:
+            shape = self._get_shape(obj)
+            if not shape:
+                continue
+
+            sg = self._get_shader_from_shape(shape)
+            if not sg:
+                continue
+
+            material = self._get_material_from_sg(sg)
+            if not material:
+                continue
+
+            # Diffuse color
+            color = (1.0, 1.0, 1.0)
+            if cmds.attributeQuery("color", node=material, exists=True):
+                color = cmds.getAttr(material + ".color")[0]
+
+            # Texture
+            texture_path = None
+            file_node = self._get_file_node(material)
+            if file_node and cmds.attributeQuery("fileTextureName", node=file_node, exists=True):
+                texture_path = cmds.getAttr(file_node + ".fileTextureName")
+
+            # UV sets
+            uv_sets = self._get_uv_sets(shape)
+            uv_set = uv_sets[0] if uv_sets else "None"
+
+            # UDIM detection
+            udim_mode, udim_tiles = self._detect_udim(texture_path)
+
+            # Output
+            print("Object:", obj)
+            print("  Texture:", texture_path)
+            print("  Color:", color)
+            print("  UV Set:", uv_set)
+            print("  UDIM Mode:", udim_mode)
+            print("  UDIM Tiles:", udim_tiles)
+            print("-" * 60)
+
+    def get_diffuse_lit_color_and_sample_uvs(self, selection=None):
+        """
+        - Detects diffuse texture
+        - Resolves <f> UDIM
+        - Samples UVs
+        Python 2.7 compatible
+        """
+
+        if not selection:
+            selection = cmds.ls(sl=True, long=True)
+
+        if not selection:
+            cmds.warning("Nothing selected.")
+            return []
+
+        all_results = []
+        MAX_UVS = 200  # performance safety cap
+
+        for obj in selection:
+            shape = self._get_shape(obj)
+            if not shape:
+                continue
+
+            sg = self._get_shader_from_shape(shape)
+            if not sg:
+                continue
+
+            material = self._get_material_from_sg(sg)
+            if not material:
+                continue
+
+            # Diffuse texture
+            texture_path = None
+            file_node = self._get_file_node(material)
+            if file_node and cmds.attributeQuery("fileTextureName", node=file_node, exists=True):
+                texture_path = cmds.getAttr(file_node + ".fileTextureName")
+
+            if not texture_path:
+                continue
+
+            # UV set
+            uv_sets = self._get_uv_sets(shape)
+            uv_set = uv_sets[0] if uv_sets else None
+
+            # Resolve <f> UDIM
+            udim_tile = None
+            resolved_texture = texture_path
+
+            if "<f>" in texture_path:
+                folder, base = os.path.split(texture_path)
+                base_regex = re.escape(base).replace("\\<f\\>", r"(1\d{3})")
+
+                matches = []
+                if os.path.isdir(folder):
+                    for fname in os.listdir(folder):
+                        m = re.search(base_regex, fname)
+                        if m:
+                            matches.append((int(m.group(1)), fname))
+
+                if not matches:
+                    cmds.warning("No <f> UDIM tiles found: {0}".format(texture_path))
+                    continue
+
+                matches.sort()
+                udim_tile, fname = matches[0]
+                resolved_texture = os.path.join(folder, fname).replace("\\", "/")
+
+            # Dominant color
+            dominant_color = self.get_dominant_color(resolved_texture)
+
+            # Activate UV set
+            if uv_set:
+                try:
+                    cmds.polyUVSet(shape, currentUVSet=True, uvSet=uv_set)
+                except Exception as e:
+                    cmds.warning(str(e))
+
+            # Sample UVs
+            uv_components = cmds.polyListComponentConversion(shape, toUV=True)
+            uv_components = cmds.ls(uv_components, flatten=True) or []
+            uv_components = uv_components[:MAX_UVS]
+
+            for uv in uv_components:
+                coords = cmds.polyEditUV(uv, query=True)
+                if not coords:
+                    continue
+
+                all_results.append({
+                    "object": obj,
+                    "shape": shape,
+                    "material": material,
+                    "texture": resolved_texture,
+                    "udim": udim_tile,
+                    "uv_set": uv_set,
+                    "uv": coords,
+                    "color": dominant_color,
+                })
+
+            # Debug output
+            print("Object:", obj)
+            print("  Texture:", resolved_texture)
+            print("  UDIM:", udim_tile)
+            print("  UV Set:", uv_set)
+            print("  Dominant Color:", dominant_color)
+            print("-" * 60)
+
+        return all_results
