@@ -1,0 +1,42 @@
+const { currentProject } = useCurrentProject();
+
+// 🔥 ADD THIS BLOCK RIGHT HERE
+useEffect(() => {
+  if (!currentProject?.key_name) return;
+
+  // pagination
+  setPageProps({ page: 0, rowsPerPage: 15 });
+
+  // filters
+  setFilterProps({
+    assetNameKey: '',
+    approvalStatuses: [],
+    workStatuses: [],
+    selectPhasePriority: '',
+    selectApprovalStatus: '',
+    selectWorkStatus: '',
+    onPhasePriorityChange: undefined,
+    onApprovalStatusChange: undefined,
+    onWorkStatusChange: undefined,
+  });
+
+  // grouped view state
+  setSelectedTopGroups([]);
+
+  // sorting
+  setSortKey('group_1');
+  setSortDir('asc');
+  setUiSortKey('group_1');
+  setUiSortDir('asc');
+  setGroupSortDir('asc');
+
+  // search box
+  setBarSearch('');
+}, [currentProject?.key_name]);
+// 🔥 END BLOCK
+
+const { assets: rawAssets, total: rawTotal } = useFetchAssets(
+  currentProject,
+  pageProps.page,
+  pageProps.rowsPerPage,
+);
