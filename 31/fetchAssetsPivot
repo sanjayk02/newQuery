@@ -1,0 +1,64 @@
+export const fetchAssetsPivot = async (
+  // ... parameters
+): Promise<AssetsPivotResponse> => {
+  const headers = getAuthHeader();
+  let url = `/api/projects/${encodeURIComponent(project)}/reviews/assets/pivot`;
+
+  const params = new URLSearchParams();
+  params.set('per_page', String(rowsPerPage));
+  params.set('page', String(page + 1));
+  if (sortKey) params.set('sort', sortKey);
+  if (sortDir) params.set('dir', sortDir.toUpperCase());
+  if (phase) params.set('phase', phase);
+  if (view) params.set('view', view);
+
+  // ✅ Server expects these keys:
+  // name (with name_mode=prefix), work (CSV), appr (CSV)
+  const trimmed = (typeof assetNameKey === 'string' ? assetNameKey : '').trim();
+  if (trimmed) {
+    params.set('name', trimmed);
+    params.set('name_mode', 'prefix');
+  }
+  if (Array.isArray(workStatuses) && workStatuses.length > 0) {
+    params.set('work', workStatuses.join(','));
+  }
+  if (Array.isArray(approvalStatuses) && approvalStatuses.length > 0) {
+    params.set('appr', approvalStatuses.join(','));
+  }
+
+  url += `?${params.toString()}`;
+
+  console.log('Fetching Assets Pivot with URL:', url);
+
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers,
+      mode: 'cors',
+      signal: signal || undefined,
+    });
+
+    console.log('Response status:', res.status);
+    
+    if (res.status === 401) throw new AuthorizationError();
+    if (!res.ok) {
+      // Get error details from response
+      const errorText = await res.text();
+      console.error('Server error response:', errorText);
+      throw new Error(`Failed to fetch pivoted assets: ${res.status} - ${errorText}`);
+    }
+
+    setNewToken(res);
+    const json = await res.json();
+    console.log('Pivot Response Json:', json);
+    
+    if (json && typeof json === 'object' && Array.isArray((json as any).groups)) {
+      console.log('Number of groups received:', (json as any).groups.length);
+    }
+    
+    return json as AssetsPivotResponse;
+  } catch (error) {
+    console.error('Error in fetchAssetsPivot:', error);
+    throw error;
+  }
+};
