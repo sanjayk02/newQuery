@@ -1,0 +1,27 @@
+// api.ts
+
+export async function fetchLatestAssetOperationInfos(
+  projectKey: string,
+  assetName: string,
+  signal?: AbortSignal
+) {
+  // HARD GUARD
+  if (!projectKey || !assetName) {
+    return null;
+  }
+
+  const url =
+    `/api/projects/${projectKey}/latestAssetsOperationInfos` +
+    `?asset=${encodeURIComponent(assetName)}` +
+    `&relation=com`;
+
+  const res = await fetch(url, { signal });
+
+  if (!res.ok) {
+    // do NOT throw, or it will spam console
+    console.warn("latestAssetsOperationInfos failed:", res.status, assetName);
+    return null;
+  }
+
+  return await res.json();
+}
