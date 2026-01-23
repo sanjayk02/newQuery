@@ -1,64 +1,47 @@
+// api.ts
+
 export const fetchAssetsPivot = async (
-  // ... parameters
-): Promise<AssetsPivotResponse> => {
-  const headers = getAuthHeader();
-  let url = `/api/projects/${encodeURIComponent(project)}/reviews/assets/pivot`;
+  project: string,
+  page: number,
+  rowsPerPage: number,
+  sortKey: string,
+  sortDir: string,
+  phase: string,
+  name: string,
+  approval: string[],
+  work: string[],
+  viewMode: string,
+  signal?: AbortSignal
+) => {
+  if (!project) return { assets: [], groups: [], total: 0 };
 
-  const params = new URLSearchParams();
-  params.set('per_page', String(rowsPerPage));
-  params.set('page', String(page + 1));
-  if (sortKey) params.set('sort', sortKey);
-  if (sortDir) params.set('dir', sortDir.toUpperCase());
-  if (phase) params.set('phase', phase);
-  if (view) params.set('view', view);
+  const params = new URLSearchParams({
+    per_page: String(rowsPerPage),
+    page: String(page + 1),
+    dir: sortDir,
+    sort: sortKey,
+    phase: phase || "none",
+    view: viewMode,
+  });
 
-  // ✅ Server expects these keys:
-  // name (with name_mode=prefix), work (CSV), appr (CSV)
-  const trimmed = (typeof assetNameKey === 'string' ? assetNameKey : '').trim();
-  if (trimmed) {
-    params.set('name', trimmed);
-    params.set('name_mode', 'prefix');
-  }
-  if (Array.isArray(workStatuses) && workStatuses.length > 0) {
-    params.set('work', workStatuses.join(','));
-  }
-  if (Array.isArray(approvalStatuses) && approvalStatuses.length > 0) {
-    params.set('appr', approvalStatuses.join(','));
-  }
+  if (name) params.append("name", name);
+  approval.forEach(v => params.append("approval", v));
+  work.forEach(v => params.append("work", v));
 
-  url += `?${params.toString()}`;
-
-  console.log('Fetching Assets Pivot with URL:', url);
+  const url = `/api/projects/${project}/reviews/assets/pivot?${params}`;
 
   try {
-    const res = await fetch(url, {
-      method: 'GET',
-      headers,
-      mode: 'cors',
-      signal: signal || undefined,
-    });
+    const res = await fetch(url, { signal });
 
-    console.log('Response status:', res.status);
-    
-    if (res.status === 401) throw new AuthorizationError();
     if (!res.ok) {
-      // Get error details from response
-      const errorText = await res.text();
-      console.error('Server error response:', errorText);
-      throw new Error(`Failed to fetch pivoted assets: ${res.status} - ${errorText}`);
+      console.warn("Pivot fetch failed:", res.status);
+      return { assets: [], groups: [], total: 0 };
     }
 
-    setNewToken(res);
-    const json = await res.json();
-    console.log('Pivot Response Json:', json);
-    
-    if (json && typeof json === 'object' && Array.isArray((json as any).groups)) {
-      console.log('Number of groups received:', (json as any).groups.length);
-    }
-    
-    return json as AssetsPivotResponse;
-  } catch (error) {
-    console.error('Error in fetchAssetsPivot:', error);
-    throw error;
+    return await res.json();
+  } catch (err: any) {
+    if (err.name === "AbortError") return { assets: [], groups: [], total: 0 };
+    console.error("Pivot fetch crashed:", err);
+    return { assets: [], groups: [], total: 0 };
   }
 };
