@@ -1,0 +1,67 @@
+// hooks.ts
+
+import { useEffect, useRef, useState } from "react";
+import { fetchLatestAssetOperationInfos } from "./api";
+
+type LatestComponentMap = Record<string, any>;
+
+export function useFetchLatestAssetComponents(
+  currentProject: any,
+  rawAssets: any[] | undefined,
+  phaseComponents: any[] | undefined
+) {
+  const [latestComponents, setLatestComponents] =
+    useState<LatestComponentMap>({});
+
+  // cache so we don't refetch same asset
+  const fetchedRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!currentProject || !rawAssets || rawAssets.length === 0) return;
+
+    const controller = new AbortController();
+
+    const fetchAll = async () => {
+      for (const asset of rawAssets) {
+        // ---------------------------
+        // HARD GUARDS (THE FIX)
+        // ---------------------------
+        const assetName =
+          asset?.group_1 ||
+          asset?.group_1_name ||
+          asset?.name;
+
+        if (!assetName) continue;
+        if (fetchedRef.current.has(assetName)) continue;
+
+        fetchedRef.current.add(assetName);
+
+        try {
+          const res = await fetchLatestAssetOperationInfos(
+            currentProject.key_name,
+            assetName,
+            controller.signal
+          );
+
+          if (!res) continue;
+
+          setLatestComponents(prev => ({
+            ...prev,
+            [assetName]: res,
+          }));
+        } catch (err: any) {
+          if (err.name === "AbortError") return;
+          console.warn("Latest component fetch failed for:", assetName);
+        }
+      }
+    };
+
+    fetchAll();
+
+    return () => {
+      controller.abort();
+    };
+  }, [currentProject, rawAssets]);
+
+  return { latestComponents };
+}
