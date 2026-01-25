@@ -1,0 +1,24 @@
+func (r *ReviewInfo) CountLatestSubmissions(
+	ctx context.Context,
+	project string,
+	root string,
+	preferredPhase string,
+	assetNameKey string,
+	approvalStatuses []string,
+	workStatuses []string,
+) (int64, error) {
+
+	var total int64
+
+	err := r.db.WithContext(ctx).
+		Table("t_review_info").
+		Where("project = ? AND root = ? AND deleted = 0", project, root).
+		Distinct("project, root, group_1, relation").
+		Count(&total).Error
+
+	if err != nil {
+		return 0, fmt.Errorf("CountLatestSubmissions: %w", err)
+	}
+
+	return total, nil
+}
