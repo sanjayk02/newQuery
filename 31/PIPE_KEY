@@ -1,0 +1,22 @@
+// AssetsDataTablePanel.tsx - Key Configuration and UI Logic fixes
+// ... (imports remain the same)
+
+// ✅ FIX: Verify this matches your backend Go Gin route exactly (case-sensitive)
+const PIPE_KEY = '/ppiTracker/assets/hideColumns'; 
+
+const AssetsDataTablePanel: React.FC<RouteComponentProps> = () => {
+  // ... (state declarations)
+
+  // ✅ FIX: Ensure clearing filters also resets the search bar string
+  const handleFilterResetClick: ButtonProps['onClick'] = () => { 
+    setFilterProps(initFilterProps); 
+    setBarSearch(''); // Clear the UI search bar [cite: 222]
+    setPageProps(initPageProps); // Reset to page 0 [cite: 68]
+  };
+
+  // ... (rest of the component logic)
+
+  return (
+    // ... JSX structure [cite: 209]
+  );
+};
