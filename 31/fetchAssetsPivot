@@ -1,5 +1,4 @@
-// api.ts
-
+// api.ts - Enhanced fetchAssetsPivot
 export const fetchAssetsPivot = async (
   project: string,
   page: number,
@@ -7,41 +6,58 @@ export const fetchAssetsPivot = async (
   sortKey: string,
   sortDir: string,
   phase: string,
-  name: string,
-  approval: string[],
-  work: string[],
-  viewMode: string,
-  signal?: AbortSignal
-) => {
-  if (!project) return { assets: [], groups: [], total: 0 };
+  assetNameKey: string,
+  approvalStatuses: string[],
+  workStatuses: string[],
+  view: 'list' | 'grouped',
+  signal?: AbortSignal | null,
+): Promise<AssetsPivotResponse> => {
+  const headers = getAuthHeader();
+  const encodedProject = encodeURIComponent(project);
+  let url = `/api/projects/${encodedProject}/reviews/assets/pivot`;
 
-  const params = new URLSearchParams({
-    per_page: String(rowsPerPage),
-    page: String(page + 1),
-    dir: sortDir,
-    sort: sortKey,
-    phase: phase || "none",
-    view: viewMode,
-  });
+  const params = new URLSearchParams();
+  params.set('per_page', String(rowsPerPage));
+  params.set('page', String(page + 1));
+  if (sortKey) params.set('sort', sortKey);
+  if (sortDir) params.set('dir', sortDir.toUpperCase());
+  if (phase && phase !== 'none') params.set('phase', phase);
+  if (view) params.set('view', view);
 
-  if (name) params.append("name", name);
-  approval.forEach(v => params.append("approval", v));
-  work.forEach(v => params.append("work", v));
+  const trimmed = (assetNameKey || '').trim();
+  if (trimmed) {
+    params.set('name', trimmed);
+    params.set('name_mode', 'prefix');
+  }
 
-  const url = `/api/projects/${project}/reviews/assets/pivot?${params}`;
+  // ✅ FIX: Ensure CSV formats for array filters
+  if (workStatuses?.length) params.set('work', workStatuses.join(','));
+  if (approvalStatuses?.length) params.set('appr', approvalStatuses.join(','));
+
+  url += `?${params.toString()}`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout for pivot
 
   try {
-    const res = await fetch(url, { signal });
+    const res = await fetch(url, {
+      method: 'GET',
+      headers,
+      mode: 'cors',
+      signal: signal || controller.signal,
+    });
+    clearTimeout(timeoutId);
 
     if (!res.ok) {
-      console.warn("Pivot fetch failed:", res.status);
-      return { assets: [], groups: [], total: 0 };
+      const errorText = await res.text();
+      // This will now show the actual Go backend error in your console
+      throw new Error(`Pivot API Error [${res.status}]: ${errorText}`);
     }
 
+    setNewToken(res);
     return await res.json();
-  } catch (err: any) {
-    if (err.name === "AbortError") return { assets: [], groups: [], total: 0 };
-    console.error("Pivot fetch crashed:", err);
-    return { assets: [], groups: [], total: 0 };
+  } catch (error) {
+    clearTimeout(timeoutId);
+    throw error;
   }
 };
