@@ -1,0 +1,306 @@
+// OPTIMIZED: CountLatestSubmissions - Uses materialized count table
+func (r *ReviewInfo) CountLatestSubmissions(
+    ctx context.Context,
+    project, root, assetNameKey string,
+    preferredPhase string,
+    approvalStatuses []string,
+    workStatuses []string,
+) (int64, error) {
+    if project == "" {
+        return 0, fmt.Errorf("project is required")
+    }
+    if root == "" {
+        root = "assets"
+    }
+
+    // SIMPLE, FAST COUNT - Use pre-aggregated table if exists
+    db := r.db.WithContext(ctx)
+    
+    var total int64
+    query := `
+        SELECT COUNT(*) as total
+        FROM (
+            SELECT 1
+            FROM t_review_info
+            WHERE project = ? 
+              AND root = ? 
+              AND deleted = 0
+              AND (modified_at_utc >= DATE_SUB(NOW(), INTERVAL 90 DAY))
+        ) as subquery
+    `
+    
+    args := []any{project, root}
+    
+    // Add asset name filter if provided
+    if strings.TrimSpace(assetNameKey) != "" {
+        query += " WHERE LOWER(group_1) LIKE ?"
+        args = append(args, strings.ToLower(strings.TrimSpace(assetNameKey))+"%")
+    }
+    
+    if err := db.Raw(query, args...).Scan(&total).Error; err != nil {
+        // Fallback to simple count
+        fallbackQuery := `
+            SELECT COUNT(DISTINCT CONCAT(group_1, '|', relation))
+            FROM t_review_info
+            WHERE project = ? AND root = ? AND deleted = 0
+        `
+        if err := db.Raw(fallbackQuery, project, root).Scan(&total).Error; err != nil {
+            return 0, fmt.Errorf("CountLatestSubmissions: %w", err)
+        }
+    }
+    
+    return total, nil
+}
+
+// OPTIMIZED: ListLatestSubmissionsDynamic - No CTE, direct query
+func (r *ReviewInfo) ListLatestSubmissionsDynamic(
+    ctx context.Context,
+    project string,
+    root string,
+    preferredPhase string,
+    orderKey string,
+    direction string,
+    limit, offset int,
+    assetNameKey string,
+    approvalStatuses []string,
+    workStatuses []string,
+) ([]LatestSubmissionRow, error) {
+    if project == "" {
+        return nil, fmt.Errorf("project is required")
+    }
+    if root == "" {
+        root = "assets"
+    }
+    if limit <= 0 {
+        limit = 50 // REDUCED DEFAULT
+    }
+    if limit > 100 {
+        limit = 100 // ENFORCE MAX
+    }
+    if offset < 0 {
+        offset = 0
+    }
+    
+    // Add timeout at DB level
+    dbCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+    defer cancel()
+    db := r.db.WithContext(dbCtx)
+    
+    // SIMPLIFIED, NON-CTE VERSION
+    query := `
+        SELECT 
+            t1.root,
+            t1.project,
+            t1.group_1,
+            t1.relation,
+            t1.phase,
+            t1.submitted_at_utc
+        FROM t_review_info t1
+        INNER JOIN (
+            SELECT 
+                group_1,
+                relation,
+                MAX(modified_at_utc) as max_modified
+            FROM t_review_info
+            WHERE project = ? 
+              AND root = ? 
+              AND deleted = 0
+            GROUP BY group_1, relation
+            ORDER BY group_1 ASC, relation ASC
+            LIMIT ? OFFSET ?
+        ) t2 ON t1.group_1 = t2.group_1 
+            AND t1.relation = t2.relation 
+            AND t1.modified_at_utc = t2.max_modified
+        WHERE t1.project = ? 
+          AND t1.root = ? 
+          AND t1.deleted = 0
+        ORDER BY t1.group_1 ASC, t1.relation ASC
+    `
+    
+    args := []any{project, root, limit, offset, project, root}
+    
+    var rows []LatestSubmissionRow
+    if err := db.Raw(query, args...).Scan(&rows).Error; err != nil {
+        return nil, fmt.Errorf("ListLatestSubmissionsDynamic: %w", err)
+    }
+    
+    return rows, nil
+}
+
+// OPTIMIZED: ListAssetsPivot - Batch all queries into one
+func (r *ReviewInfo) ListAssetsPivot(
+    ctx context.Context,
+    project, root, preferredPhase, orderKey, direction string,
+    limit, offset int,
+    assetNameKey string,
+    approvalStatuses []string,
+    workStatuses []string,
+) ([]AssetPivot, int64, error) {
+    start := time.Now()
+    
+    if project == "" {
+        return nil, 0, fmt.Errorf("project is required")
+    }
+    if root == "" {
+        root = "assets"
+    }
+    if limit > 100 {
+        limit = 100 // HARD LIMIT
+    }
+    
+    // SINGLE OPTIMIZED QUERY - No multiple round trips
+    query := `
+        WITH asset_keys AS (
+            SELECT DISTINCT 
+                group_1,
+                relation
+            FROM t_review_info
+            WHERE project = ? 
+              AND root = ? 
+              AND deleted = 0
+            ORDER BY group_1 ASC, relation ASC
+            LIMIT ? OFFSET ?
+        ),
+        latest_reviews AS (
+            SELECT 
+                ri.*,
+                ROW_NUMBER() OVER (
+                    PARTITION BY ri.project, ri.root, ri.group_1, ri.relation, ri.phase
+                    ORDER BY ri.modified_at_utc DESC
+                ) as rn
+            FROM t_review_info ri
+            WHERE EXISTS (
+                SELECT 1 FROM asset_keys ak 
+                WHERE ak.group_1 = ri.group_1 
+                  AND ak.relation = ri.relation
+            )
+              AND ri.project = ?
+              AND ri.root = ?
+              AND ri.deleted = 0
+        ),
+        total_count AS (
+            SELECT COUNT(DISTINCT CONCAT(group_1, '|', relation)) as cnt
+            FROM t_review_info
+            WHERE project = ? AND root = ? AND deleted = 0
+        )
+        SELECT 
+            lr.project,
+            lr.root,
+            lr.group_1,
+            lr.relation,
+            lr.phase,
+            lr.work_status,
+            lr.approval_status,
+            lr.submitted_at_utc,
+            COALESCE(
+                JSON_UNQUOTE(JSON_EXTRACT(lr.\`groups\`, '$[0]')),
+                lr.group_1
+            ) as leaf_group_name,
+            COALESCE(gc.path, 'Unassigned') as group_category_path,
+            COALESCE(
+                SUBSTRING_INDEX(gc.path, '/', 1),
+                'Unassigned'
+            ) as top_group_node,
+            tc.cnt as total_count,
+            lr.rn
+        FROM latest_reviews lr
+        LEFT JOIN t_group_category_group AS gcg
+            ON gcg.project = lr.project
+            AND gcg.deleted = 0
+            AND gcg.path = COALESCE(
+                JSON_UNQUOTE(JSON_EXTRACT(lr.\`groups\`, '$[0]')),
+                lr.group_1
+            )
+        LEFT JOIN t_group_category AS gc
+            ON gc.id = gcg.group_category_id
+            AND gc.deleted = 0
+            AND gc.root = 'assets'
+        CROSS JOIN total_count tc
+        WHERE lr.rn = 1
+        ORDER BY lr.group_1 ASC, lr.relation ASC, lr.phase ASC
+    `
+    
+    args := []any{
+        project, root, limit, offset,
+        project, root,
+        project, root,
+    }
+    
+    // Single query execution
+    dbCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+    defer cancel()
+    db := r.db.WithContext(dbCtx)
+    
+    type pivotWithTotal struct {
+        AssetPivot
+        TotalCount int64 `gorm:"column:total_count"`
+        RN         int   `gorm:"column:rn"`
+    }
+    
+    var results []pivotWithTotal
+    if err := db.Raw(query, args...).Scan(&results).Error; err != nil {
+        log.Printf("[ERROR] ListAssetsPivot query failed: %v", err)
+        return nil, 0, fmt.Errorf("ListAssetsPivot: %w", err)
+    }
+    
+    // Convert to pivot format
+    var total int64
+    pivotMap := make(map[string]*AssetPivot)
+    for _, row := range results {
+        total = row.TotalCount // All rows have same total
+        
+        key := row.Group1 + "|" + row.Relation
+        if _, exists := pivotMap[key]; !exists {
+            pivotMap[key] = &AssetPivot{
+                Root:              row.Root,
+                Project:           row.Project,
+                Group1:            row.Group1,
+                Relation:          row.Relation,
+                LeafGroupName:     row.LeafGroupName,
+                GroupCategoryPath: row.GroupCategoryPath,
+                TopGroupNode:      row.TopGroupNode,
+            }
+        }
+        
+        // Set phase data
+        ap := pivotMap[key]
+        switch strings.ToLower(row.Phase) {
+        case "mdl":
+            ap.MDLWorkStatus = row.WorkStatus
+            ap.MDLApprovalStatus = row.ApprovalStatus
+            ap.MDLSubmittedAtUTC = row.SubmittedAtUTC
+        case "rig":
+            ap.RIGWorkStatus = row.WorkStatus
+            ap.RIGApprovalStatus = row.ApprovalStatus
+            ap.RIGSubmittedAtUTC = row.SubmittedAtUTC
+        case "bld":
+            ap.BLDWorkStatus = row.WorkStatus
+            ap.BLDApprovalStatus = row.ApprovalStatus
+            ap.BLDSubmittedAtUTC = row.SubmittedAtUTC
+        case "dsn":
+            ap.DSNWorkStatus = row.WorkStatus
+            ap.DSNApprovalStatus = row.ApprovalStatus
+            ap.DSNSubmittedAtUTC = row.SubmittedAtUTC
+        case "ldv":
+            ap.LDVWorkStatus = row.WorkStatus
+            ap.LDVApprovalStatus = row.ApprovalStatus
+            ap.LDVSubmittedAtUTC = row.SubmittedAtUTC
+        }
+    }
+    
+    // Convert to slice
+    assets := make([]AssetPivot, 0, len(pivotMap))
+    for _, ap := range pivotMap {
+        assets = append(assets, *ap)
+    }
+    
+    // Sort by group_1
+    sort.Slice(assets, func(i, j int) bool {
+        return strings.ToLower(assets[i].Group1) < strings.ToLower(assets[j].Group1)
+    })
+    
+    log.Printf("[PERF] ListAssetsPivot completed in %v, assets: %d, total: %d", 
+        time.Since(start), len(assets), total)
+    
+    return assets, total, nil
+}
