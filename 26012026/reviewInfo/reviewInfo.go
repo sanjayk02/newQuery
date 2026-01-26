@@ -86,7 +86,7 @@ func (r *ReviewInfo) TransactionWithContext(
 }
 
 /* =========================
-   EXISTING CRUD METHODS (KEEP THESE)
+   EXISTING CRUD METHODS
 ========================= */
 
 func (r *ReviewInfo) List(
@@ -271,55 +271,77 @@ func (r *ReviewInfo) Delete(
 	return tx.Save(m).Error
 }
 
+/* =========================
+   LIST ASSETS - FIXED VERSION
+========================= */
+
 func (r *ReviewInfo) ListAssets(
 	db *gorm.DB,
 	params *entity.AssetListParams,
 ) ([]*entity.Asset, int, error) {
-	stmt := db.Model(
-		&ReviewInfo{},
-	).Where(
-		"deleted = ?", 0,
-	).Where(
-		"project = ?", params.Project,
-	).Where(
-		"root = ?", "assets",
-	).Group(
-		"project",
-	).Group(
-		"root",
-	).Group(
-		"group_1",
-	).Group(
-		"relation",
-	)
-
-	var total int64
-	if err := stmt.Count(&total).Error; err != nil {
-		return nil, 0, err
+	// Create a new query builder
+	query := db.Model(&model.ReviewInfo{}).
+		Where("deleted = 0").
+		Where("project = ?", params.Project)
+	
+	// Always filter by assets root for this endpoint
+	query = query.Where("root = ?", "assets")
+	
+	// Apply studio filter if provided
+	if params.Studio != nil && *params.Studio != "" {
+		query = query.Where("studio = ?", *params.Studio)
 	}
-
-	stmt = stmt.Order(
-		"group_1",
-	).Order(
-		"relation",
-	)
-
-	var reviews []*model.ReviewInfo
+	
+	// Apply name filter if provided
+	if params.NameFilter != nil && *params.NameFilter != "" {
+		query = query.Where("LOWER(group_1) LIKE LOWER(?)", *params.NameFilter+"%")
+	}
+	
+	// First, get the total count of distinct assets
+	var total int64
+	countQuery := query.Session(&gorm.Session{}).
+		Select("COUNT(DISTINCT CONCAT(group_1, '|', COALESCE(relation, '')))")
+	
+	if err := countQuery.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count assets: %w", err)
+	}
+	
+	// Early return if no assets
+	if total == 0 {
+		return []*entity.Asset{}, 0, nil
+	}
+	
+	// Calculate pagination
 	perPage := params.GetPerPage()
 	offset := perPage * (params.GetPage() - 1)
-	if err := stmt.Select(
-		"project", "root", "group_1", "relation",
-	).Limit(perPage).Offset(offset).Find(&reviews).Error; err != nil {
-		return nil, 0, err
+	
+	// Get distinct assets with pagination
+	var distinctAssets []struct {
+		Group1   string `gorm:"column:group_1"`
+		Relation string
 	}
-
-	assets := make([]*entity.Asset, len(reviews))
-	for i, review := range reviews {
+	
+	err := query.
+		Select("DISTINCT group_1, relation").
+		Order("group_1 ASC").
+		Order("relation ASC").
+		Limit(perPage).
+		Offset(offset).
+		Scan(&distinctAssets).Error
+	
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to fetch assets: %w", err)
+	}
+	
+	// Convert to entity.Asset format
+	assets := make([]*entity.Asset, len(distinctAssets))
+	for i, asset := range distinctAssets {
 		assets[i] = &entity.Asset{
-			Name:     review.Group1,
-			Relation: review.Relation,
+			Name:     asset.Group1,
+			Relation: asset.Relation,
 		}
 	}
+	
 	return assets, int(total), nil
 }
 
@@ -480,7 +502,7 @@ func (r *ReviewInfo) ListShotReviewInfos(
 }
 
 /* =========================
-   ASSET PIVOT NEW METHODS
+   NEW ASSET PIVOT METHODS
 ========================= */
 
 type phaseRow struct {
@@ -792,4 +814,52 @@ func buildOrderClause(preferredPhase, orderKey, direction string) string {
 	}
 
 	return fmt.Sprintf("%s %s", orderKey, direction)
+}
+
+/* =========================
+   DEBUG METHOD - TEMPORARY
+========================= */
+
+func (r *ReviewInfo) DebugAssets(ctx context.Context, project string) (map[string]interface{}, error) {
+	// Check if table exists
+	var tableExists bool
+	r.db.Raw("SELECT COUNT(*) > 0 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 't_review_info'").Scan(&tableExists)
+	
+	if !tableExists {
+		return map[string]interface{}{
+			"error": "Table t_review_info does not exist",
+		}, nil
+	}
+	
+	// Get sample data
+	var sampleData []map[string]interface{}
+	err := r.db.WithContext(ctx).
+		Table("t_review_info").
+		Where("project = ? AND deleted = 0", project).
+		Select("group_1, relation, root, phase, work_status, approval_status").
+		Limit(5).
+		Find(&sampleData).Error
+	
+	if err != nil {
+		return nil, err
+	}
+	
+	// Get counts
+	var totalCount, assetsCount int64
+	r.db.Table("t_review_info").
+		Where("project = ? AND deleted = 0", project).
+		Count(&totalCount)
+	
+	r.db.Table("t_review_info").
+		Where("project = ? AND root = 'assets' AND deleted = 0", project).
+		Select("COUNT(DISTINCT CONCAT(group_1, '|', COALESCE(relation, '')))").
+		Count(&assetsCount)
+	
+	return map[string]interface{}{
+		"table_exists": tableExists,
+		"sample_data": sampleData,
+		"total_records": totalCount,
+		"distinct_assets": assetsCount,
+		"project": project,
+	}, nil
 }
