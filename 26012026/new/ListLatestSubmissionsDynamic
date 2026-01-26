@@ -1,0 +1,71 @@
+func (r *ReviewInfo) ListLatestSubmissionsDynamic(
+	ctx context.Context,
+	project string,
+	root string,
+	preferredPhase string,
+	orderKey string,
+	direction string,
+	limit, offset int,
+	assetNameKey string,
+	approvalStatuses []string,
+	workStatuses []string,
+) ([]LatestSubmissionRow, error) {
+
+	if project == "" {
+		return nil, fmt.Errorf("project is required")
+	}
+	if root == "" {
+		root = "assets"
+	}
+	if limit <= 0 {
+		limit = 60
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	db := r.db.WithContext(ctx)
+
+	query := `
+		SELECT 
+			ri.root,
+			ri.project,
+			ri.group_1,
+			ri.relation,
+			ri.phase,
+			ri.submitted_at_utc
+		FROM t_review_info ri
+		INNER JOIN (
+			SELECT 
+				group_1,
+				relation,
+				MAX(modified_at_utc) AS max_mod
+			FROM t_review_info
+			WHERE project = ?
+			  AND root = ?
+			  AND deleted = 0
+			GROUP BY group_1, relation
+		) latest
+		  ON latest.group_1 = ri.group_1
+		 AND latest.relation = ri.relation
+		 AND latest.max_mod = ri.modified_at_utc
+		WHERE ri.project = ?
+		  AND ri.root = ?
+		  AND ri.deleted = 0
+		ORDER BY ri.group_1 ASC, ri.relation ASC
+		LIMIT ? OFFSET ?
+	`
+
+	args := []any{
+		project, root,
+		project, root,
+		limit, offset,
+	}
+
+	var rows []LatestSubmissionRow
+	if err := db.Raw(query, args...).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	return rows, nil
+}
