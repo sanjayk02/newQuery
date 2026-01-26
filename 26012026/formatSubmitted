@@ -1,0 +1,14 @@
+function formatSubmitted(val: any, dateTimeFormat: Intl.DateTimeFormat) {
+  if (isEmptyValue(val)) return '—';
+
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return '—';
+    return dateTimeFormat.format(d);
+  } catch {
+    return '—';
+  }
+}
+
+
+const formatted = formatSubmitted(submittedAt, dateTimeFormat);
