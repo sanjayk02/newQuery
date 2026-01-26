@@ -39,17 +39,19 @@ func (r *ReviewInfo) ListAssetsPivot(
 	}
 
 	// ------------------------------------------------
-	// 2) LATEST ASSETS (time-based)
+	// 2) OVER-FETCH LATEST ASSETS (NO OFFSET)
 	// ------------------------------------------------
-	keys, err := r.ListLatestSubmissionsDynamic(
+	fetchLimit := limit * 20 // enough for global sort
+
+	keysAll, err := r.ListLatestSubmissionsDynamic(
 		ctx,
 		project,
 		root,
 		preferredPhase,
 		orderKey,
 		direction,
-		limit,
-		offset,
+		fetchLimit,
+		0,
 		assetNameKey,
 		approvalStatuses,
 		workStatuses,
@@ -57,12 +59,53 @@ func (r *ReviewInfo) ListAssetsPivot(
 	if err != nil {
 		return nil, 0, err
 	}
-	if len(keys) == 0 {
+	if len(keysAll) == 0 {
 		return []AssetPivot{}, total, nil
 	}
 
 	// ------------------------------------------------
-	// 3) FETCH ALL ROWS FOR THOSE ASSETS (WITH JOINS)
+	// 3) GLOBAL SORT IN GO
+	// ------------------------------------------------
+	dir := strings.ToLower(direction)
+
+	sort.SliceStable(keysAll, func(i, j int) bool {
+		switch orderKey {
+
+		case "group_1":
+			if dir == "desc" {
+				return keysAll[i].Group1 > keysAll[j].Group1
+			}
+			return keysAll[i].Group1 < keysAll[j].Group1
+
+		case "submitted_at_utc":
+			ti := keysAll[i].SubmittedAtUTC
+			tj := keysAll[j].SubmittedAtUTC
+			if ti == nil || tj == nil {
+				return false
+			}
+			if dir == "desc" {
+				return ti.After(*tj)
+			}
+			return ti.Before(*tj)
+		}
+		return false
+	})
+
+	// ------------------------------------------------
+	// 4) APPLY PAGINATION AFTER SORT
+	// ------------------------------------------------
+	start := offset
+	end := offset + limit
+	if start > len(keysAll) {
+		start = len(keysAll)
+	}
+	if end > len(keysAll) {
+		end = len(keysAll)
+	}
+	keys := keysAll[start:end]
+
+	// ------------------------------------------------
+	// 5) FETCH ALL ROWS FOR PAGE ASSETS (WITH JOINS)
 	// ------------------------------------------------
 	var sb strings.Builder
 	var params []any
@@ -116,7 +159,7 @@ func (r *ReviewInfo) ListAssetsPivot(
 	}
 
 	// ------------------------------------------------
-	// 4) FILTER + DEDUPE PER PHASE
+	// 6) FILTER + DEDUPE PER PHASE
 	// ------------------------------------------------
 	statusAllowed := func(val *string, allowed []string) bool {
 		if len(allowed) == 0 {
@@ -154,7 +197,7 @@ func (r *ReviewInfo) ListAssetsPivot(
 	}
 
 	// ------------------------------------------------
-	// 5) PREFERRED PHASE PRIORITY
+	// 7) PREFERRED PHASE PRIORITY
 	// ------------------------------------------------
 	if preferredPhase != "" && preferredPhase != "none" {
 		pp := strings.ToLower(preferredPhase)
@@ -183,7 +226,7 @@ func (r *ReviewInfo) ListAssetsPivot(
 	}
 
 	// ------------------------------------------------
-	// 6) BUILD PIVOT STRUCTS
+	// 8) BUILD PIVOT STRUCTS
 	// ------------------------------------------------
 	pivotMap := make(map[string]*AssetPivot)
 
@@ -233,7 +276,7 @@ func (r *ReviewInfo) ListAssetsPivot(
 	}
 
 	// ------------------------------------------------
-	// 7) FLATTEN RESULT
+	// 9) FLATTEN RESULT
 	// ------------------------------------------------
 	out := make([]AssetPivot, 0, len(pivotMap))
 	for _, p := range pivotMap {
