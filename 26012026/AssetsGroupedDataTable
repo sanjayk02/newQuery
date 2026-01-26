@@ -126,33 +126,35 @@ type Props = {
   tableFooter?: React.ReactNode;
 };
 
-// COLUMN LABELS - SHORTENED FOR COMPACTNESS
+// COLUMN LABELS - MATCHING YOUR IMAGE ("APPR" instead of "RIG APPR")
 const COLUMNS: Column[] = [
   { id: "thumbnail", label: "THUMB" },
   { id: "group_1_name", label: "NAME", sortable: true },
 
-  { id: "mdl_work", label: "MDL W", sortable: true, phase: "mdl", kind: "work" },
-  { id: "mdl_appr", label: "MDL A", sortable: true, phase: "mdl", kind: "appr" },
-  { id: "mdl_submitted", label: "MDL SUB", sortable: true, phase: "mdl", kind: "submitted" },
+  { id: "mdl_work", label: "MDL WORK", sortable: true, phase: "mdl", kind: "work" },
+  { id: "mdl_appr", label: "APPR", sortable: true, phase: "mdl", kind: "appr" }, // Changed to "APPR"
+  { id: "mdl_submitted", label: "MDL SUBMITTED AT", sortable: true, phase: "mdl", kind: "submitted" },
 
-  { id: "rig_work", label: "RIG W", sortable: true, phase: "rig", kind: "work" },
-  { id: "rig_appr", label: "RIG A", sortable: true, phase: "rig", kind: "appr" },
-  { id: "rig_submitted", label: "RIG SUB", sortable: true, phase: "rig", kind: "submitted" },
+  { id: "rig_work", label: "RIG WORK", sortable: true, phase: "rig", kind: "work" },
+  { id: "rig_appr", label: "APPR", sortable: true, phase: "rig", kind: "appr" }, // Changed to "APPR"
+  { id: "rig_submitted", label: "RIG SUBMITTED AT", sortable: true, phase: "rig", kind: "submitted" },
   
-  { id: "bld_work", label: "BLD W", sortable: true, phase: "bld", kind: "work" },
-  { id: "bld_appr", label: "BLD A", sortable: true, phase: "bld", kind: "appr" },
-  { id: "bld_submitted", label: "BLD SUB", sortable: true, phase: "bld", kind: "submitted" },
+  { id: "bld_work", label: "BLD WORK", sortable: true, phase: "bld", kind: "work" },
+  { id: "bld_appr", label: "APPR", sortable: true, phase: "bld", kind: "appr" }, // Changed to "APPR"
+  { id: "bld_submitted", label: "BLD SUBMITTED AT", sortable: true, phase: "bld", kind: "submitted" },
 
-  { id: "dsn_work", label: "DSN W", sortable: true, phase: "dsn", kind: "work" },
-  { id: "dsn_appr", label: "DSN A", sortable: true, phase: "dsn", kind: "appr" },
-  { id: "dsn_submitted", label: "DSN SUB", sortable: true, phase: "dsn", kind: "submitted" },
+  { id: "dsn_work", label: "DSN WORK", sortable: true, phase: "dsn", kind: "work" },
+  { id: "dsn_appr", label: "APPR", sortable: true, phase: "dsn", kind: "appr" }, // Changed to "APPR"
+  { id: "dsn_submitted", label: "DSN SUBMITTED AT", sortable: true, phase: "dsn", kind: "submitted" },
 
-  { id: "ldv_work", label: "LDV W", sortable: true, phase: "ldv", kind: "work" },
-  { id: "ldv_appr", label: "LDV A", sortable: true, phase: "ldv", kind: "appr" },
-  { id: "ldv_submitted", label: "LDV SUB", sortable: true, phase: "ldv", kind: "submitted" },
+  { id: "ldv_work", label: "LDV WORK", sortable: true, phase: "ldv", kind: "work" },
+  { id: "ldv_appr", label: "APPR", sortable: true, phase: "ldv", kind: "appr" }, // Changed to "APPR"
+  { id: "ldv_submitted", label: "LDV SUBMITTED AT", sortable: true, phase: "ldv", kind: "submitted" },
 
-  { id: "relation", label: "REL", sortable: true },
+  { id: "relation", label: "RELATION", sortable: true },
 ];
+
+// Rest of the code remains the same...
 
 /**
  * ✅ Single scroll container:
@@ -250,6 +252,7 @@ function statusColor(status?: string) {
   if (s.includes("hold")) return "#ffdd55";
   if (s === "check") return "#ca25ed";
   if (s === "sv other") return "#ff6b6b";
+  if (s === "svapproved") return "#32cd32";
   return COLORS.MUTED;
 }
 
