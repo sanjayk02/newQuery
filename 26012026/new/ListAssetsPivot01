@@ -1,0 +1,180 @@
+func (r *ReviewInfo) ListAssetsPivot(
+	ctx context.Context,
+	project, root, preferredPhase, orderKey, direction string,
+	limit, offset int,
+	assetNameKey string,
+	approvalStatuses []string,
+	workStatuses []string,
+) ([]AssetPivot, int64, error) {
+
+	if project == "" {
+		return nil, 0, fmt.Errorf("project is required")
+	}
+	if root == "" {
+		root = "assets"
+	}
+	if limit <= 0 {
+		limit = 60
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	db := r.db.WithContext(ctx)
+
+	// ------------------------------------------------
+	// 1) TOTAL COUNT (cheap)
+	// ------------------------------------------------
+	total, err := r.CountLatestSubmissions(
+		ctx,
+		project,
+		root,
+		assetNameKey,
+		preferredPhase,
+		approvalStatuses,
+		workStatuses,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// ------------------------------------------------
+	// 2) GET LATEST ASSETS (time-based, indexed)
+	// ------------------------------------------------
+	keys, err := r.ListLatestSubmissionsDynamic(
+		ctx,
+		project,
+		root,
+		preferredPhase,
+		orderKey,
+		direction,
+		limit,
+		offset,
+		assetNameKey,
+		approvalStatuses,
+		workStatuses,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(keys) == 0 {
+		return []AssetPivot{}, total, nil
+	}
+
+	// ------------------------------------------------
+	// 3) FETCH ALL ROWS FOR THOSE ASSETS (no grouping)
+	// ------------------------------------------------
+	var sb strings.Builder
+	var params []any
+
+	whereClauses := []string{}
+	for _, k := range keys {
+		whereClauses = append(whereClauses, "(group_1 = ? AND relation = ?)")
+		params = append(params, k.Group1, k.Relation)
+	}
+
+	sb.WriteString(`
+		SELECT 
+			project,
+			root,
+			group_1,
+			relation,
+			phase,
+			work_status,
+			approval_status,
+			submitted_at_utc,
+			modified_at_utc,
+			JSON_UNQUOTE(JSON_EXTRACT(` + "`groups`" + `, '$[0]')) AS leaf_group_name
+		FROM t_review_info
+		WHERE project = ?
+		  AND root = ?
+		  AND deleted = 0
+		  AND (` + strings.Join(whereClauses, " OR ") + `)
+		ORDER BY modified_at_utc DESC
+	`)
+
+	params = append([]any{project, root}, params...)
+
+	type rawRow struct {
+		phaseRow
+		ModifiedAtUTC time.Time `gorm:"column:modified_at_utc"`
+	}
+
+	var rows []rawRow
+	if err := db.Raw(sb.String(), params...).Scan(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// ------------------------------------------------
+	// 4) DEDUPE PER PHASE IN GO
+	// ------------------------------------------------
+	latest := map[string]phaseRow{}
+
+	for _, r := range rows {
+		key := r.Group1 + "|" + r.Relation + "|" + r.Phase
+		if _, exists := latest[key]; exists {
+			continue
+		}
+		latest[key] = r.phaseRow
+	}
+
+	// ------------------------------------------------
+	// 5) BUILD PIVOT STRUCTS
+	// ------------------------------------------------
+	pivotMap := make(map[string]*AssetPivot)
+
+	for _, k := range keys {
+		key := k.Group1 + "|" + k.Relation
+		pivotMap[key] = &AssetPivot{
+			Project:  project,
+			Root:     root,
+			Group1:   k.Group1,
+			Relation: k.Relation,
+		}
+	}
+
+	for _, r := range latest {
+		key := r.Group1 + "|" + r.Relation
+		p := pivotMap[key]
+		if p == nil {
+			continue
+		}
+
+		p.LeafGroupName = r.LeafGroupName
+		p.GroupCategoryPath = r.GroupCategoryPath
+		p.TopGroupNode = r.TopGroupNode
+
+		switch strings.ToLower(r.Phase) {
+		case "mdl":
+			p.MDLWorkStatus = r.WorkStatus
+			p.MDLApprovalStatus = r.ApprovalStatus
+			p.MDLSubmittedAtUTC = r.SubmittedAtUTC
+		case "rig":
+			p.RIGWorkStatus = r.WorkStatus
+			p.RIGApprovalStatus = r.ApprovalStatus
+			p.RIGSubmittedAtUTC = r.SubmittedAtUTC
+		case "bld":
+			p.BLDWorkStatus = r.WorkStatus
+			p.BLDApprovalStatus = r.ApprovalStatus
+			p.BLDSubmittedAtUTC = r.SubmittedAtUTC
+		case "dsn":
+			p.DSNWorkStatus = r.WorkStatus
+			p.DSNApprovalStatus = r.ApprovalStatus
+			p.DSNSubmittedAtUTC = r.SubmittedAtUTC
+		case "ldv":
+			p.LDVWorkStatus = r.WorkStatus
+			p.LDVApprovalStatus = r.ApprovalStatus
+			p.LDVSubmittedAtUTC = r.SubmittedAtUTC
+		}
+	}
+
+	// ------------------------------------------------
+	// 6) FLATTEN RESULT
+	// ------------------------------------------------
+	out := make([]AssetPivot, 0, len(pivotMap))
+	for _, p := range pivotMap {
+		out = append(out, *p)
+	}
+
+	return out, total, nil
+}
