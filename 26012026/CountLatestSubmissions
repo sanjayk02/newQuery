@@ -1,0 +1,26 @@
+// Current complex query can be simplified to:
+func (r *ReviewInfo) CountLatestSubmissions(...) (int64, error) {
+    // Instead of complex window functions, use a simpler DISTINCT count
+    db := r.db.WithContext(ctx)
+    
+    subquery := db.Table("t_review_info").
+        Select("DISTINCT project, root, group_1, relation").
+        Where("project = ?", project).
+        Where("root = ?", root).
+        Where("deleted = ?", 0)
+    
+    if assetNameKey != "" {
+        subquery = subquery.Where("LOWER(group_1) LIKE ?", 
+            strings.ToLower(assetNameKey)+"%")
+    }
+    
+    // Apply status filters if needed
+    if len(approvalStatuses) > 0 || len(workStatuses) > 0 {
+        // Use a join with latest records for status filtering
+        // This is more complex but necessary for accurate filtering
+    }
+    
+    var count int64
+    err := db.Table("(?) as distinct_assets", subquery).Count(&count).Error
+    return count, err
+}
