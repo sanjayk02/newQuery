@@ -1,0 +1,90 @@
+// Line ~650-660 - Update saveHiddenColumnsToPipelineSetting:
+const saveHiddenColumnsToPipelineSetting = async (cols: Set<string>) => {
+  try {
+    if (!currentProject || !currentProject.key_name) return;
+    
+    // Use the correct PIPE_KEY and ensure proper encoding
+    const key = PIPE_KEY; // Should be '/ppiTracker/assets/hiddenColumns'
+    const value = JSON.stringify(Array.from(cols));
+    
+    console.log('Saving hidden columns to pipeline:', { key, value });
+    
+    await queryConfig(
+      'project',
+      currentProject.key_name,
+      key,
+      value,
+    );
+  } catch (e) {
+    console.warn('PipelineSetting save failed; using local only', e);
+    // Add more detailed error logging
+    if (e instanceof Error) {
+      console.error('Pipeline setting error details:', e.message, e.stack);
+    }
+  }
+};
+
+// Line ~670-710 - Update the useEffect that loads hidden columns:
+useEffect(() => {
+  let aborted = false;
+  (async () => {
+    if (!currentProject) return;
+    
+    const projectKey = currentProject.key_name;
+    console.log('Loading hidden columns for project:', projectKey);
+    
+    try {
+      // Try pipeline settings first
+      const val = await queryConfig('project', projectKey, PIPE_KEY);
+      console.log('Pipeline settings response:', val);
+      
+      if (aborted) return;
+
+      let arr: string[] | null = null;
+      
+      if (Array.isArray(val)) {
+        arr = val as string[];
+      } else if (typeof val === 'string' && val.trim() !== '') {
+        try {
+          arr = JSON.parse(val);
+        } catch (parseError) {
+          console.warn('Failed to parse pipeline setting as JSON:', val);
+          // Try comma-separated format
+          arr = val.split(',').map((s: string) => s.trim());
+        }
+      }
+
+      if (arr && Array.isArray(arr)) {
+        console.log('Loaded from pipeline:', arr);
+        const sanitized = arr.filter((id) => !FIXED_VISIBLE.has(id));
+        setHiddenColumns(new Set(sanitized));
+        return; // Success, skip localStorage
+      }
+    } catch (e) {
+      console.warn('PipelineSetting load failed; falling back to localStorage', e);
+    }
+
+    // Fallback to localStorage
+    try {
+      const key = lsKeyForProject(projectKey);
+      console.log('Trying localStorage with key:', key);
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const arr: string[] = JSON.parse(raw);
+        console.log('Loaded from localStorage:', arr);
+        const sanitized = arr.filter((id) => !FIXED_VISIBLE.has(id));
+        setHiddenColumns(new Set(sanitized));
+      } else {
+        console.log('No hidden columns found in localStorage');
+        setHiddenColumns(new Set());
+      }
+    } catch (localError) {
+      console.error('localStorage load failed:', localError);
+      setHiddenColumns(new Set());
+    }
+  })();
+  
+  return () => {
+    aborted = true;
+  };
+}, [currentProject]);
