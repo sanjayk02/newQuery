@@ -23,7 +23,7 @@ func (r *ReviewInfo) ListAssetsPivot(
 	db := r.db.WithContext(ctx)
 
 	// ------------------------------------------------
-	// 1) TOTAL COUNT (cheap)
+	// 1) TOTAL COUNT
 	// ------------------------------------------------
 	total, err := r.CountLatestSubmissions(
 		ctx,
@@ -39,7 +39,7 @@ func (r *ReviewInfo) ListAssetsPivot(
 	}
 
 	// ------------------------------------------------
-	// 2) GET LATEST ASSETS (time-based, indexed)
+	// 2) LATEST ASSETS (time-based)
 	// ------------------------------------------------
 	keys, err := r.ListLatestSubmissionsDynamic(
 		ctx,
@@ -62,14 +62,14 @@ func (r *ReviewInfo) ListAssetsPivot(
 	}
 
 	// ------------------------------------------------
-	// 3) FETCH ALL ROWS FOR THOSE ASSETS (no grouping)
+	// 3) FETCH ALL ROWS FOR THOSE ASSETS
 	// ------------------------------------------------
 	var sb strings.Builder
 	var params []any
 
-	whereClauses := []string{}
+	where := []string{}
 	for _, k := range keys {
-		whereClauses = append(whereClauses, "(group_1 = ? AND relation = ?)")
+		where = append(where, "(group_1 = ? AND relation = ?)")
 		params = append(params, k.Group1, k.Relation)
 	}
 
@@ -89,7 +89,7 @@ func (r *ReviewInfo) ListAssetsPivot(
 		WHERE project = ?
 		  AND root = ?
 		  AND deleted = 0
-		  AND (` + strings.Join(whereClauses, " OR ") + `)
+		  AND (` + strings.Join(where, " OR ") + `)
 		ORDER BY modified_at_utc DESC
 	`)
 
@@ -106,20 +106,74 @@ func (r *ReviewInfo) ListAssetsPivot(
 	}
 
 	// ------------------------------------------------
-	// 4) DEDUPE PER PHASE IN GO
+	// 4) FILTER + DEDUPE PER PHASE
 	// ------------------------------------------------
+	statusAllowed := func(val *string, allowed []string) bool {
+		if len(allowed) == 0 {
+			return true
+		}
+		if val == nil {
+			return false
+		}
+		v := strings.ToLower(strings.TrimSpace(*val))
+		for _, a := range allowed {
+			if v == strings.ToLower(strings.TrimSpace(a)) {
+				return true
+			}
+		}
+		return false
+	}
+
 	latest := map[string]phaseRow{}
 
 	for _, r := range rows {
+
+		if !statusAllowed(r.WorkStatus, workStatuses) {
+			continue
+		}
+		if !statusAllowed(r.ApprovalStatus, approvalStatuses) {
+			continue
+		}
+
 		key := r.Group1 + "|" + r.Relation + "|" + r.Phase
 		if _, exists := latest[key]; exists {
 			continue
 		}
+
 		latest[key] = r.phaseRow
 	}
 
 	// ------------------------------------------------
-	// 5) BUILD PIVOT STRUCTS
+	// 5) PREFERRED PHASE PRIORITY
+	// ------------------------------------------------
+	if preferredPhase != "" && preferredPhase != "none" {
+		pp := strings.ToLower(preferredPhase)
+
+		for _, k := range keys {
+			base := k.Group1 + "|" + k.Relation
+
+			hasPreferred := false
+			for key := range latest {
+				if strings.HasPrefix(key, base+"|") &&
+					strings.HasSuffix(key, "|"+pp) {
+					hasPreferred = true
+					break
+				}
+			}
+
+			if hasPreferred {
+				for key := range latest {
+					if strings.HasPrefix(key, base+"|") &&
+						!strings.HasSuffix(key, "|"+pp) {
+						delete(latest, key)
+					}
+				}
+			}
+		}
+	}
+
+	// ------------------------------------------------
+	// 6) BUILD PIVOT STRUCTS
 	// ------------------------------------------------
 	pivotMap := make(map[string]*AssetPivot)
 
@@ -169,7 +223,7 @@ func (r *ReviewInfo) ListAssetsPivot(
 	}
 
 	// ------------------------------------------------
-	// 6) FLATTEN RESULT
+	// 7) FLATTEN RESULT
 	// ------------------------------------------------
 	out := make([]AssetPivot, 0, len(pivotMap))
 	for _, p := range pivotMap {
