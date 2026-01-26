@@ -1,0 +1,138 @@
+// front/usecase/reviewinfo.go
+package usecase
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/PolygonPictures/central30-web/front/entity"
+	"github.com/PolygonPictures/central30-web/front/repository"
+	"github.com/gin-gonic/gin/binding"
+	"gorm.io/gorm"
+)
+
+type ReviewInfo struct {
+	repo         *repository.ReviewInfo
+	prjRepo      *repository.ProjectInfo
+	stuRepo      *repository.StudioInfo
+	docRepo      entity.DocumentRepository
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
+}
+
+func NewReviewInfo(
+	repo *repository.ReviewInfo,
+	pr *repository.ProjectInfo,
+	sr *repository.StudioInfo,
+	dr entity.DocumentRepository,
+	readTimeout time.Duration,
+	writeTimeout time.Duration,
+) *ReviewInfo {
+	return &ReviewInfo{
+		repo:         repo,
+		prjRepo:      pr,
+		stuRepo:      sr,
+		docRepo:      dr,
+		ReadTimeout:  readTimeout,
+		WriteTimeout: writeTimeout,
+	}
+}
+
+// ... [ALL EXISTING METHODS KEEP AS IS] ...
+
+// ListAssetsPivotParams defines parameters for asset pivot listing
+type ListAssetsPivotParams struct {
+	Project          string
+	Root             string
+	PreferredPhase   string
+	OrderKey         string
+	Direction        string
+	Page             int
+	PerPage          int
+	AssetNameKey     string
+	ApprovalStatuses []string
+	WorkStatuses     []string
+	View             string // "list" or "grouped"
+}
+
+// ListAssetsPivotResult defines the result structure
+type ListAssetsPivotResult struct {
+	Assets   []repository.AssetPivot
+	Groups   []repository.GroupedAssetBucket
+	Total    int64
+	Page     int
+	PerPage  int
+	PageLast int
+	HasNext  bool
+	HasPrev  bool
+	Sort     string
+	Dir      string
+}
+
+// ListAssetsPivot - retrieves pivoted asset data
+func (u *ReviewInfo) ListAssetsPivot(ctx context.Context, p ListAssetsPivotParams) (*ListAssetsPivotResult, error) {
+	if p.Project == "" {
+		return nil, fmt.Errorf("project is required")
+	}
+	if p.Root == "" {
+		p.Root = "assets"
+	}
+	if p.PerPage <= 0 {
+		p.PerPage = 15
+	}
+	if p.Page <= 0 {
+		p.Page = 1
+	}
+
+	limit := p.PerPage
+	offset := (p.Page - 1) * p.PerPage
+
+	// normalize dir
+	dir := strings.ToUpper(strings.TrimSpace(p.Direction))
+	if dir != "ASC" && dir != "DESC" {
+		dir = "ASC"
+	}
+
+	isGroupedView := p.View == "group" || p.View == "grouped" || p.View == "category"
+
+	// Call repository method
+	assets, total, err := u.repo.ListAssetsPivot(
+		ctx,
+		p.Project,
+		p.Root,
+		p.PreferredPhase,
+		p.OrderKey,
+		strings.ToLower(dir),
+		limit,
+		offset,
+		p.AssetNameKey,
+		p.ApprovalStatuses,
+		p.WorkStatuses,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	pageLast := int((total + int64(p.PerPage) - 1) / int64(p.PerPage))
+
+	result := &ListAssetsPivotResult{
+		Assets:   assets,
+		Total:    total,
+		Page:     p.Page,
+		PerPage:  p.PerPage,
+		PageLast: pageLast,
+		HasNext:  offset+limit < int(total),
+		HasPrev:  p.Page > 1,
+		Sort:     p.OrderKey,
+		Dir:      strings.ToLower(dir),
+	}
+
+	// Add grouping if needed
+	if isGroupedView {
+		result.Groups = repository.GroupAndSortByTopNode(assets, repository.SortDirection(dir))
+	}
+
+	return result, nil
+}
