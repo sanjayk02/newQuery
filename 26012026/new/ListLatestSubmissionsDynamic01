@@ -1,75 +1,33 @@
 func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 	ctx context.Context,
-	project string,
-	root string,
-	preferredPhase string,
-	orderKey string,
-	direction string,
+	project, root string,
+	_, _, _ string,
 	limit, offset int,
 	assetNameKey string,
-	approvalStatuses []string,
-	workStatuses []string,
+	_, _ []string,
 ) ([]LatestSubmissionRow, error) {
-
-	if project == "" {
-		return nil, fmt.Errorf("project is required")
-	}
-	if root == "" {
-		root = "assets"
-	}
-	if limit <= 0 {
-		limit = 60
-	}
-	if offset < 0 {
-		offset = 0
-	}
 
 	db := r.db.WithContext(ctx)
 
-	// over-fetch to allow dedupe
-	fetch := limit * 5
-
 	query := `
 		SELECT 
-			root,
-			project,
-			group_1,
-			relation,
-			phase,
-			submitted_at_utc,
-			modified_at_utc
-		FROM t_review_info
-		WHERE project = ?
-		  AND root = ?
-		  AND deleted = 0
-		ORDER BY modified_at_utc DESC
+			gcg.path AS group_1,
+			'relation' AS relation
+		FROM t_group_category_group gcg
+		JOIN t_group_category gc
+			ON gc.id = gcg.group_category_id
+			AND gc.deleted = 0
+			AND gc.root = 'assets'
+		WHERE gcg.project = ?
+		  AND gcg.deleted = 0
+		ORDER BY gcg.path ASC
 		LIMIT ? OFFSET ?
 	`
 
-	var rows []struct {
-		LatestSubmissionRow
-		ModifiedAtUTC time.Time `gorm:"column:modified_at_utc"`
-	}
-
-	if err := db.Raw(query, project, root, fetch, offset).Scan(&rows).Error; err != nil {
+	var rows []LatestSubmissionRow
+	if err := db.Raw(query, project, limit, offset).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 
-	// dedupe in Go
-	seen := make(map[string]bool)
-	out := make([]LatestSubmissionRow, 0, limit)
-
-	for _, r := range rows {
-		key := r.Group1 + "|" + r.Relation
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		out = append(out, r.LatestSubmissionRow)
-		if len(out) == limit {
-			break
-		}
-	}
-
-	return out, nil
+	return rows, nil
 }
