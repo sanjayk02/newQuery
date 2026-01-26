@@ -154,8 +154,6 @@ const COLUMNS: Column[] = [
   { id: "relation", label: "RELATION", sortable: true },
 ];
 
-// Rest of the code remains the same...
-
 /**
  * ✅ Single scroll container:
  * - ONE vertical scrollbar
