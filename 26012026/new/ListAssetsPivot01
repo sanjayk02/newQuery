@@ -62,35 +62,45 @@ func (r *ReviewInfo) ListAssetsPivot(
 	}
 
 	// ------------------------------------------------
-	// 3) FETCH ALL ROWS FOR THOSE ASSETS
+	// 3) FETCH ALL ROWS FOR THOSE ASSETS (WITH JOINS)
 	// ------------------------------------------------
 	var sb strings.Builder
 	var params []any
 
 	where := []string{}
 	for _, k := range keys {
-		where = append(where, "(group_1 = ? AND relation = ?)")
+		where = append(where, "(ri.group_1 = ? AND ri.relation = ?)")
 		params = append(params, k.Group1, k.Relation)
 	}
 
 	sb.WriteString(`
 		SELECT 
-			project,
-			root,
-			group_1,
-			relation,
-			phase,
-			work_status,
-			approval_status,
-			submitted_at_utc,
-			modified_at_utc,
-			JSON_UNQUOTE(JSON_EXTRACT(` + "`groups`" + `, '$[0]')) AS leaf_group_name
-		FROM t_review_info
-		WHERE project = ?
-		  AND root = ?
-		  AND deleted = 0
+			ri.project,
+			ri.root,
+			ri.group_1,
+			ri.relation,
+			ri.phase,
+			ri.work_status,
+			ri.approval_status,
+			ri.submitted_at_utc,
+			ri.modified_at_utc,
+			JSON_UNQUOTE(JSON_EXTRACT(ri.` + "`groups`" + `, '$[0]')) AS leaf_group_name,
+			gc.path AS group_category_path,
+			SUBSTRING_INDEX(gc.path, '/', 1) AS top_group_node
+		FROM t_review_info AS ri
+		LEFT JOIN t_group_category_group AS gcg
+			ON gcg.project = ri.project
+			AND gcg.deleted = 0
+			AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.` + "`groups`" + `, '$[0]'))
+		LEFT JOIN t_group_category AS gc
+			ON gc.id = gcg.group_category_id
+			AND gc.deleted = 0
+			AND gc.root = 'assets'
+		WHERE ri.project = ?
+		  AND ri.root = ?
+		  AND ri.deleted = 0
 		  AND (` + strings.Join(where, " OR ") + `)
-		ORDER BY modified_at_utc DESC
+		ORDER BY ri.modified_at_utc DESC
 	`)
 
 	params = append([]any{project, root}, params...)
