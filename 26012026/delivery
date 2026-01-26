@@ -1,0 +1,100 @@
+// front/delivery/reviewInfoDelivery.go
+package delivery
+
+import (
+	"context"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/PolygonPictures/central30-web/front/usecase"
+	"github.com/gin-gonic/gin"
+)
+
+type ReviewInfoDelivery struct {
+	usecase *usecase.ReviewInfo
+}
+
+func NewReviewInfoDelivery(uc *usecase.ReviewInfo) *ReviewInfoDelivery {
+	return &ReviewInfoDelivery{
+		usecase: uc,
+	}
+}
+
+// ListAssetsPivot handles the /api/projects/:project/reviews/assets/pivot endpoint
+func (d *ReviewInfoDelivery) ListAssetsPivot(c *gin.Context) {
+	// Create context with longer timeout for large queries
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 300*time.Second)
+	defer cancel()
+
+	// Extract project parameter
+	project := c.Param("project")
+	if project == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "project parameter is required"})
+		return
+	}
+
+	// Parse query parameters with defaults
+	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "15"))
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	sortKey := c.DefaultQuery("sort", "group_1")
+	dir := c.DefaultQuery("dir", "ASC")
+	view := c.DefaultQuery("view", "list")
+	assetNameKey := c.Query("assetNameKey")
+	
+	// Parse array parameters
+	approvalStatuses := c.QueryArray("approvalStatus")
+	workStatuses := c.QueryArray("workStatus")
+
+	// Apply limits to prevent overload
+	if perPage > 100 {
+		perPage = 100
+	}
+	if perPage < 1 {
+		perPage = 15
+	}
+	if page < 1 {
+		page = 1
+	}
+
+	// Normalize direction
+	if dir != "ASC" && dir != "DESC" {
+		dir = "ASC"
+	}
+
+	// Call usecase
+	result, err := d.usecase.ListAssetsPivot(ctx, usecase.ListAssetsPivotParams{
+		Project:          project,
+		Root:             "assets", // Default to assets
+		PreferredPhase:   "",       // Can be added as query param if needed
+		OrderKey:         sortKey,
+		Direction:        dir,
+		Page:             page,
+		PerPage:          perPage,
+		AssetNameKey:     assetNameKey,
+		ApprovalStatuses: approvalStatuses,
+		WorkStatuses:     workStatuses,
+		View:             view,
+	})
+
+	if err != nil {
+		// Log the error
+		c.Error(err)
+		
+		// Check if it's a timeout error
+		if err.Error() == "context deadline exceeded" {
+			c.JSON(http.StatusGatewayTimeout, gin.H{
+				"message": "Query timed out. Please try with fewer results or add filters.",
+				"error":   err.Error(),
+			})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"message": "Failed to fetch asset pivot data",
+				"error":   err.Error(),
+			})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
