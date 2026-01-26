@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState, useEffect } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   Box,
   IconButton,
@@ -12,19 +12,27 @@ import {
 } from "@material-ui/core";
 import ExpandMoreIcon from "@material-ui/icons/ExpandMore";
 import ChevronRightIcon from "@material-ui/icons/ChevronRight";
+import { PivotGroup, SortDir } from "./types";
 
-/* ---------------- COLORS ---------------- */
-
+/** ----------------------------------------------------------------
+ *  COLORS (match list view look)
+ *  ---------------------------------------------------------------- */
 const COLORS = {
-  PAGE_BG: "#3d3d3d",
-  TABLE_BG: "#3d3d3d",
-  ROW_BG: "#3d3d3d",
-  GRID_LINE: "#2a2a2a",
+  PAGE_BG: "#3d3d3dff",
+  TABLE_BG: "#3d3d3dff",
+  HEADER_BG: "#3d3d3dff",
+  HEADER_BORDER: "#3d3d3dff",
+  GRID_LINE: "#555555",
+  ROW_BG: "#3d3d3dff",
+  GROUP_BG: "#3a3838ff",
+  GROUP_TEXT: "#00b7ff",
   TEXT: "#e0e0e0",
-  MUTED: "#999",
+  MUTED: "#bdbdbd",
 
+  // top/bottom edge line for NON-phase columns
   COL_EDGE: "#6b6b6b",
 
+  // ✅ use your phase config (lineColor + backgroundColor)
   PHASE: {
     mdl: { lineColor: "#3295fd", backgroundColor: "#354d68" },
     rig: { lineColor: "#c061fd", backgroundColor: "#5e3568" },
@@ -34,214 +42,613 @@ const COLORS = {
   },
 };
 
-/* ---------------- UI TUNING ---------------- */
-
+/** ----------------------------------------------------------------
+ *  UI controls - MATCHING YOUR IMAGE
+ *  ---------------------------------------------------------------- */
 const UI = {
-  ROW_HEIGHT: 34,
+  ROW_HEIGHT: 36, // More compact to match your image
   ROW_PAD_Y: 2,
-  ROW_PAD_X: 2,
+  ROW_PAD_X: 4, // More padding for readability
 
-  NAME_PAD_X: 2,
-  THUMB_PAD_X: 2,
+  // ✅ move NAME + THUMB a bit left
+  NAME_PAD_X: 4,
+  THUMB_PAD_X: 4,
 
-  PHASE_GAP_PX: 1,
+  ROW_GAP_PX: 0,
+  GROUP_ROW_GAP_PX: 2,
+  PHASE_GAP_PX: 0,
+
   RAIL_PX: 2,
 
-  THUMB_WIDTH: 80,
-  NAME_WIDTH: 130,
-  RELATION_WIDTH: 70,
-  PHASE_COL_WIDTH: 88,
+  THUMB_WIDTH: 90,
+  NAME_WIDTH: 120,
+  RELATION_WIDTH: 80,
+  PHASE_COL_WIDTH: 100, // Good width for dates
 
-  FONT_SIZE_HEADER: 11,
-  FONT_SIZE_CONTENT: 11,
+  // ✅ "top & bottom line" thickness in header
+  COL_EDGE_PX: 1,
+
+  // ✅ thumbs width/height
+  THUMB_BOX_W: 75,
+  THUMB_BOX_H: 40,
+  THUMB_RADIUS: 2,
+  
+  // ✅ Font sizes matching your image
+  FONT_SIZE_HEADER: 12,
+  FONT_SIZE_CONTENT: 12,
+  FONT_SIZE_GROUP: 12,
 };
 
-/* ---------------- COLUMNS ---------------- */
+type ColumnId =
+  | "thumbnail"
+  | "group_1_name"
+  | "mdl_work"
+  | "mdl_appr"
+  | "mdl_submitted"
+  | "rig_work"
+  | "rig_appr"
+  | "rig_submitted"
+  | "bld_work"
+  | "bld_appr"
+  | "bld_submitted"
+  | "dsn_work"
+  | "dsn_appr"
+  | "dsn_submitted"
+  | "ldv_work"
+  | "ldv_appr"
+  | "ldv_submitted"
+  | "relation";
 
-const COLUMNS = [
+type Column = {
+  id: ColumnId;
+  label: string;
+  sortable?: boolean;
+  phase?: keyof typeof COLORS.PHASE; // mdl|rig|bld|dsn|ldv
+  kind?: "work" | "appr" | "submitted";
+};
+
+type Props = {
+  groups?: PivotGroup[];
+
+  // sorting
+  sortKey: string;
+  sortDir: SortDir;
+  onSortChange: (key: string) => void;
+
+  // group name sorting
+  groupSortDir?: SortDir;
+  onGroupSortToggle?: () => void;
+
+  dateTimeFormat: Intl.DateTimeFormat;
+  hiddenColumns?: Set<string>;
+
+  /** ✅ IMPORTANT: pass footer from Panel so it renders (sticky) */
+  tableFooter?: React.ReactNode;
+};
+
+// COLUMN LABELS MATCHING YOUR IMAGE
+const COLUMNS: Column[] = [
   { id: "thumbnail", label: "THUMB" },
   { id: "group_1_name", label: "NAME", sortable: true },
 
-  { id: "mdl_work", label: "MDL WORK", phase: "mdl" },
-  { id: "mdl_appr", label: "MDL APPR", phase: "mdl" },
-  { id: "mdl_submitted", label: "MDL SUBMITTED AT", phase: "mdl" },
+  { id: "mdl_work", label: "MDL WORK", sortable: true, phase: "mdl", kind: "work" },
+  { id: "mdl_appr", label: "MDL APPR", sortable: true, phase: "mdl", kind: "appr" },
+  { id: "mdl_submitted", label: "MDL SUBMITTED AT", sortable: true, phase: "mdl", kind: "submitted" },
 
-  { id: "rig_work", label: "RIG WORK", phase: "rig" },
-  { id: "rig_appr", label: "RIG APPR", phase: "rig" },
-  { id: "rig_submitted", label: "RIG SUBMITTED AT", phase: "rig" },
+  { id: "rig_work", label: "RIG WORK", sortable: true, phase: "rig", kind: "work" },
+  { id: "rig_appr", label: "RIG APPR", sortable: true, phase: "rig", kind: "appr" },
+  { id: "rig_submitted", label: "RIG SUBMITTED AT", sortable: true, phase: "rig", kind: "submitted" },
+  
+  { id: "bld_work", label: "BLD WORK", sortable: true, phase: "bld", kind: "work" },
+  { id: "bld_appr", label: "BLD APPR", sortable: true, phase: "bld", kind: "appr" },
+  { id: "bld_submitted", label: "BLD SUBMITTED AT", sortable: true, phase: "bld", kind: "submitted" },
 
-  { id: "bld_work", label: "BLD WORK", phase: "bld" },
-  { id: "bld_appr", label: "BLD APPR", phase: "bld" },
-  { id: "bld_submitted", label: "BLD SUBMITTED AT", phase: "bld" },
+  { id: "dsn_work", label: "DSN WORK", sortable: true, phase: "dsn", kind: "work" },
+  { id: "dsn_appr", label: "DSN APPR", sortable: true, phase: "dsn", kind: "appr" },
+  { id: "dsn_submitted", label: "DSN SUBMITTED AT", sortable: true, phase: "dsn", kind: "submitted" },
 
-  { id: "dsn_work", label: "DSN WORK", phase: "dsn" },
-  { id: "dsn_appr", label: "DSN APPR", phase: "dsn" },
-  { id: "dsn_submitted", label: "DSN SUBMITTED AT", phase: "dsn" },
+  { id: "ldv_work", label: "LDV WORK", sortable: true, phase: "ldv", kind: "work" },
+  { id: "ldv_appr", label: "LDV APPR", sortable: true, phase: "ldv", kind: "appr" },
+  { id: "ldv_submitted", label: "LDV SUBMITTED AT", sortable: true, phase: "ldv", kind: "submitted" },
 
-  { id: "ldv_work", label: "LDV WORK", phase: "ldv" },
-  { id: "ldv_appr", label: "LDV APPR", phase: "ldv" },
-  { id: "ldv_submitted", label: "LDV SUBMITTED AT", phase: "ldv" },
-
-  { id: "relation", label: "RELATION" },
+  { id: "relation", label: "RELATION", sortable: true },
 ];
 
-/* ---------------- STYLES ---------------- */
-
+/**
+ * ✅ Single scroll container:
+ * - ONE vertical scrollbar
+ * - horizontal scroll works on data
+ * - sticky header + sticky footer stay visible
+ */
 const useStyles = makeStyles(() => ({
   root: {
     width: "100%",
+    display: "flex",
+    flexDirection: "column",
     background: COLORS.PAGE_BG,
   },
+
+  // IMPORTANT: do NOT create a nested scroll container in Group view.
+  // The parent panel (ListView behavior) should be the only scrolling ancestor.
+  scroller: {
+    width: "100%",
+    overflow: "visible",
+  },
+
+  // COMPACT TABLE STYLING
   table: {
+    background: COLORS.TABLE_BG,
     width: "max-content",
     minWidth: "100%",
     tableLayout: "fixed",
     borderCollapse: "separate",
     borderSpacing: 0,
   },
+
   groupHeader: {
-    background: "#2f2f2f",
-    cursor: "pointer",
+    '&:hover': {
+      backgroundColor: `${COLORS.GROUP_BG}dd !important`,
+    },
+  },
+  
+  sortIndicator: {
+    transition: 'color 0.2s ease-in-out',
+  },
+  
+  activeSort: {
+    color: '#00b7ff !important',
   },
 }));
 
-/* ---------------- HELPERS ---------------- */
+/**
+ * Utility functions for consistent empty value handling
+ */
+const isEmptyValue = (value: any): boolean => {
+  if (value === null || value === undefined) return true;
+  const str = String(value).trim();
+  return str === '' || str === '-' || str === '—' || str === 'null' || str === 'undefined';
+};
 
-function getPhaseMetadata(cols) {
-  const map = {};
-  cols.forEach((c) => {
-    if (!c.phase) return;
-    if (!map[c.phase]) map[c.phase] = { start: c.id, end: c.id };
-    else map[c.phase].end = c.id;
+const formatForDisplay = (value: any): string => {
+  if (isEmptyValue(value)) return '';
+  return String(value).trim();
+};
+
+function getPhaseMetadata(visibleCols: Column[]) {
+  const map: Record<string, { start: string; end: string }> = {};
+  visibleCols.forEach((col) => {
+    if (!col.phase) return;
+    if (!map[col.phase]) map[col.phase] = { start: col.id, end: col.id };
+    else map[col.phase].end = col.id;
   });
   return map;
 }
 
-function buildCellStyle(col, phaseMeta, header = false) {
+function formatSubmitted(val: any, dateTimeFormat: Intl.DateTimeFormat) {
+  if (isEmptyValue(val)) return '';
+  
+  try {
+    const date = new Date(val);
+    if (!isNaN(date.getTime())) {
+      return dateTimeFormat.format(date);
+    }
+  } catch (e) {
+    // Fallback to original string
+  }
+  
+  const s = String(val);
+  return s.indexOf("T") >= 0 ? s.split("T")[0] : s;
+}
+
+function statusColor(status?: string) {
+  if (isEmptyValue(status)) return COLORS.MUTED;
+  
+  const s = (status || "").toLowerCase();
+  if (s.includes("approved")) return "#32cd32";
+  if (s.includes("review")) return "#ffa500";
+  if (s.includes("retake")) return "#ff4f4f";
+  if (s.includes("hold")) return "#ffdd55";
+  if (s === "check") return "#ca25ed";
+  if (s === "sv other") return "#ff6b6b";
+  return COLORS.MUTED;
+}
+
+function renderThumbnail(asset: any) {
+  const url = asset.thumbnail_url || asset.thumbnail;
+  return (
+    <Box display="flex" alignItems="center" justifyContent="flex-start">
+      <Box
+        style={{
+          width: UI.THUMB_BOX_W,
+          height: UI.THUMB_BOX_H,
+          borderRadius: UI.THUMB_RADIUS,
+          backgroundColor: "#2a2a2a",
+          overflow: "hidden",
+        }}
+      >
+        {url ? (
+          <img
+            src={url}
+            alt=""
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              display: "block",
+            }}
+          />
+        ) : null}
+      </Box>
+    </Box>
+  );
+}
+
+/**
+ * Helper function to safely get nested property from asset
+ */
+function getAssetValue(asset: any, path: string): any {
+  const parts = path.split('.');
+  let current = asset;
+  for (const part of parts) {
+    if (current === null || current === undefined) return undefined;
+    current = current[part];
+  }
+  return current;
+}
+
+function renderAssetField(asset: any, col: Column, dateTimeFormat: Intl.DateTimeFormat) {
+  // Handle thumbnail column
+  if (col.id === "thumbnail") return renderThumbnail(asset);
+
+  // Handle group name column
+  if (col.id === "group_1_name") {
+    const value = asset.group_1 || asset.group_1_name || asset.name || "";
+    return (
+      <Typography noWrap style={{ 
+        fontSize: UI.FONT_SIZE_CONTENT, 
+        fontWeight: 500 
+      }}>
+        {formatForDisplay(value)}
+      </Typography>
+    );
+  }
+
+  // Handle relation column
+  if (col.id === "relation") {
+    const value = asset.relation || asset.relation_type || "";
+    return (
+      <Typography style={{ 
+        fontSize: UI.FONT_SIZE_CONTENT, 
+        fontWeight: 500 
+      }}>
+        {formatForDisplay(value)}
+      </Typography>
+    );
+  }
+
+  // Handle phase-specific columns
+  const phase = col.phase;
+  if (!phase) return <span></span>;
+
+  // Handle submitted date columns - SHOW ACTUAL DATES
+  if (col.kind === "submitted") {
+    const submittedAt = asset[`${phase}_submitted_at_utc`] || 
+                       asset[`${phase}_submitted_at`] ||
+                       asset[`${phase}_submitted`];
+    
+    const formatted = formatSubmitted(submittedAt, dateTimeFormat);
+    
+    return (
+      <Typography style={{ 
+        fontSize: UI.FONT_SIZE_CONTENT, 
+        fontWeight: 500 
+      }}>
+        {formatted}
+      </Typography>
+    );
+  }
+
+  // Handle work/approval status columns
+  const field = col.kind === "work" ? "work_status" : "approval_status";
+  const raw = asset[`${phase}_${field}`] || 
+             asset[`${phase}_status`] ||
+             asset[phase];
+  
+  const text = formatForDisplay(raw);
+  const color = statusColor(text === '' ? '' : text);
+
+  return (
+    <Typography style={{ 
+      fontSize: UI.FONT_SIZE_CONTENT, 
+      fontWeight: 500, 
+      color: color 
+    }}>
+      {text}
+    </Typography>
+  );
+}
+
+/**
+ * ✅ Header top line + bottom line (per column)
+ * ✅ Remove middle line between THUMB and NAME
+ * ✅ Phase rails + phase gap
+ * ✅ PROPER PADDING FOR READABILITY
+ */
+function buildCellStyle(
+  col: Column,
+  phaseMeta: Record<string, { start: string; end: string }>,
+  opts: { header?: boolean; isGroupRow?: boolean } = {}
+): React.CSSProperties {
+  const { header = false, isGroupRow = false } = opts;
+
   const meta = col.phase ? phaseMeta[col.phase] : null;
-  const isStart = meta?.start === col.id;
-  const isEnd = meta?.end === col.id;
+  const isPhaseStart = !!(meta && meta.start === col.id);
+  const isPhaseEnd = !!(meta && meta.end === col.id);
+
   const phaseCfg = col.phase ? COLORS.PHASE[col.phase] : null;
+  const edgeColor = col.phase ? phaseCfg!.lineColor : COLORS.COL_EDGE;
 
-  const style = {
-    backgroundColor: header
-      ? phaseCfg?.backgroundColor || COLORS.TABLE_BG
-      : phaseCfg?.backgroundColor || COLORS.ROW_BG,
+  const headerBg = col.phase ? phaseCfg!.backgroundColor : COLORS.HEADER_BG;
 
+  const paddingX =
+    col.id === "group_1_name" ? UI.NAME_PAD_X : col.id === "thumbnail" ? UI.THUMB_PAD_X : UI.ROW_PAD_X;
+
+  const style: React.CSSProperties = {
+    backgroundColor: header ? headerBg : COLORS.ROW_BG,
     color: header ? "#fff" : COLORS.TEXT,
-    height: UI.ROW_HEIGHT,
-    padding: `${UI.ROW_PAD_Y}px ${UI.ROW_PAD_X}px`,
     whiteSpace: "nowrap",
-    borderBottom: "1px solid " + COLORS.GRID_LINE,
-    borderRight: col.phase ? "0px" : "1px solid " + COLORS.GRID_LINE,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    height: UI.ROW_HEIGHT,
+    padding: `${header ? 4 : UI.ROW_PAD_Y}px ${paddingX}px`,
     fontSize: header ? UI.FONT_SIZE_HEADER : UI.FONT_SIZE_CONTENT,
+    fontWeight: header ? 500 : 300,
+    borderLeft: "0px",
+    borderRight: "0px",
+    borderBottom: header
+      ? "1px solid " + COLORS.HEADER_BORDER
+      : (isGroupRow ? UI.GROUP_ROW_GAP_PX : UI.ROW_GAP_PX) + "px solid " + COLORS.TABLE_BG,
   };
 
-  const shadows = [];
-
+  // ✅ top + bottom line in header for each column
+  const shadows: string[] = [];
   if (header) {
-    const edge = phaseCfg ? phaseCfg.lineColor : COLORS.COL_EDGE;
-    shadows.push(`inset 0 1px 0 0 ${edge}`);
-    shadows.push(`inset 0 -1px 0 0 ${edge}`);
+    shadows.push(`inset 0 ${UI.COL_EDGE_PX}px 0 0 ${edgeColor}`);
+    shadows.push(`inset 0 -${UI.COL_EDGE_PX}px 0 0 ${edgeColor}`);
   }
 
+  // phase rails
   if (col.phase) {
-    const rail = phaseCfg.lineColor;
-    if (isStart) shadows.push(`inset ${UI.RAIL_PX}px 0 0 0 ${rail}`);
-    if (isEnd) shadows.push(`inset -${UI.RAIL_PX}px 0 0 0 ${rail}`);
-    if (isEnd) style.borderRight = `${UI.PHASE_GAP_PX}px solid ${COLORS.TABLE_BG}`;
+    const rail = phaseCfg!.lineColor;
+    if (isPhaseStart) shadows.push(`inset ${UI.RAIL_PX}px 0 0 0 ${rail}`);
+    if (isPhaseEnd) shadows.push(`inset -${UI.RAIL_PX}px 0 0 0 ${rail}`);
+
+    // gap after phase end
+    if (isPhaseEnd) style.borderRight = UI.PHASE_GAP_PX + "px solid " + COLORS.TABLE_BG;
+  } else {
+    // ✅ remove vertical line between THUMBNAIL and NAME
+    if (col.id === "thumbnail") style.borderRight = "0px";
+    else style.borderRight = "1px solid " + (header ? COLORS.HEADER_BORDER : COLORS.GRID_LINE);
   }
 
-  if (shadows.length) style.boxShadow = shadows.join(",");
+  if (shadows.length) style.boxShadow = shadows.join(", ");
 
   return style;
 }
 
-/* ---------------- COMPONENT ---------------- */
-
-const AssetsGroupedDataTable = ({ groups = [] }) => {
+const AssetsGroupedDataTable: React.FC<Props> = ({
+  groups = [],
+  sortKey,
+  sortDir,
+  onSortChange,
+  dateTimeFormat,
+  hiddenColumns = new Set(),
+  tableFooter,
+}) => {
   const classes = useStyles();
-  const [collapsed, setCollapsed] = useState({});
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    setCollapsed({});
-  }, [groups]);
+  const toggle = useCallback((key: string) => {
+    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
 
-  const toggle = (k) =>
-    setCollapsed((p) => ({ ...p, [k]: !p[k] }));
+  /**
+   * LIST view column visibility uses ids like:
+   *   mdl_work_status / mdl_approval_status / mdl_submitted_at
+   * But GROUP view column ids are:
+   *   mdl_work / mdl_appr / mdl_submitted
+   *
+   * So we map grouped-column ids -> list-column ids before checking `hiddenColumns`.
+   */
+  const isGroupedColHidden = useCallback(
+    (groupColId: string) => {
+      if (!hiddenColumns || hiddenColumns.size === 0) return false;
 
-  const phaseMeta = useMemo(
-    () => getPhaseMetadata(COLUMNS),
-    []
+      // fixed columns
+      if (groupColId === "thumbnail" || groupColId === "group_1_name") return false;
+      if (groupColId === "relation") return hiddenColumns.has("relation");
+
+      // phase columns
+      const m = groupColId.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted)$/i);
+      if (!m) return hiddenColumns.has(groupColId);
+
+      const phase = m[1].toLowerCase();
+      const kind = m[2].toLowerCase();
+
+      if (kind === "work") return hiddenColumns.has(`${phase}_work_status`);
+      if (kind === "appr") return hiddenColumns.has(`${phase}_approval_status`);
+      return hiddenColumns.has(`${phase}_submitted_at`);
+    },
+    [hiddenColumns],
   );
+
+  const visibleColumns = useMemo(() => {
+    return COLUMNS.filter((c) => !isGroupedColHidden(c.id));
+  }, [isGroupedColHidden]);
+
+  const phaseMeta = useMemo(() => getPhaseMetadata(visibleColumns), [visibleColumns]);
+
+  // Render sort indicator for column headers
+  const renderSortIndicator = (colId: string) => {
+    if (sortKey !== colId) return null;
+    
+    return (
+      <Box ml={0.5} display="inline-flex" alignItems="center">
+        {/* Single arrow only */}
+        <span style={{ 
+          fontSize: 12,
+          color: '#fcfeffff',
+          lineHeight: '12px',
+          marginLeft: 0,
+          fontWeight: 'bold'
+        }}>
+          {sortDir === "asc" ? "▲" : "▼"}
+        </span>
+      </Box>
+    );
+  };
 
   return (
     <Box className={classes.root}>
-      <Table stickyHeader className={classes.table}>
-        <colgroup>
-          {COLUMNS.map((c) => {
-            let w = UI.PHASE_COL_WIDTH;
-            if (c.id === "thumbnail") w = UI.THUMB_WIDTH;
-            if (c.id === "group_1_name") w = UI.NAME_WIDTH;
-            if (c.id === "relation") w = UI.RELATION_WIDTH;
-            return <col key={c.id} style={{ width: w }} />;
-          })}
-        </colgroup>
+      <Box className={classes.scroller}>
+        <Table size="small" stickyHeader className={classes.table}>
+          {/* fixed column widths - PROPER SIZES */}
+          <colgroup>
+            {visibleColumns.map((col) => {
+              let w = UI.PHASE_COL_WIDTH;
+              if (col.id === "thumbnail") w = UI.THUMB_WIDTH;
+              if (col.id === "group_1_name") w = UI.NAME_WIDTH;
+              if (col.id === "relation") w = UI.RELATION_WIDTH;
+              return <col key={col.id} style={{ width: w }} />;
+            })}
+          </colgroup>
 
-        <TableHead>
-          <TableRow>
-            {COLUMNS.map((c) => (
-              <TableCell
-                key={c.id}
-                style={buildCellStyle(c, phaseMeta, true)}
-                align={c.id.includes("name") ? "left" : "center"}
-              >
-                {c.label}
-              </TableCell>
-            ))}
-          </TableRow>
-        </TableHead>
-
-        <TableBody>
-          {groups.map((g) => {
-            const name = g.name;
-            const isClosed = collapsed[name];
-
-            return (
-              <React.Fragment key={name}>
-                <TableRow
-                  className={classes.groupHeader}
-                  onClick={() => toggle(name)}
+          <TableHead>
+            <TableRow>
+              {visibleColumns.map((col) => (
+                <TableCell
+                  key={col.id}
+                  align={col.id === "group_1_name" || col.id === "thumbnail" ? "left" : "center"}
+                  onClick={() => col.sortable && onSortChange(col.id)}
+                  style={{
+                    ...buildCellStyle(col, phaseMeta, { header: true }),
+                    cursor: col.sortable ? "pointer" : "default",
+                    zIndex: 5,
+                  }}
                 >
-                  <TableCell colSpan={COLUMNS.length}>
-                    <Box display="flex" alignItems="center">
-                      <IconButton size="small">
-                        {isClosed ? <ChevronRightIcon /> : <ExpandMoreIcon />}
-                      </IconButton>
-                      <Typography>{name.toUpperCase()}</Typography>
-                    </Box>
-                  </TableCell>
-                </TableRow>
+                  <Box
+                    display="flex"
+                    alignItems="center"
+                    justifyContent={col.id === "group_1_name" || col.id === "thumbnail" ? "flex-start" : "center"}
+                  >
+                    <Typography style={{ 
+                      fontSize: UI.FONT_SIZE_HEADER, 
+                      fontWeight: 500 
+                    }}>
+                      {col.label}
+                    </Typography>
 
-                {!isClosed &&
-                  g.items.map((row, i) => (
-                    <TableRow key={i}>
-                      {COLUMNS.map((c) => (
-                        <TableCell
-                          key={c.id}
-                          style={buildCellStyle(c, phaseMeta)}
-                          align={c.id.includes("name") ? "left" : "center"}
-                        >
-                          {row[c.id] || "—"}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))}
-              </React.Fragment>
-            );
-          })}
-        </TableBody>
-      </Table>
+                    {renderSortIndicator(col.id)}
+                  </Box>
+                </TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+
+          <TableBody>
+            {groups.map((group) => {
+              const groupName = group.top_group_node || "UNASSIGNED";
+              const isCollapsed = !!collapsed[groupName];
+              const visibleCount = (group.items || []).length;
+              const totalCount = (group as any).totalCount || visibleCount;
+
+              return (
+                <React.Fragment key={groupName}>
+                  {/* Group row (click only expands/collapses) */}
+                  <TableRow
+                    className={classes.groupHeader}
+                    onClick={() => {
+                      // ✅ Group row click should ONLY expand/collapse
+                      toggle(groupName);
+                    }}
+                    style={{ cursor: "pointer" }}
+                  >
+                    <TableCell
+                      colSpan={visibleColumns.length}
+                      style={{
+                        backgroundColor: COLORS.GROUP_BG,
+                        color: COLORS.GROUP_TEXT,
+                        borderBottom: UI.GROUP_ROW_GAP_PX + "px solid " + COLORS.TABLE_BG,
+                        padding: "6px 10px",
+                        fontWeight: 900,
+                        position: "relative",
+                      }}
+                    >
+                      <Box display="flex" alignItems="center" justifyContent="space-between">
+                        <Box display="flex" alignItems="center">
+                          <IconButton
+                            size="small"
+                            style={{ color: COLORS.GROUP_TEXT, padding: 0 }}
+                            onClick={(e) => {
+                              // ✅ clicking the chevron should only toggle (and not bubble to other handlers)
+                              e.stopPropagation();
+                              toggle(groupName);
+                            }}
+                          >
+                            {isCollapsed ? (
+                              <ChevronRightIcon fontSize="small" />
+                            ) : (
+                              <ExpandMoreIcon fontSize="small" />
+                            )}
+                          </IconButton>
+
+                          <Typography
+                            style={{
+                              color: COLORS.GROUP_TEXT,
+                              fontSize: UI.FONT_SIZE_GROUP,
+                              fontWeight: 900,
+                            }}
+                          >
+                            {groupName.toUpperCase()}
+                          </Typography>
+                          <Typography
+                            style={{
+                              fontSize: UI.FONT_SIZE_GROUP - 1,
+                              fontWeight: 800,
+                              marginLeft: 6,
+                            }}>
+                             ({visibleCount} of {totalCount})
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+
+                  {/* Data rows */}
+                  {!isCollapsed &&
+                    (group.items || []).map((asset: any, idx: number) => (
+                      <TableRow key={groupName + "-" + idx} hover>
+                        {visibleColumns.map((col) => (
+                          <TableCell
+                            key={col.id}
+                            align={col.id === "group_1_name" || col.id === "thumbnail" ? "left" : "center"}
+                            style={buildCellStyle(col, phaseMeta)}
+                          >
+                            {renderAssetField(asset, col, dateTimeFormat)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                </React.Fragment>
+              );
+            })}
+          </TableBody>
+
+          {/* ✅ Sticky footer pagination */}
+          {tableFooter ? tableFooter : null}
+        </Table>
+      </Box>
+      
     </Box>
   );
 };
