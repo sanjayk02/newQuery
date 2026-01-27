@@ -1,0 +1,404 @@
+-- COMPLETE RAW QUERY FOR ASSET PIVOT WITH GROUPING
+-- This query replicates the logic in ListAssetsPivot
+
+SET @project = 'rod';
+SET @root = 'assets';
+SET @asset_name_key = ''; -- e.g., 'zash%' or empty
+SET @limit = 15;
+SET @offset = 225; -- For page 16 (15 * 15)
+SET @order_key = 'group_1'; -- or 'relation', 'top_group_node', etc.
+SET @direction = 'ASC';
+
+-- ========================================================================
+-- PART 1: COUNT TOTAL ASSETS (matching CountLatestSubmissions)
+-- ========================================================================
+SELECT 
+    'TOTAL ASSETS' as metric,
+    COUNT(DISTINCT CONCAT(group_1, '|', relation)) as value
+FROM t_review_info 
+WHERE project = @project 
+    AND root = @root 
+    AND deleted = 0
+    AND (@asset_name_key = '' OR LOWER(group_1) LIKE LOWER(@asset_name_key));
+
+-- ========================================================================
+-- PART 2: GET PAGINATED ASSETS WITH GROUPING INFO
+-- (matching ListLatestSubmissionsDynamic)
+-- ========================================================================
+WITH asset_ranking AS (
+    SELECT DISTINCT 
+        ri.group_1,
+        ri.relation,
+        COALESCE(
+            gc.top_group_node,
+            'Unassigned'
+        ) as top_group_node,
+        ROW_NUMBER() OVER (
+            ORDER BY 
+                CASE 
+                    WHEN COALESCE(gc.top_group_node, '') = '' THEN 'ZZZ_Unassigned'
+                    ELSE gc.top_group_node
+                END ASC,
+                LOWER(ri.group_1) ASC,
+                LOWER(ri.relation) ASC
+        ) as row_num
+    FROM t_review_info ri
+    LEFT JOIN (
+        -- Get top group from group_category tables
+        SELECT 
+            gcg.path,
+            SUBSTRING_INDEX(gc.path, '/', 1) as top_group_node
+        FROM t_group_category_group gcg
+        JOIN t_group_category gc ON gc.id = gcg.group_category_id
+        WHERE gc.project = @project
+            AND gc.root = 'assets'
+            AND gc.deleted = 0
+            AND gcg.deleted = 0
+    ) gc ON gc.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]'))
+    WHERE ri.project = @project
+        AND ri.root = @root
+        AND ri.deleted = 0
+        AND (@asset_name_key = '' OR LOWER(ri.group_1) LIKE LOWER(@asset_name_key))
+),
+paginated_assets AS (
+    SELECT 
+        ar.group_1,
+        ar.relation,
+        ar.top_group_node
+    FROM asset_ranking ar
+    WHERE ar.row_num > @offset AND ar.row_num <= (@offset + @limit)
+    ORDER BY ar.row_num
+)
+SELECT 
+    'PAGINATED ASSETS (WITH GROUPING)' as section,
+    pa.group_1,
+    pa.relation,
+    pa.top_group_node,
+    COUNT(*) as count
+FROM paginated_assets pa
+GROUP BY pa.group_1, pa.relation, pa.top_group_node
+ORDER BY 
+    CASE 
+        WHEN pa.top_group_node = 'Unassigned' THEN 'ZZZ_Unassigned'
+        ELSE pa.top_group_node
+    END,
+    LOWER(pa.group_1),
+    LOWER(pa.relation);
+
+-- ========================================================================
+-- PART 3: GET ALL PHASE DATA FOR PAGINATED ASSETS
+-- (matching phase data fetch in ListAssetsPivot)
+-- ========================================================================
+WITH asset_ranking AS (
+    SELECT DISTINCT 
+        ri.group_1,
+        ri.relation,
+        COALESCE(
+            gc.top_group_node,
+            'Unassigned'
+        ) as top_group_node,
+        ROW_NUMBER() OVER (
+            ORDER BY 
+                CASE 
+                    WHEN COALESCE(gc.top_group_node, '') = '' THEN 'ZZZ_Unassigned'
+                    ELSE gc.top_group_node
+                END ASC,
+                LOWER(ri.group_1) ASC,
+                LOWER(ri.relation) ASC
+        ) as row_num
+    FROM t_review_info ri
+    LEFT JOIN (
+        SELECT 
+            gcg.path,
+            SUBSTRING_INDEX(gc.path, '/', 1) as top_group_node
+        FROM t_group_category_group gcg
+        JOIN t_group_category gc ON gc.id = gcg.group_category_id
+        WHERE gc.project = @project
+            AND gc.root = 'assets'
+            AND gc.deleted = 0
+            AND gcg.deleted = 0
+    ) gc ON gc.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]'))
+    WHERE ri.project = @project
+        AND ri.root = @root
+        AND ri.deleted = 0
+        AND (@asset_name_key = '' OR LOWER(ri.group_1) LIKE LOWER(@asset_name_key))
+),
+paginated_assets AS (
+    SELECT 
+        ar.group_1,
+        ar.relation,
+        ar.top_group_node
+    FROM asset_ranking ar
+    WHERE ar.row_num > @offset AND ar.row_num <= (@offset + @limit)
+)
+SELECT 
+    'PHASE DATA FOR PAGINATED ASSETS' as section,
+    ri.group_1,
+    ri.relation,
+    ri.phase,
+    ri.work_status,
+    ri.approval_status,
+    ri.submitted_at_utc,
+    JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]')) as leaf_group_name,
+    gc2.path as group_category_path,
+    COALESCE(SUBSTRING_INDEX(gc2.path, '/', 1), 'Unassigned') as top_group_node
+FROM paginated_assets pa
+JOIN t_review_info ri
+    ON ri.project = @project
+    AND ri.root = @root
+    AND ri.group_1 = pa.group_1
+    AND ri.relation = pa.relation
+    AND ri.deleted = 0
+LEFT JOIN t_group_category_group AS gcg2
+    ON gcg2.project = ri.project
+    AND gcg2.deleted = 0
+    AND gcg2.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]'))
+LEFT JOIN t_group_category AS gc2
+    ON gc2.id = gcg2.group_category_id
+    AND gc2.deleted = 0
+    AND gc2.root = 'assets'
+WHERE ri.modified_at_utc = (
+    SELECT MAX(modified_at_utc)
+    FROM t_review_info
+    WHERE project = ri.project
+        AND root = ri.root
+        AND group_1 = ri.group_1
+        AND relation = ri.relation
+        AND deleted = 0
+)
+ORDER BY 
+    CASE 
+        WHEN COALESCE(SUBSTRING_INDEX(gc2.path, '/', 1), '') = '' THEN 'ZZZ_Unassigned'
+        ELSE SUBSTRING_INDEX(gc2.path, '/', 1)
+    END,
+    LOWER(ri.group_1),
+    LOWER(ri.relation),
+    FIELD(ri.phase, 'mdl', 'rig', 'bld', 'dsn', 'ldv');
+
+-- ========================================================================
+-- PART 4: DEBUG - CHECK GROUPING ISSUES
+-- ========================================================================
+SELECT 'DEBUG: GROUPING ANALYSIS' as section;
+
+-- Check if groups JSON field has data
+SELECT 
+    'Assets with/without group paths' as check_type,
+    CASE 
+        WHEN JSON_EXTRACT(groups, '$[0]') IS NULL THEN 'No Group Path'
+        WHEN JSON_EXTRACT(groups, '$[0]') = '' THEN 'Empty Group Path'
+        ELSE 'Has Group Path'
+    END as status,
+    COUNT(*) as asset_count
+FROM t_review_info 
+WHERE project = @project 
+    AND root = @root 
+    AND deleted = 0
+GROUP BY status;
+
+-- Check group category table data
+SELECT 
+    'Group Categories Available' as check_type,
+    SUBSTRING_INDEX(path, '/', 1) as top_group_node,
+    COUNT(*) as category_count
+FROM t_group_category 
+WHERE project = @project 
+    AND root = 'assets'
+    AND deleted = 0
+GROUP BY SUBSTRING_INDEX(path, '/', 1)
+ORDER BY top_group_node;
+
+-- Check if paths match between tables
+SELECT 
+    'Path Matching Analysis' as check_type,
+    CASE 
+        WHEN ri.group_path IS NULL THEN 'Review Info has no group path'
+        WHEN gcg.path IS NULL THEN 'Group path not found in t_group_category_group'
+        WHEN gc.id IS NULL THEN 'Group category not found'
+        ELSE 'Full match found'
+    END as match_status,
+    COUNT(DISTINCT CONCAT(ri.group_1, '|', ri.relation)) as asset_count
+FROM (
+    SELECT 
+        group_1,
+        relation,
+        JSON_UNQUOTE(JSON_EXTRACT(groups, '$[0]')) as group_path
+    FROM t_review_info 
+    WHERE project = @project 
+        AND root = @root 
+        AND deleted = 0
+) ri
+LEFT JOIN t_group_category_group AS gcg
+    ON gcg.project = @project
+    AND gcg.deleted = 0
+    AND gcg.path = ri.group_path
+LEFT JOIN t_group_category AS gc
+    ON gc.id = gcg.group_category_id
+    AND gc.deleted = 0
+    AND gc.root = 'assets'
+GROUP BY match_status;
+
+-- ========================================================================
+-- PART 5: SIMPLIFIED VERSION (If above is too slow)
+-- ========================================================================
+SET @page_size = 15;
+SET @page_number = 16;
+SET @page_offset = (@page_number - 1) * @page_size;
+
+-- Simple pagination query (much faster)
+SELECT DISTINCT 
+    ri.group_1,
+    ri.relation,
+    COALESCE(
+        (
+            SELECT SUBSTRING_INDEX(gc.path, '/', 1)
+            FROM t_group_category gc
+            JOIN t_group_category_group gcg ON gcg.group_category_id = gc.id
+            WHERE gc.project = ri.project
+                AND gc.root = 'assets'
+                AND gc.deleted = 0
+                AND gcg.deleted = 0
+                AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]'))
+            LIMIT 1
+        ),
+        'Unassigned'
+    ) as top_group_node
+FROM t_review_info ri
+WHERE ri.project = @project 
+    AND ri.root = @root 
+    AND ri.deleted = 0
+    AND (@asset_name_key = '' OR LOWER(ri.group_1) LIKE LOWER(@asset_name_key))
+ORDER BY 
+    CASE 
+        WHEN (
+            SELECT SUBSTRING_INDEX(gc.path, '/', 1)
+            FROM t_group_category gc
+            JOIN t_group_category_group gcg ON gcg.group_category_id = gc.id
+            WHERE gc.project = ri.project
+                AND gc.root = 'assets'
+                AND gc.deleted = 0
+                AND gcg.deleted = 0
+                AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]'))
+            LIMIT 1
+        ) IS NULL THEN 'ZZZ_Unassigned'
+        ELSE (
+            SELECT SUBSTRING_INDEX(gc.path, '/', 1)
+            FROM t_group_category gc
+            JOIN t_group_category_group gcg ON gcg.group_category_id = gc.id
+            WHERE gc.project = ri.project
+                AND gc.root = 'assets'
+                AND gc.deleted = 0
+                AND gcg.deleted = 0
+                AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]'))
+            LIMIT 1
+        )
+    END ASC,
+    LOWER(ri.group_1) ASC,
+    LOWER(ri.relation) ASC
+LIMIT @page_size OFFSET @page_offset;
+
+-- ========================================================================
+-- PART 6: FINAL PIVOT RESULT (What the API should return)
+-- ========================================================================
+WITH asset_list AS (
+    -- Get paginated asset list
+    SELECT DISTINCT 
+        ri.group_1,
+        ri.relation,
+        COALESCE(
+            (
+                SELECT SUBSTRING_INDEX(gc.path, '/', 1)
+                FROM t_group_category gc
+                JOIN t_group_category_group gcg ON gcg.group_category_id = gc.id
+                WHERE gc.project = ri.project
+                    AND gc.root = 'assets'
+                    AND gc.deleted = 0
+                    AND gcg.deleted = 0
+                    AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]'))
+                LIMIT 1
+            ),
+            'Unassigned'
+        ) as top_group_node
+    FROM t_review_info ri
+    WHERE ri.project = @project 
+        AND ri.root = @root 
+        AND ri.deleted = 0
+        AND (@asset_name_key = '' OR LOWER(ri.group_1) LIKE LOWER(@asset_name_key))
+    ORDER BY 
+        CASE 
+            WHEN (
+                SELECT SUBSTRING_INDEX(gc.path, '/', 1)
+                FROM t_group_category gc
+                JOIN t_group_category_group gcg ON gcg.group_category_id = gc.id
+                WHERE gc.project = ri.project
+                    AND gc.root = 'assets'
+                    AND gc.deleted = 0
+                    AND gcg.deleted = 0
+                    AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]'))
+                LIMIT 1
+            ) IS NULL THEN 'ZZZ_Unassigned'
+            ELSE (
+                SELECT SUBSTRING_INDEX(gc.path, '/', 1)
+                FROM t_group_category gc
+                JOIN t_group_category_group gcg ON gcg.group_category_id = gc.id
+                WHERE gc.project = ri.project
+                    AND gc.root = 'assets'
+                    AND gc.deleted = 0
+                    AND gcg.deleted = 0
+                    AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]'))
+                LIMIT 1
+            )
+        END ASC,
+        LOWER(ri.group_1) ASC,
+        LOWER(ri.relation) ASC
+    LIMIT @page_size OFFSET @page_offset
+),
+latest_reviews AS (
+    -- Get latest review for each asset-phase combination
+    SELECT 
+        ri.group_1,
+        ri.relation,
+        ri.phase,
+        ri.work_status,
+        ri.approval_status,
+        ri.submitted_at_utc,
+        ROW_NUMBER() OVER (
+            PARTITION BY ri.group_1, ri.relation, ri.phase
+            ORDER BY ri.modified_at_utc DESC
+        ) as rn
+    FROM t_review_info ri
+    WHERE ri.project = @project 
+        AND ri.root = @root 
+        AND ri.deleted = 0
+)
+SELECT 
+    'FINAL PIVOT RESULT' as section,
+    al.group_1,
+    al.relation,
+    al.top_group_node,
+    MAX(CASE WHEN lr.phase = 'mdl' AND lr.rn = 1 THEN lr.work_status END) as mdl_work_status,
+    MAX(CASE WHEN lr.phase = 'mdl' AND lr.rn = 1 THEN lr.approval_status END) as mdl_approval_status,
+    MAX(CASE WHEN lr.phase = 'mdl' AND lr.rn = 1 THEN lr.submitted_at_utc END) as mdl_submitted_at_utc,
+    MAX(CASE WHEN lr.phase = 'rig' AND lr.rn = 1 THEN lr.work_status END) as rig_work_status,
+    MAX(CASE WHEN lr.phase = 'rig' AND lr.rn = 1 THEN lr.approval_status END) as rig_approval_status,
+    MAX(CASE WHEN lr.phase = 'rig' AND lr.rn = 1 THEN lr.submitted_at_utc END) as rig_submitted_at_utc,
+    MAX(CASE WHEN lr.phase = 'bld' AND lr.rn = 1 THEN lr.work_status END) as bld_work_status,
+    MAX(CASE WHEN lr.phase = 'bld' AND lr.rn = 1 THEN lr.approval_status END) as bld_approval_status,
+    MAX(CASE WHEN lr.phase = 'bld' AND lr.rn = 1 THEN lr.submitted_at_utc END) as bld_submitted_at_utc,
+    MAX(CASE WHEN lr.phase = 'dsn' AND lr.rn = 1 THEN lr.work_status END) as dsn_work_status,
+    MAX(CASE WHEN lr.phase = 'dsn' AND lr.rn = 1 THEN lr.approval_status END) as dsn_approval_status,
+    MAX(CASE WHEN lr.phase = 'dsn' AND lr.rn = 1 THEN lr.submitted_at_utc END) as dsn_submitted_at_utc,
+    MAX(CASE WHEN lr.phase = 'ldv' AND lr.rn = 1 THEN lr.work_status END) as ldv_work_status,
+    MAX(CASE WHEN lr.phase = 'ldv' AND lr.rn = 1 THEN lr.approval_status END) as ldv_approval_status,
+    MAX(CASE WHEN lr.phase = 'ldv' AND lr.rn = 1 THEN lr.submitted_at_utc END) as ldv_submitted_at_utc
+FROM asset_list al
+LEFT JOIN latest_reviews lr 
+    ON lr.group_1 = al.group_1 
+    AND lr.relation = al.relation
+GROUP BY al.group_1, al.relation, al.top_group_node
+ORDER BY 
+    CASE 
+        WHEN al.top_group_node = 'Unassigned' THEN 'ZZZ_Unassigned'
+        ELSE al.top_group_node
+    END,
+    LOWER(al.group_1),
+    LOWER(al.relation);
