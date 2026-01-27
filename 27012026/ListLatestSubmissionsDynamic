@@ -10,7 +10,6 @@ func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 	approvalStatuses []string,
 	workStatuses []string,
 ) ([]LatestSubmissionRow, error) {
-
 	if project == "" {
 		return nil, fmt.Errorf("project is required")
 	}
@@ -24,74 +23,144 @@ func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 		offset = 0
 	}
 
-	sql := `
-SELECT
-  b.root,
-  b.project,
-  b.group_1,
-  b.relation,
-  b.phase,
-  b.submitted_at_utc
-FROM t_review_info b
-JOIN (
-  SELECT
-    project, root, group_1, relation, phase,
-    MAX(modified_at_utc) AS modified_at_utc
-  FROM t_review_info
-  WHERE project = ? AND root = ? AND deleted = 0
-  GROUP BY project, root, group_1, relation, phase
-) a
-ON a.project = b.project
-AND a.root = b.root
-AND a.group_1 = b.group_1
-AND a.relation = b.relation
-AND a.phase = b.phase
-AND a.modified_at_utc = b.modified_at_utc
-WHERE b.project = ? AND b.root = ? AND b.deleted = 0
+	// Add timeout protection
+	queryCtx, cancel := r.withTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	db := r.db.WithContext(queryCtx)
+
+	// OPTIMIZED APPROACH: Use database pagination directly with a simpler query
+	
+	// Build base query
+	query := `
+WITH asset_ranking AS (
+    SELECT DISTINCT 
+        ri.group_1,
+        ri.relation,
+        COALESCE(
+            SUBSTRING_INDEX(gc.path, '/', 1),
+            'Unassigned'
+        ) as top_group_node,
+        ROW_NUMBER() OVER (
+            ORDER BY 
 `
 
-	args := []any{project, root, project, root}
+	// Add ORDER BY based on orderKey
+	switch orderKey {
+	case "group1_only":
+		if strings.ToUpper(direction) == "ASC" {
+			query += "LOWER(ri.group_1) ASC, LOWER(ri.relation) ASC"
+		} else {
+			query += "LOWER(ri.group_1) DESC, LOWER(ri.relation) ASC"
+		}
+	case "relation_only":
+		if strings.ToUpper(direction) == "ASC" {
+			query += "LOWER(ri.relation) ASC, LOWER(ri.group_1) ASC"
+		} else {
+			query += "LOWER(ri.relation) DESC, LOWER(ri.group_1) ASC"
+		}
+	case "top_group_node":
+		query += `
+            CASE 
+                WHEN COALESCE(SUBSTRING_INDEX(gc.path, '/', 1), '') = '' THEN 'ZZZ_Unassigned'
+                ELSE SUBSTRING_INDEX(gc.path, '/', 1)
+            END `
+		if strings.ToUpper(direction) == "ASC" {
+			query += "ASC, LOWER(ri.group_1) ASC, LOWER(ri.relation) ASC"
+		} else {
+			query += "DESC, LOWER(ri.group_1) ASC, LOWER(ri.relation) ASC"
+		}
+	default: // "group_rel_submitted" or default
+		if strings.ToUpper(direction) == "ASC" {
+			query += "LOWER(ri.group_1) ASC, LOWER(ri.relation) ASC"
+		} else {
+			query += "LOWER(ri.group_1) DESC, LOWER(ri.relation) ASC"
+		}
+	}
 
-	// name filter
+	query += `
+        ) as row_num
+    FROM t_review_info ri
+    LEFT JOIN t_group_category_group AS gcg
+        ON gcg.project = ri.project
+        AND gcg.deleted = 0
+        AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]'))
+    LEFT JOIN t_group_category AS gc
+        ON gc.id = gcg.group_category_id
+        AND gc.deleted = 0
+        AND gc.root = 'assets'
+    WHERE ri.project = ? 
+        AND ri.root = ? 
+        AND ri.deleted = 0
+        AND (? = '' OR LOWER(ri.group_1) LIKE ?)
+)
+SELECT 
+    ar.group_1,
+    ar.relation,
+    ar.top_group_node,
+    ri.phase,
+    ri.submitted_at_utc
+FROM asset_ranking ar
+INNER JOIN t_review_info ri
+    ON ri.project = ?
+    AND ri.root = ?
+    AND ri.group_1 = ar.group_1
+    AND ri.relation = ar.relation
+    AND ri.deleted = 0
+    AND ri.modified_at_utc = (
+        SELECT MAX(modified_at_utc)
+        FROM t_review_info
+        WHERE project = ri.project
+            AND root = ri.root
+            AND group_1 = ri.group_1
+            AND relation = ri.relation
+            AND deleted = 0
+    )
+WHERE ar.row_num > ? AND ar.row_num <= ?
+ORDER BY ar.row_num
+`
+
+	var nameArg any
 	if strings.TrimSpace(assetNameKey) != "" {
-		sql += " AND LOWER(b.group_1) LIKE ?"
-		args = append(args, strings.ToLower(assetNameKey)+"%")
+		nameArg = strings.ToLower(strings.TrimSpace(assetNameKey)) + "%"
+	} else {
+		nameArg = ""
 	}
 
-	// approval filter
-	if len(approvalStatuses) > 0 {
-		ph := strings.Repeat("?,", len(approvalStatuses))
-		ph = ph[:len(ph)-1]
-		sql += " AND LOWER(b.approval_status) IN (" + ph + ")"
-		for _, v := range approvalStatuses {
-			args = append(args, strings.ToLower(v))
-		}
+	// Calculate row numbers for pagination
+	startRow := offset
+	endRow := offset + limit
+
+	args := []any{
+		project, root, nameArg, nameArg, // For CTE
+		project, root,                    // For JOIN
+		startRow, endRow,                 // For pagination
 	}
 
-	// work filter
-	if len(workStatuses) > 0 {
-		ph := strings.Repeat("?,", len(workStatuses))
-		ph = ph[:len(ph)-1]
-		sql += " AND LOWER(b.work_status) IN (" + ph + ")"
-		for _, v := range workStatuses {
-			args = append(args, strings.ToLower(v))
-		}
+	var rows []struct {
+		Group1         string     `gorm:"column:group_1"`
+		Relation       string     `gorm:"column:relation"`
+		TopGroupNode   string     `gorm:"column:top_group_node"`
+		Phase          string     `gorm:"column:phase"`
+		SubmittedAtUTC *time.Time `gorm:"column:submitted_at_utc"`
 	}
 
-	// order
-	sql += `
-ORDER BY
-  LOWER(b.group_1) ASC,
-  LOWER(b.relation) ASC,
-  b.modified_at_utc DESC
-LIMIT ? OFFSET ?;
-`
-	args = append(args, limit, offset)
-
-	var rows []LatestSubmissionRow
-	if err := r.db.WithContext(ctx).Raw(sql, args...).Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("ListLatestSubmissionsDynamic: %w", err)
+	if err := db.Raw(query, args...).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to get paginated assets: %w", err)
 	}
 
-	return rows, nil
+	// Convert to LatestSubmissionRow
+	result := make([]LatestSubmissionRow, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, LatestSubmissionRow{
+			Root:           root,
+			Project:        project,
+			Group1:         row.Group1,
+			Relation:       row.Relation,
+			Phase:          row.Phase,
+			SubmittedAtUTC: row.SubmittedAtUTC,
+		})
+	}
+
+	return result, nil
 }
