@@ -1,0 +1,617 @@
+func (r *ReviewInfo) ListLatestSubmissionsDynamic(
+	ctx context.Context,
+	project string,
+	root string,
+	preferredPhase string,
+	orderKey string,
+	direction string,
+	limit, offset int,
+	assetNameKey string,
+	approvalStatuses []string,
+	workStatuses []string,
+) ([]LatestSubmissionRow, error) {
+	if project == "" {
+		return nil, fmt.Errorf("project is required")
+	}
+	if root == "" {
+		root = "assets"
+	}
+	if limit <= 0 {
+		limit = 60
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Add timeout protection
+	queryCtx, cancel := r.withTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	db := r.db.WithContext(queryCtx)
+
+	// Step 1: Get unique assets WITH GROUPING INFORMATION
+	assetsQuery := `
+SELECT DISTINCT 
+    ri.group_1,
+    ri.relation,
+    JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]')) as leaf_group_name,
+    gc.path AS group_category_path,
+    SUBSTRING_INDEX(gc.path, '/', 1) AS top_group_node
+FROM t_review_info ri
+LEFT JOIN t_group_category_group AS gcg
+    ON gcg.project = ri.project
+    AND gcg.deleted = 0
+    AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]'))
+LEFT JOIN t_group_category AS gc
+    ON gc.id = gcg.group_category_id
+    AND gc.deleted = 0
+    AND gc.root = 'assets'
+WHERE ri.project = ? 
+    AND ri.root = ? 
+    AND ri.deleted = 0
+    AND (? = '' OR LOWER(ri.group_1) LIKE ?)
+`
+	
+	var nameArg any
+	if strings.TrimSpace(assetNameKey) != "" {
+		nameArg = strings.ToLower(strings.TrimSpace(assetNameKey)) + "%"
+	} else {
+		nameArg = ""
+	}
+	
+	// Get all matching assets with grouping info
+	var assets []struct {
+		Group1           string `gorm:"column:group_1"`
+		Relation         string `gorm:"column:relation"`
+		LeafGroupName    string `gorm:"column:leaf_group_name"`
+		GroupCategoryPath string `gorm:"column:group_category_path"`
+		TopGroupNode     string `gorm:"column:top_group_node"`
+	}
+	
+	if err := db.Raw(assetsQuery, project, root, nameArg, nameArg).Scan(&assets).Error; err != nil {
+		return nil, fmt.Errorf("failed to get assets: %w", err)
+	}
+	
+	if len(assets) == 0 {
+		return []LatestSubmissionRow{}, nil
+	}
+	
+	// Step 2: Apply dynamic sorting based on orderKey and direction
+	sort.Slice(assets, func(i, j int) bool {
+		// Normalize direction
+		isAscending := strings.ToUpper(direction) == "ASC"
+		
+		// Handle empty TopGroupNode as "Unassigned"
+		ti := assets[i].TopGroupNode
+		tj := assets[j].TopGroupNode
+		if ti == "" {
+			ti = "unassigned"
+		}
+		if tj == "" {
+			tj = "unassigned"
+		}
+		
+		// Apply sorting based on orderKey
+		switch orderKey {
+		case "group1_only":
+			// Sort by Group1 only
+			gi := strings.ToLower(assets[i].Group1)
+			gj := strings.ToLower(assets[j].Group1)
+			if gi != gj {
+				if isAscending {
+					return gi < gj
+				}
+				return gi > gj
+			}
+			// Fallback to relation
+			ri := strings.ToLower(assets[i].Relation)
+			rj := strings.ToLower(assets[j].Relation)
+			return ri < rj
+			
+		case "relation_only":
+			// Sort by Relation only
+			ri := strings.ToLower(assets[i].Relation)
+			rj := strings.ToLower(assets[j].Relation)
+			if ri != rj {
+				if isAscending {
+					return ri < rj
+				}
+				return ri > rj
+			}
+			// Fallback to group1
+			gi := strings.ToLower(assets[i].Group1)
+			gj := strings.ToLower(assets[j].Group1)
+			return gi < gj
+			
+		case "group_rel_submitted":
+			// Sort by Group1, then Relation
+			gi := strings.ToLower(assets[i].Group1)
+			gj := strings.ToLower(assets[j].Group1)
+			if gi != gj {
+				return gi < gj
+			}
+			ri := strings.ToLower(assets[i].Relation)
+			rj := strings.ToLower(assets[j].Relation)
+			return ri < rj
+			
+		case "top_group_node":
+			// Sort by TopGroupNode first (always alphabetical, Unassigned last)
+			if ti == "unassigned" && tj != "unassigned" {
+				return false
+			}
+			if ti != "unassigned" && tj == "unassigned" {
+				return true
+			}
+			if ti != tj {
+				if isAscending {
+					return ti < tj
+				}
+				return ti > tj
+			}
+			// Within same group, sort by Group1
+			gi := strings.ToLower(assets[i].Group1)
+			gj := strings.ToLower(assets[j].Group1)
+			if gi != gj {
+				return gi < gj
+			}
+			// Then by Relation
+			return strings.ToLower(assets[i].Relation) < strings.ToLower(assets[j].Relation)
+			
+		default:
+			// Default: sort by Group1, then Relation (like "group_rel_submitted")
+			gi := strings.ToLower(assets[i].Group1)
+			gj := strings.ToLower(assets[j].Group1)
+			if gi != gj {
+				if isAscending {
+					return gi < gj
+				}
+				return gi > gj
+			}
+			ri := strings.ToLower(assets[i].Relation)
+			rj := strings.ToLower(assets[j].Relation)
+			return ri < rj
+		}
+	})
+	
+	// Apply pagination
+	start := offset
+	end := offset + limit
+	if start > len(assets) {
+		return []LatestSubmissionRow{}, nil
+	}
+	if end > len(assets) {
+		end = len(assets)
+	}
+	
+	paginatedAssets := assets[start:end]
+	
+	// Step 3: For paginated assets, get their latest review info
+	if len(paginatedAssets) == 0 {
+		return []LatestSubmissionRow{}, nil
+	}
+	
+	// Build query for specific assets
+	var sb strings.Builder
+	var params []any
+	
+	sb.WriteString(`
+SELECT 
+    ri.root,
+    ri.project,
+    ri.group_1,
+    ri.relation,
+    ri.phase,
+    ri.submitted_at_utc
+FROM t_review_info ri
+WHERE ri.deleted = 0
+    AND ri.project = ?
+    AND ri.root = ?
+    AND (
+`)
+	
+	params = append(params, project, root)
+	
+	for i, asset := range paginatedAssets {
+		if i > 0 {
+			sb.WriteString(" OR ")
+		}
+		sb.WriteString("(ri.group_1 = ? AND ri.relation = ?)")
+		params = append(params, asset.Group1, asset.Relation)
+	}
+	sb.WriteString(")")
+	
+	// Get all reviews for these assets
+	var allReviews []LatestSubmissionRow
+	if err := db.Raw(sb.String(), params...).Scan(&allReviews).Error; err != nil {
+		return nil, fmt.Errorf("failed to get reviews: %w", err)
+	}
+	
+	// Step 4: In-memory processing to get latest per asset
+	assetMap := make(map[string]LatestSubmissionRow)
+	for _, review := range allReviews {
+		key := review.Group1 + "|" + review.Relation
+		existing, exists := assetMap[key]
+		
+		if !exists || (review.SubmittedAtUTC != nil && existing.SubmittedAtUTC != nil && 
+			review.SubmittedAtUTC.After(*existing.SubmittedAtUTC)) {
+			assetMap[key] = review
+		}
+	}
+	
+	// Convert back to slice in the correct order
+	result := make([]LatestSubmissionRow, 0, len(paginatedAssets))
+	for _, asset := range paginatedAssets {
+		key := asset.Group1 + "|" + asset.Relation
+		if review, ok := assetMap[key]; ok {
+			result = append(result, review)
+		}
+	}
+	
+	return result, nil
+}
+
+func (r *ReviewInfo) ListAssetsPivot(
+	ctx context.Context,
+	project, root, preferredPhase, orderKey, direction string,
+	limit, offset int,
+	assetNameKey string,
+	approvalStatuses []string,
+	workStatuses []string,
+) ([]AssetPivot, int64, error) {
+	if project == "" {
+		return nil, 0, fmt.Errorf("project is required")
+	}
+	if root == "" {
+		root = "assets"
+	}
+
+	// Calculate page number from offset/limit
+	page := 1
+	if limit > 0 {
+		page = (offset / limit) + 1
+	}
+	
+	// Try cache first
+	cacheKey := r.getCacheKey(project, root, assetNameKey, page, limit, orderKey, direction)
+	if cachedData, found := r.getFromCache(cacheKey); found {
+		// Still need to get total count
+		total, err := r.CountLatestSubmissions(
+			ctx, project, root, assetNameKey, preferredPhase, approvalStatuses, workStatuses,
+		)
+		if err == nil {
+			return cachedData, total, nil
+		}
+	}
+	
+	// Add timeout protection for database operations
+	queryCtx, cancel := r.withTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	// 1. Get total count
+	total, err := r.CountLatestSubmissions(
+		queryCtx,
+		project, root, assetNameKey, preferredPhase, approvalStatuses, workStatuses,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// 2. Get latest submissions
+	latestRows, err := r.ListLatestSubmissionsDynamic(
+		queryCtx,
+		project, root, preferredPhase, orderKey, direction,
+		limit, offset, assetNameKey, approvalStatuses, workStatuses,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if len(latestRows) == 0 {
+		return []AssetPivot{}, total, nil
+	}
+
+	// 3. Get ALL reviews for these assets (all phases) WITH GROUPING INFO
+	var sb strings.Builder
+	var params []any
+	
+	sb.WriteString(`
+SELECT 
+    ri.project,
+    ri.root,
+    ri.group_1,
+    ri.relation,
+    ri.phase,
+    ri.work_status,
+    ri.approval_status,
+    ri.submitted_at_utc,
+    JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]')) as leaf_group_name,
+    gc.path AS group_category_path,
+    SUBSTRING_INDEX(gc.path, '/', 1) AS top_group_node
+FROM t_review_info ri
+LEFT JOIN t_group_category_group AS gcg
+    ON gcg.project = ri.project
+    AND gcg.deleted = 0
+    AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]'))
+LEFT JOIN t_group_category AS gc
+    ON gc.id = gcg.group_category_id
+    AND gc.deleted = 0
+    AND gc.root = 'assets'
+WHERE ri.deleted = 0
+    AND ri.project = ?
+    AND ri.root = ?
+    AND (
+`)
+	
+	params = append(params, project, root)
+	
+	for i, row := range latestRows {
+		if i > 0 {
+			sb.WriteString(" OR ")
+		}
+		sb.WriteString("(ri.group_1 = ? AND ri.relation = ?)")
+		params = append(params, row.Group1, row.Relation)
+	}
+	sb.WriteString(")")
+
+	// Execute with timeout context
+	db := r.db.WithContext(queryCtx)
+	var phaseData []struct {
+		Project           string     `gorm:"column:project"`
+		Root              string     `gorm:"column:root"`
+		Group1            string     `gorm:"column:group_1"`
+		Relation          string     `gorm:"column:relation"`
+		Phase             string     `gorm:"column:phase"`
+		WorkStatus        *string    `gorm:"column:work_status"`
+		ApprovalStatus    *string    `gorm:"column:approval_status"`
+		SubmittedAtUTC    *time.Time `gorm:"column:submitted_at_utc"`
+		LeafGroupName     string     `gorm:"column:leaf_group_name"`
+		GroupCategoryPath string     `gorm:"column:group_category_path"`
+		TopGroupNode      string     `gorm:"column:top_group_node"`
+	}
+	
+	if err := db.Raw(sb.String(), params...).Scan(&phaseData).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to get phase data: %w", err)
+	}
+
+	// 4. Build pivot rows in memory
+	assetMap := make(map[string]*AssetPivot)
+	
+	// First create asset map from latestRows to preserve order
+	for _, row := range latestRows {
+		key := row.Group1 + "|" + row.Relation
+		assetMap[key] = &AssetPivot{
+			Root:     row.Root,
+			Project:  row.Project,
+			Group1:   row.Group1,
+			Relation: row.Relation,
+		}
+	}
+
+	// Fill in phase data
+	for _, pd := range phaseData {
+		key := pd.Group1 + "|" + pd.Relation
+		ap := assetMap[key]
+		if ap == nil {
+			continue
+		}
+
+		// Set grouping info once (use first non-empty values)
+		if ap.LeafGroupName == "" && pd.LeafGroupName != "" {
+			ap.LeafGroupName = pd.LeafGroupName
+		}
+		if ap.GroupCategoryPath == "" && pd.GroupCategoryPath != "" {
+			ap.GroupCategoryPath = pd.GroupCategoryPath
+		}
+		if ap.TopGroupNode == "" && pd.TopGroupNode != "" {
+			ap.TopGroupNode = pd.TopGroupNode
+		}
+
+		// Set phase-specific data
+		phase := strings.ToLower(pd.Phase)
+		switch phase {
+		case "mdl":
+			ap.MDLWorkStatus = pd.WorkStatus
+			ap.MDLApprovalStatus = pd.ApprovalStatus
+			ap.MDLSubmittedAtUTC = pd.SubmittedAtUTC
+		case "rig":
+			ap.RIGWorkStatus = pd.WorkStatus
+			ap.RIGApprovalStatus = pd.ApprovalStatus
+			ap.RIGSubmittedAtUTC = pd.SubmittedAtUTC
+		case "bld":
+			ap.BLDWorkStatus = pd.WorkStatus
+			ap.BLDApprovalStatus = pd.ApprovalStatus
+			ap.BLDSubmittedAtUTC = pd.SubmittedAtUTC
+		case "dsn":
+			ap.DSNWorkStatus = pd.WorkStatus
+			ap.DSNApprovalStatus = pd.ApprovalStatus
+			ap.DSNSubmittedAtUTC = pd.SubmittedAtUTC
+		case "ldv":
+			ap.LDVWorkStatus = pd.WorkStatus
+			ap.LDVApprovalStatus = pd.ApprovalStatus
+			ap.LDVSubmittedAtUTC = pd.SubmittedAtUTC
+		}
+	}
+
+	// 5. Convert map to slice for further sorting if needed
+	assets := make([]*AssetPivot, 0, len(latestRows))
+	for _, row := range latestRows {
+		key := row.Group1 + "|" + row.Relation
+		if ap, ok := assetMap[key]; ok {
+			// Ensure TopGroupNode is properly set
+			if ap.TopGroupNode == "" {
+				ap.TopGroupNode = "Unassigned"
+			}
+			assets = append(assets, ap)
+		}
+	}
+
+	// 6. Apply phase-specific sorting if needed
+	if strings.Contains(orderKey, "mdl_") || strings.Contains(orderKey, "rig_") || 
+	   strings.Contains(orderKey, "bld_") || strings.Contains(orderKey, "dsn_") || 
+	   strings.Contains(orderKey, "ldv_") || orderKey == "work_status" || orderKey == "approval_status" {
+		
+		sort.Slice(assets, func(i, j int) bool {
+			isAscending := strings.ToUpper(direction) == "ASC"
+			
+			switch orderKey {
+			case "mdl_work", "rig_work", "bld_work", "dsn_work", "ldv_work", "work_status":
+				// Get phase prefix
+				phase := strings.Split(orderKey, "_")[0]
+				if orderKey == "work_status" {
+					phase = preferredPhase // Use preferred phase if available
+				}
+				
+				// Get work status values for comparison
+				var wi, wj string
+				switch phase {
+				case "mdl":
+					if assets[i].MDLWorkStatus != nil {
+						wi = strings.ToLower(*assets[i].MDLWorkStatus)
+					}
+					if assets[j].MDLWorkStatus != nil {
+						wj = strings.ToLower(*assets[j].MDLWorkStatus)
+					}
+				case "rig":
+					if assets[i].RIGWorkStatus != nil {
+						wi = strings.ToLower(*assets[i].RIGWorkStatus)
+					}
+					if assets[j].RIGWorkStatus != nil {
+						wj = strings.ToLower(*assets[j].RIGWorkStatus)
+					}
+				case "bld":
+					if assets[i].BLDWorkStatus != nil {
+						wi = strings.ToLower(*assets[i].BLDWorkStatus)
+					}
+					if assets[j].BLDWorkStatus != nil {
+						wj = strings.ToLower(*assets[j].BLDWorkStatus)
+					}
+				case "dsn":
+					if assets[i].DSNWorkStatus != nil {
+						wi = strings.ToLower(*assets[i].DSNWorkStatus)
+					}
+					if assets[j].DSNWorkStatus != nil {
+						wj = strings.ToLower(*assets[j].DSNWorkStatus)
+					}
+				case "ldv":
+					if assets[i].LDVWorkStatus != nil {
+						wi = strings.ToLower(*assets[i].LDVWorkStatus)
+					}
+					if assets[j].LDVWorkStatus != nil {
+						wj = strings.ToLower(*assets[j].LDVWorkStatus)
+					}
+				}
+				
+				// Handle nil values (put them at the end for ASC, beginning for DESC)
+				if wi == "" && wj != "" {
+					return !isAscending
+				}
+				if wi != "" && wj == "" {
+					return isAscending
+				}
+				if wi == "" && wj == "" {
+					// Both nil, fallback to group name
+					return strings.ToLower(assets[i].Group1) < strings.ToLower(assets[j].Group1)
+				}
+				
+				// Compare values
+				if wi != wj {
+					if isAscending {
+						return wi < wj
+					}
+					return wi > wj
+				}
+				// Same work status, fallback to group name
+				return strings.ToLower(assets[i].Group1) < strings.ToLower(assets[j].Group1)
+				
+			case "mdl_appr", "rig_appr", "bld_appr", "dsn_appr", "ldv_appr":
+				// Similar logic for approval status
+				phase := strings.Split(orderKey, "_")[0]
+				var ai, aj string
+				switch phase {
+				case "mdl":
+					if assets[i].MDLApprovalStatus != nil {
+						ai = strings.ToLower(*assets[i].MDLApprovalStatus)
+					}
+					if assets[j].MDLApprovalStatus != nil {
+						aj = strings.ToLower(*assets[j].MDLApprovalStatus)
+					}
+				case "rig":
+					if assets[i].RIGApprovalStatus != nil {
+						ai = strings.ToLower(*assets[i].RIGApprovalStatus)
+					}
+					if assets[j].RIGApprovalStatus != nil {
+						aj = strings.ToLower(*assets[j].RIGApprovalStatus)
+					}
+				// ... similar for other phases
+				}
+				
+				// Handle nil values
+				if ai == "" && aj != "" {
+					return !isAscending
+				}
+				if ai != "" && aj == "" {
+					return isAscending
+				}
+				if ai == "" && aj == "" {
+					return strings.ToLower(assets[i].Group1) < strings.ToLower(assets[j].Group1)
+				}
+				
+				if ai != aj {
+					if isAscending {
+						return ai < aj
+					}
+					return ai > aj
+				}
+				return strings.ToLower(assets[i].Group1) < strings.ToLower(assets[j].Group1)
+				
+			case "mdl_submitted", "rig_submitted", "bld_submitted", "dsn_submitted", "ldv_submitted":
+				// For submitted dates
+				phase := strings.Split(orderKey, "_")[0]
+				var si, sj *time.Time
+				switch phase {
+				case "mdl":
+					si = assets[i].MDLSubmittedAtUTC
+					sj = assets[j].MDLSubmittedAtUTC
+				case "rig":
+					si = assets[i].RIGSubmittedAtUTC
+					sj = assets[j].RIGSubmittedAtUTC
+				// ... similar for other phases
+				}
+				
+				// Handle nil values
+				if si == nil && sj != nil {
+					return !isAscending
+				}
+				if si != nil && sj == nil {
+					return isAscending
+				}
+				if si == nil && sj == nil {
+					return strings.ToLower(assets[i].Group1) < strings.ToLower(assets[j].Group1)
+				}
+				
+				if !si.Equal(*sj) {
+					if isAscending {
+						return si.Before(*sj)
+					}
+					return si.After(*sj)
+				}
+				return strings.ToLower(assets[i].Group1) < strings.ToLower(assets[j].Group1)
+				
+			default:
+				// Default fallback
+				return strings.ToLower(assets[i].Group1) < strings.ToLower(assets[j].Group1)
+			}
+		})
+	}
+
+	// 7. Convert to result slice
+	result := make([]AssetPivot, 0, len(assets))
+	for _, ap := range assets {
+		result = append(result, *ap)
+	}
+
+	// Cache the result
+	r.setToCache(cacheKey, result, page, limit)
+
+	return result, total, nil
+}
