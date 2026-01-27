@@ -1,0 +1,53 @@
+// Alternative simple query without complex joins
+query := `
+SELECT DISTINCT 
+    ri.group_1,
+    ri.relation,
+    COALESCE(
+        (
+            SELECT SUBSTRING_INDEX(gc.path, '/', 1)
+            FROM t_group_category gc
+            JOIN t_group_category_group gcg ON gcg.group_category_id = gc.id
+            WHERE gc.project = ri.project
+                AND gc.root = 'assets'
+                AND gc.deleted = 0
+                AND gcg.deleted = 0
+                AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]'))
+            LIMIT 1
+        ),
+        'Unassigned'
+    ) as top_group_node
+FROM t_review_info ri
+WHERE ri.project = ? 
+    AND ri.root = ? 
+    AND ri.deleted = 0
+    AND (? = '' OR LOWER(ri.group_1) LIKE ?)
+ORDER BY 
+    CASE 
+        WHEN (
+            SELECT SUBSTRING_INDEX(gc.path, '/', 1)
+            FROM t_group_category gc
+            JOIN t_group_category_group gcg ON gcg.group_category_id = gc.id
+            WHERE gc.project = ri.project
+                AND gc.root = 'assets'
+                AND gc.deleted = 0
+                AND gcg.deleted = 0
+                AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]'))
+            LIMIT 1
+        ) IS NULL THEN 'ZZZ_Unassigned'
+        ELSE (
+            SELECT SUBSTRING_INDEX(gc.path, '/', 1)
+            FROM t_group_category gc
+            JOIN t_group_category_group gcg ON gcg.group_category_id = gc.id
+            WHERE gc.project = ri.project
+                AND gc.root = 'assets'
+                AND gc.deleted = 0
+                AND gcg.deleted = 0
+                AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]'))
+            LIMIT 1
+        )
+    END ASC,
+    LOWER(ri.group_1) ASC,
+    LOWER(ri.relation) ASC
+LIMIT ? OFFSET ?
+`
