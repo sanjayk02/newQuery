@@ -1,0 +1,56 @@
+func (r *ReviewInfo) CountLatestSubmissions(
+	ctx context.Context,
+	project, root, assetNameKey string,
+	preferredPhase string, // kept for API compatibility (not used)
+	approvalStatuses []string,
+	workStatuses []string,
+) (int64, error) {
+
+	if project == "" {
+		return 0, fmt.Errorf("project is required")
+	}
+	if root == "" {
+		root = "assets"
+	}
+
+	sql := `
+SELECT COUNT(DISTINCT project, root, group_1, relation)
+FROM t_review_info
+WHERE project = ? AND root = ? AND deleted = 0
+`
+
+	args := []any{project, root}
+
+	// asset name prefix
+	if strings.TrimSpace(assetNameKey) != "" {
+		sql += " AND LOWER(group_1) LIKE ?"
+		args = append(args, strings.ToLower(strings.TrimSpace(assetNameKey))+"%")
+	}
+
+	// approval status filter
+	if len(approvalStatuses) > 0 {
+		ph := strings.Repeat("?,", len(approvalStatuses))
+		ph = ph[:len(ph)-1]
+		sql += " AND LOWER(approval_status) IN (" + ph + ")"
+		for _, v := range approvalStatuses {
+			args = append(args, strings.ToLower(strings.TrimSpace(v)))
+		}
+	}
+
+	// work status filter
+	if len(workStatuses) > 0 {
+		ph := strings.Repeat("?,", len(workStatuses))
+		ph = ph[:len(ph)-1]
+		sql += " AND LOWER(work_status) IN (" + ph + ")"
+		for _, v := range workStatuses {
+			args = append(args, strings.ToLower(strings.TrimSpace(v)))
+		}
+	}
+
+	var total int64
+	if err := r.db.WithContext(ctx).Raw(sql, args...).Scan(&total).Error; err != nil {
+		return 0, fmt.Errorf("CountLatestSubmissions: %w", err)
+	}
+
+	return total, nil
+}
