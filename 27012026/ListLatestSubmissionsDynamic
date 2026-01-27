@@ -1,0 +1,97 @@
+func (r *ReviewInfo) ListLatestSubmissionsDynamic(
+	ctx context.Context,
+	project string,
+	root string,
+	preferredPhase string,
+	orderKey string,
+	direction string,
+	limit, offset int,
+	assetNameKey string,
+	approvalStatuses []string,
+	workStatuses []string,
+) ([]LatestSubmissionRow, error) {
+
+	if project == "" {
+		return nil, fmt.Errorf("project is required")
+	}
+	if root == "" {
+		root = "assets"
+	}
+	if limit <= 0 {
+		limit = 60
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	sql := `
+SELECT
+  b.root,
+  b.project,
+  b.group_1,
+  b.relation,
+  b.phase,
+  b.submitted_at_utc
+FROM t_review_info b
+JOIN (
+  SELECT
+    project, root, group_1, relation, phase,
+    MAX(modified_at_utc) AS modified_at_utc
+  FROM t_review_info
+  WHERE project = ? AND root = ? AND deleted = 0
+  GROUP BY project, root, group_1, relation, phase
+) a
+ON a.project = b.project
+AND a.root = b.root
+AND a.group_1 = b.group_1
+AND a.relation = b.relation
+AND a.phase = b.phase
+AND a.modified_at_utc = b.modified_at_utc
+WHERE b.project = ? AND b.root = ? AND b.deleted = 0
+`
+
+	args := []any{project, root, project, root}
+
+	// name filter
+	if strings.TrimSpace(assetNameKey) != "" {
+		sql += " AND LOWER(b.group_1) LIKE ?"
+		args = append(args, strings.ToLower(assetNameKey)+"%")
+	}
+
+	// approval filter
+	if len(approvalStatuses) > 0 {
+		ph := strings.Repeat("?,", len(approvalStatuses))
+		ph = ph[:len(ph)-1]
+		sql += " AND LOWER(b.approval_status) IN (" + ph + ")"
+		for _, v := range approvalStatuses {
+			args = append(args, strings.ToLower(v))
+		}
+	}
+
+	// work filter
+	if len(workStatuses) > 0 {
+		ph := strings.Repeat("?,", len(workStatuses))
+		ph = ph[:len(ph)-1]
+		sql += " AND LOWER(b.work_status) IN (" + ph + ")"
+		for _, v := range workStatuses {
+			args = append(args, strings.ToLower(v))
+		}
+	}
+
+	// order
+	sql += `
+ORDER BY
+  LOWER(b.group_1) ASC,
+  LOWER(b.relation) ASC,
+  b.modified_at_utc DESC
+LIMIT ? OFFSET ?;
+`
+	args = append(args, limit, offset)
+
+	var rows []LatestSubmissionRow
+	if err := r.db.WithContext(ctx).Raw(sql, args...).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("ListLatestSubmissionsDynamic: %w", err)
+	}
+
+	return rows, nil
+}
