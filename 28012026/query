@@ -1,43 +1,21 @@
-WITH latest_unseen AS (
+-- First get the count
+SELECT COUNT(*) as total_count
+FROM (
   SELECT 
-    ri.*,
-    -- Safe JSON extraction
-    COALESCE(
-      JSON_UNQUOTE(JSON_EXTRACT(ri.`groups`, '$[0]')),
-      'unknown'
-    ) AS leaf_group_name,
-    
-    -- Group joins
-    gcg.path AS group_leaf_path,
-    gc.path AS group_category_path,
-    SUBSTRING_INDEX(gc.path, '/', 1) AS top_group_node,
-    
-    -- Total count across all results
-    COUNT(*) OVER() AS total_records,
-    
-    -- Get latest per asset (not per phase)
     ROW_NUMBER() OVER (
-      PARTITION BY ri.root, ri.project, ri.group_1, ri.relation
+      PARTITION BY root, project, group_1, relation
       ORDER BY 
-        CASE WHEN ri.phase = '' THEN 0 ELSE 1 END,
-        ri.modified_at_utc DESC
+        CASE WHEN phase = '' THEN 0 ELSE 1 END,
+        modified_at_utc DESC
     ) AS rn
-  FROM t_review_info ri
-  LEFT JOIN t_group_category_group gcg
-    ON gcg.project = ri.project
-    AND gcg.deleted = 0
-    AND gcg.path = COALESCE(
-          JSON_UNQUOTE(JSON_EXTRACT(ri.`groups`, '$[0]')),
-          'unknown'
-        )
-  LEFT JOIN t_group_category gc
-    ON gc.id = gcg.group_category_id
-    AND gc.deleted = 0
-    AND gc.root = 'assets'
-  WHERE ri.project = 'rod'
-    AND ri.root = 'assets'
-    AND ri.deleted = 0
-)
+  FROM t_review_info
+  WHERE project = 'rod'
+    AND root = 'assets'
+    AND deleted = 0
+) AS sub
+WHERE rn = 1;
+
+-- Then get the data with LIMIT
 SELECT 
   root,
   project,
@@ -45,15 +23,27 @@ SELECT
   relation,
   phase,
   work_status,
-  approval_status,  -- Added based on your data
+  approval_status,
   submitted_at_utc,
   modified_at_utc,
-  leaf_group_name,
-  top_group_node,
-  group_leaf_path,
-  group_category_path,
-  total_records
-FROM latest_unseen
+  COALESCE(
+    JSON_UNQUOTE(JSON_EXTRACT(`groups`, '$[0]')),
+    'unknown'
+  ) AS leaf_group_name
+FROM (
+  SELECT 
+    ri.*,
+    ROW_NUMBER() OVER (
+      PARTITION BY ri.root, ri.project, ri.group_1, ri.relation
+      ORDER BY 
+        CASE WHEN ri.phase = '' THEN 0 ELSE 1 END,
+        ri.modified_at_utc DESC
+    ) AS rn
+  FROM t_review_info ri
+  WHERE ri.project = 'rod'
+    AND ri.root = 'assets'
+    AND ri.deleted = 0
+) AS ranked
 WHERE rn = 1
 ORDER BY group_1, relation
 LIMIT 1000;
