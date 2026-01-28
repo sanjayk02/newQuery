@@ -1,10 +1,11 @@
 func (r *ReviewInfo) CountLatestSubmissions(
 	ctx context.Context,
 	project, root, assetNameKey string,
-	preferredPhase string, // kept for API compatibility; ignored in filtering
+	_ string, // preferredPhase ignored by design
 	approvalStatuses []string,
 	workStatuses []string,
 ) (int64, error) {
+
 	if project == "" {
 		return 0, fmt.Errorf("project is required")
 	}
@@ -12,31 +13,45 @@ func (r *ReviewInfo) CountLatestSubmissions(
 		root = "assets"
 	}
 
-	// Add timeout protection
-	queryCtx, cancel := r.withTimeout(ctx, 15*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	db := r.db.WithContext(queryCtx)
+	db := r.db.WithContext(ctx)
 
-	// Simple count of distinct assets
-	query := `
-SELECT COUNT(DISTINCT CONCAT(group_1, '|', relation))
-FROM t_review_info
-WHERE project = ? 
-    AND root = ? 
-    AND deleted = 0
-    AND (? = '' OR LOWER(group_1) LIKE ?)
-`
-	
-	var nameArg any
+	// name filter
+	nameCond := ""
+	var args []any
+	args = append(args, project, root)
+
 	if strings.TrimSpace(assetNameKey) != "" {
-		nameArg = strings.ToLower(strings.TrimSpace(assetNameKey)) + "%"
-	} else {
-		nameArg = ""
+		nameCond = "AND LOWER(group_1) LIKE ?"
+		args = append(args, strings.ToLower(strings.TrimSpace(assetNameKey))+"%")
 	}
 
+	// status filters
+	statusWhere, statusArgs := buildPhaseAwareStatusWhere("", approvalStatuses, workStatuses)
+
+	sql := `
+SELECT COUNT(*) FROM (
+  SELECT
+    project,
+    root,
+    group_1,
+    relation
+  FROM t_review_info
+  WHERE project = ?
+    AND root = ?
+    AND deleted = 0
+    ` + nameCond + `
+    ` + statusWhere + `
+  GROUP BY project, root, group_1, relation
+) x;
+`
+
+	args = append(args, statusArgs...)
+
 	var total int64
-	if err := db.Raw(query, project, root, nameArg, nameArg).Scan(&total).Error; err != nil {
+	if err := db.Raw(sql, args...).Scan(&total).Error; err != nil {
 		return 0, fmt.Errorf("CountLatestSubmissions: %w", err)
 	}
 
