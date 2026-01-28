@@ -1,51 +1,59 @@
-WITH latest_phase AS (
-    SELECT
-        ri.*,
-        COALESCE(
-            JSON_UNQUOTE(JSON_EXTRACT(ri.`groups`, '$[0]')),
-            'unknown'
-        ) AS leaf_group_name,
-        ROW_NUMBER() OVER (
-            PARTITION BY ri.project, ri.root, ri.group_1, ri.relation, ri.phase
-            ORDER BY ri.modified_at_utc DESC
-        ) AS rn
-    FROM t_review_info ri
-    WHERE ri.project = 'rod'
-        AND ri.root = 'assets'
-        AND ri.deleted = 0
-),
-filtered_data AS (
-    SELECT 
-        lp.*,
-        gcg.path AS group_leaf_path,
-        gc.path AS group_category_path,
-        SUBSTRING_INDEX(gc.path, '/', 1) AS top_group_node,
-        COUNT(*) OVER() AS total_count
-    FROM latest_phase lp
-    LEFT JOIN t_group_category_group gcg
-        ON gcg.project = lp.project
-        AND gcg.deleted = 0
-        AND gcg.path = lp.leaf_group_name
-    LEFT JOIN t_group_category gc
-        ON gc.id = gcg.group_category_id
-        AND gc.deleted = 0
-        AND gc.root = 'assets'
-    WHERE lp.rn = 1
+WITH latest_unseen AS (
+  SELECT 
+    ri.*,
+    -- Safe JSON extraction
+    COALESCE(
+      JSON_UNQUOTE(JSON_EXTRACT(ri.`groups`, '$[0]')),
+      'unknown'
+    ) AS leaf_group_name,
+    
+    -- Group joins
+    gcg.path AS group_leaf_path,
+    gc.path AS group_category_path,
+    SUBSTRING_INDEX(gc.path, '/', 1) AS top_group_node,
+    
+    -- Total count across all results
+    COUNT(*) OVER() AS total_records,
+    
+    -- Get latest per asset (not per phase)
+    ROW_NUMBER() OVER (
+      PARTITION BY ri.root, ri.project, ri.group_1, ri.relation
+      ORDER BY 
+        CASE WHEN ri.phase = '' THEN 0 ELSE 1 END,
+        ri.modified_at_utc DESC
+    ) AS rn
+  FROM t_review_info ri
+  LEFT JOIN t_group_category_group gcg
+    ON gcg.project = ri.project
+    AND gcg.deleted = 0
+    AND gcg.path = COALESCE(
+          JSON_UNQUOTE(JSON_EXTRACT(ri.`groups`, '$[0]')),
+          'unknown'
+        )
+  LEFT JOIN t_group_category gc
+    ON gc.id = gcg.group_category_id
+    AND gc.deleted = 0
+    AND gc.root = 'assets'
+  WHERE ri.project = 'rod'
+    AND ri.root = 'assets'
+    AND ri.deleted = 0
 )
 SELECT 
-    project,
-    root,
-    group_1,
-    relation,
-    phase,
-    work_status,
-    approval_status,
-    submitted_at_utc,
-    modified_at_utc,
-    leaf_group_name,
-    group_leaf_path,
-    top_group_node,
-    total_count
-FROM filtered_data
-ORDER BY group_1, relation, phase
+  root,
+  project,
+  group_1,
+  relation,
+  phase,
+  work_status,
+  approval_status,  -- Added based on your data
+  submitted_at_utc,
+  modified_at_utc,
+  leaf_group_name,
+  top_group_node,
+  group_leaf_path,
+  group_category_path,
+  total_records
+FROM latest_unseen
+WHERE rn = 1
+ORDER BY group_1, relation
 LIMIT 1000;
