@@ -1,0 +1,70 @@
+🎬 PPI-Tracker Demo – Feature Key Points
+1️⃣ List View & Group View
+
+Assets can be viewed in List View (flat table) or Group View (grouped by Asset Group).
+
+Toggle buttons allow switching between views instantly.
+
+Group View organizes assets under folders and supports group-level sorting.
+
+2️⃣ Sort
+
+Assets can be sorted by:
+
+Asset Name
+
+Phase Work Status
+
+Approval Status
+
+Submission Date
+
+Sorting works in both List and Group views.
+
+Empty or missing values are automatically pushed to the bottom for clarity.
+
+3️⃣ Search Assets
+
+Quick search bar to find assets by name.
+
+Search activates after typing 3 or more characters.
+
+Results update in real time and reset pagination automatically.
+
+4️⃣ Filter
+
+Advanced filtering using a right-side filter panel:
+
+Asset Groups
+
+Approval Status
+
+Work Status
+
+Multiple filters can be applied together.
+
+Filters work consistently across List and Group views.
+
+5️⃣ Columns Visible ON / OFF
+
+Users can show or hide table columns as needed.
+
+Column preferences are:
+
+Saved per project
+
+Persisted across sessions
+
+Mandatory columns (like Thumbnail and Name) always stay visible.
+
+6️⃣ Page Pagination
+
+Assets are displayed with pagination controls.
+
+Page size can be changed dynamically.
+
+Pagination adapts automatically when filters or grouped view are active.
+
+✅ One-Line Summary (Perfect for Demo Ending)
+
+“PPI-Tracker provides flexible asset browsing with list and grouped views, powerful sorting and filtering, customizable columns, fast search, and smooth pagination — all designed for efficient production tracking.”
