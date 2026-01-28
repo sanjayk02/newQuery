@@ -1,7 +1,7 @@
 func (r *ReviewInfo) CountLatestSubmissions(
 	ctx context.Context,
 	project, root, assetNameKey string,
-	preferredPhase string, 
+	preferredPhase string,
 	approvalStatuses []string,
 	workStatuses []string,
 ) (int64, error) {
@@ -13,38 +13,43 @@ func (r *ReviewInfo) CountLatestSubmissions(
 	}
 
 	db := r.db.WithContext(ctx)
-
-	// Build dynamic filters
-	nameCond := ""
-	var nameArg any
+	
+	// Build the base query
+	stmt := db.Model(&model.ReviewInfo{}).
+		Select("DISTINCT group_1, relation").
+		Where("project = ?", project).
+		Where("root = ?", root).
+		Where("deleted = ?", 0)
+	
+	// Name prefix filter
 	if strings.TrimSpace(assetNameKey) != "" {
-		nameCond = " AND LOWER(group_1) LIKE ?"
-		nameArg = strings.ToLower(strings.TrimSpace(assetNameKey)) + "%"
+		stmt = stmt.Where("LOWER(group_1) LIKE ?", 
+			strings.ToLower(strings.TrimSpace(assetNameKey)) + "%")
 	}
-
-	// Status filter logic
-	statusWhere, statusArgs := buildPhaseAwareStatusWhere(preferredPhase, approvalStatuses, workStatuses)
-
-	// OPTIMIZED QUERY: Using HAVING to filter the latest grouped results
-	sql := `
-SELECT COUNT(*) FROM (
-  SELECT 1
-  FROM t_review_info
-  WHERE project = ? AND root = ? AND deleted = 0` + nameCond + `
-  GROUP BY project, root, group_1, relation
-  HAVING 1=1 ` + statusWhere + `
-) AS x;`
-
-	args := []any{project, root}
-	if nameArg != nil {
-		args = append(args, nameArg)
+	
+	// If no status filters, count distinct assets directly
+	if len(approvalStatuses) == 0 && len(workStatuses) == 0 {
+		var count int64
+		// Use a subquery to count distinct assets
+		err := db.Raw("SELECT COUNT(*) FROM (?) AS t", 
+			stmt).Scan(&count).Error
+		return count, err
 	}
-	args = append(args, statusArgs...)
-
-	var total int64
-	if err := db.Raw(sql, args...).Scan(&total).Error; err != nil {
-		return 0, fmt.Errorf("CountLatestSubmissions: %w", err)
+	
+	// With status filters, we need the latest per phase
+	// Use a simpler approach - count from pre-aggregated data
+	latestSubmissions, err := r.ListLatestSubmissionsDynamic(
+		ctx,
+		project, root, preferredPhase,
+		"group1_only", "ASC", // default sorting
+		10000, 0, // large limit to get all
+		assetNameKey,
+		approvalStatuses,
+		workStatuses,
+	)
+	if err != nil {
+		return 0, err
 	}
-
-	return total, nil
+	
+	return int64(len(latestSubmissions)), nil
 }
