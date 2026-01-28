@@ -1,0 +1,44 @@
+func (r *ReviewInfo) CountLatestSubmissions(
+	ctx context.Context,
+	project, root, assetNameKey string,
+	preferredPhase string, // kept for API compatibility; ignored in filtering
+	approvalStatuses []string,
+	workStatuses []string,
+) (int64, error) {
+	if project == "" {
+		return 0, fmt.Errorf("project is required")
+	}
+	if root == "" {
+		root = "assets"
+	}
+
+	// Add timeout protection
+	queryCtx, cancel := r.withTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	db := r.db.WithContext(queryCtx)
+
+	// Simple count of distinct assets
+	query := `
+SELECT COUNT(DISTINCT CONCAT(group_1, '|', relation))
+FROM t_review_info
+WHERE project = ? 
+    AND root = ? 
+    AND deleted = 0
+    AND (? = '' OR LOWER(group_1) LIKE ?)
+`
+	
+	var nameArg any
+	if strings.TrimSpace(assetNameKey) != "" {
+		nameArg = strings.ToLower(strings.TrimSpace(assetNameKey)) + "%"
+	} else {
+		nameArg = ""
+	}
+
+	var total int64
+	if err := db.Raw(query, project, root, nameArg, nameArg).Scan(&total).Error; err != nil {
+		return 0, fmt.Errorf("CountLatestSubmissions: %w", err)
+	}
+
+	return total, nil
+}
