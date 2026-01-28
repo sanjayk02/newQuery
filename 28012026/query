@@ -23,18 +23,13 @@ WITH latest_phase AS (
                 END DESC,
                 ri.modified_at_utc DESC
         ) AS rn
-
     FROM t_review_info ri
     WHERE ri.project = ?
       AND ri.root = ?
       AND ri.deleted = 0
       /* + nameCond */
 )
-SELECT
-    *,
-    COUNT(*) OVER () AS total_count
+SELECT COUNT(*) AS total_count
 FROM latest_phase
 WHERE rn = 1
-/* + statusWhere */
-ORDER BY modified_at_utc DESC
-LIMIT ? OFFSET ?;
+/* + statusWhere */;
