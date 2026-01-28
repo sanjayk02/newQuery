@@ -1,11 +1,10 @@
 func (r *ReviewInfo) CountLatestSubmissions(
 	ctx context.Context,
 	project, root, assetNameKey string,
-	_ string, // preferredPhase ignored by design
+	preferredPhase string, 
 	approvalStatuses []string,
 	workStatuses []string,
 ) (int64, error) {
-
 	if project == "" {
 		return 0, fmt.Errorf("project is required")
 	}
@@ -13,41 +12,33 @@ func (r *ReviewInfo) CountLatestSubmissions(
 		root = "assets"
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
 	db := r.db.WithContext(ctx)
 
-	// name filter
+	// Build dynamic filters
 	nameCond := ""
-	var args []any
-	args = append(args, project, root)
-
+	var nameArg any
 	if strings.TrimSpace(assetNameKey) != "" {
-		nameCond = "AND LOWER(group_1) LIKE ?"
-		args = append(args, strings.ToLower(strings.TrimSpace(assetNameKey))+"%")
+		nameCond = " AND LOWER(group_1) LIKE ?"
+		nameArg = strings.ToLower(strings.TrimSpace(assetNameKey)) + "%"
 	}
 
-	// status filters
-	statusWhere, statusArgs := buildPhaseAwareStatusWhere("", approvalStatuses, workStatuses)
+	// Status filter logic
+	statusWhere, statusArgs := buildPhaseAwareStatusWhere(preferredPhase, approvalStatuses, workStatuses)
 
+	// OPTIMIZED QUERY: Using HAVING to filter the latest grouped results
 	sql := `
 SELECT COUNT(*) FROM (
-  SELECT
-    project,
-    root,
-    group_1,
-    relation
+  SELECT 1
   FROM t_review_info
-  WHERE project = ?
-    AND root = ?
-    AND deleted = 0
-    ` + nameCond + `
-    ` + statusWhere + `
+  WHERE project = ? AND root = ? AND deleted = 0` + nameCond + `
   GROUP BY project, root, group_1, relation
-) x;
-`
+  HAVING 1=1 ` + statusWhere + `
+) AS x;`
 
+	args := []any{project, root}
+	if nameArg != nil {
+		args = append(args, nameArg)
+	}
 	args = append(args, statusArgs...)
 
 	var total int64
