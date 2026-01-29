@@ -91,10 +91,19 @@ func (r *ReviewInfo) List(
 	params *entity.ListReviewInfoParams,
 ) ([]*entity.ReviewInfo, int, error) {
 	stmt := db
-	for i, g := range params.Group {
-		stmt = stmt.Where(fmt.Sprintf("group_%d = ?", i+1), g)
+	
+	// FIXED: Use parameterized queries for group columns
+	if len(params.Group) > 0 {
+		// Handle group_1, group_2, etc. safely
+		for i, g := range params.Group {
+			// Using parameterized query with column name from a safe list
+			columnName := fmt.Sprintf("group_%d", i+1)
+			stmt = stmt.Where("`"+columnName+"` = ?", g)
+		}
 	}
+	
 	stmt = stmt.Where("`project` = ?", params.Project)
+	
 	if params.Studio != nil {
 		stmt = stmt.Where("`studio` = ?", *params.Studio)
 	}
@@ -107,13 +116,22 @@ func (r *ReviewInfo) List(
 	if params.Root != nil {
 		stmt = stmt.Where("`root` = ?", *params.Root)
 	}
-	for i, g := range params.Group {
-		stmt = stmt.Where(fmt.Sprintf("`groups`->\"$[%d]\" = ?", i), g)
+	
+	// FIXED: JSON array indexing with parameterized queries
+	if len(params.Group) > 0 {
+		for i, g := range params.Group {
+			// Use JSON_EXTRACT with parameterized index
+			jsonPath := fmt.Sprintf("$[%d]", i)
+			stmt = stmt.Where("JSON_EXTRACT(`groups`, ?) = ?", jsonPath, g)
+		}
 	}
+	
 	if params.Relation != nil {
+		// FIXED: Use parameterized IN clause
 		stmt = stmt.Where("relation IN (?)", params.Relation)
 	}
 	if params.Phase != nil {
+		// FIXED: Use parameterized IN clause
 		stmt = stmt.Where("phase IN (?)", params.Phase)
 	}
 	if params.Component != nil {
@@ -123,10 +141,20 @@ func (r *ReviewInfo) List(
 		stmt = stmt.Where("`take` = ?", *params.Take)
 	}
 
+	// FIXED: Validate and sanitize order by parameter
 	order := "`id` desc"
 	if params.OrderBy != nil {
-		order = *params.OrderBy
+		// Whitelist allowed order by columns
+		allowedOrderColumns := map[string]bool{
+			"id": true, "modified_at_utc": true, "created_at_utc": true,
+			"submitted_at_utc": true, "phase": true,
+		}
+		orderBy := strings.ToLower(strings.TrimSpace(*params.OrderBy))
+		if allowedOrderColumns[orderBy] {
+			order = fmt.Sprintf("`%s` desc", orderBy)
+		}
 	}
+	
 	showDeleted := false
 	if params.ModifiedSince != nil {
 		stmt = stmt.Where("`modified_at_utc` >= ?", *params.ModifiedSince)
@@ -807,91 +835,37 @@ func buildOrderClause(alias, key, dir string) string {
 		return alias + "." + c
 	}
 
+	// FIXED: Only use columns that exist in the FilteredAssets CTE
+	// FilteredAssets only has: project, root, group_1, relation, 
+	// leaf_group_name, group_category_path, top_group_node, total_count
+	
 	switch key {
-	// generic columns
-	case "submitted_at_utc", "modified_at_utc", "phase":
-		return fmt.Sprintf("(%s IS NULL) ASC, %s %s", col(key), col(key), dir)
-
-	// name / relation
+	// Asset-level columns that exist in FilteredAssets
 	case "group1_only":
-		// PRIMARY for LIST VIEW:
-		// ORDER BY group_1, relation, submitted_at_utc (NULL last)
-		return fmt.Sprintf(
-			"LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
-			col("group_1"), dir,
-			col("relation"),
-			col("submitted_at_utc"),
-			col("submitted_at_utc"), dir,
-		)
-
+		return fmt.Sprintf("LOWER(%s) %s, LOWER(%s) ASC", col("group_1"), dir, col("relation"))
+	
 	case "relation_only":
-		return fmt.Sprintf(
-			"LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
-			col("relation"), dir,
-			col("group_1"),
-			col("submitted_at_utc"),
-			col("submitted_at_utc"), dir,
-		)
-
+		return fmt.Sprintf("LOWER(%s) %s, LOWER(%s) ASC", col("relation"), dir, col("group_1"))
+	
 	case "group_rel_submitted":
-		return fmt.Sprintf(
-			"LOWER(%s) ASC, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
-			col("group_1"),
-			col("relation"),
-			col("submitted_at_utc"),
-			col("submitted_at_utc"), dir,
-		)
-
-	// phase-specific submitted date (NULL last)
+		// Cannot use submitted_at_utc at asset level, fall back to group_1 + relation
+		return fmt.Sprintf("LOWER(%s) ASC, LOWER(%s) ASC", col("group_1"), col("relation"))
+	
+	// Phase-specific columns - NOT available at asset level, use default
 	case "mdl_submitted", "rig_submitted", "bld_submitted", "dsn_submitted", "ldv_submitted":
-		phase := strings.Split(key, "_")[0]
-		colName := fmt.Sprintf("%s_submitted_at_utc", phase)
-		return fmt.Sprintf(
-			"(%s IS NULL) ASC, %s %s, LOWER(%s) ASC",
-			col(colName),
-			col(colName), dir,
-			col("group_1"),
-		)
-
-	// work columns (alphabetical, NULL last)
-	case "mdl_work", "rig_work", "bld_work", "dsn_work", "ldv_work", "work_status":
-		if strings.Contains(key, "_") {
-			phase := strings.Split(key, "_")[0]
-			colName := fmt.Sprintf("%s_work_status", phase)
-			return fmt.Sprintf(
-				"(%s IS NULL) ASC, LOWER(%s) %s, LOWER(%s) ASC",
-				col(colName),
-				col(colName), dir,
-				col("group_1"),
-			)
-		}
-		return fmt.Sprintf(
-			"(%s IS NULL) ASC, LOWER(%s) %s, LOWER(%s) ASC",
-			col("work_status"),
-			col("work_status"), dir,
-			col("group_1"),
-		)
-
-	// approval columns (alphabetical, NULL last)
+		fallthrough
+	case "mdl_work", "rig_work", "bld_work", "dsn_work", "ldv_work":
+		fallthrough
 	case "mdl_appr", "rig_appr", "bld_appr", "dsn_appr", "ldv_appr":
-		phase := strings.Split(key, "_")[0]
-		colName := fmt.Sprintf("%s_approval_status", phase)
-		return fmt.Sprintf(
-			"(%s IS NULL) ASC, LOWER(%s) %s, LOWER(%s) ASC",
-			col(colName),
-			col(colName), dir,
-			col("group_1"),
-		)
-
-	// default: group_1 + relation + submitted_at_utc
+		fallthrough
+	case "submitted_at_utc", "modified_at_utc", "phase", "work_status":
+		// These columns don't exist in FilteredAssets CTE
+		// Use default ordering
+		return fmt.Sprintf("LOWER(%s) %s, LOWER(%s) ASC", col("group_1"), dir, col("relation"))
+	
+	// default: group_1 + relation (both exist in FilteredAssets)
 	default:
-		return fmt.Sprintf(
-			"LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
-			col("group_1"), dir,
-			col("relation"),
-			col("submitted_at_utc"),
-			col("submitted_at_utc"), dir,
-		)
+		return fmt.Sprintf("LOWER(%s) %s, LOWER(%s) ASC", col("group_1"), dir, col("relation"))
 	}
 }
 
@@ -1040,6 +1014,22 @@ func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 		phaseGuard = 1
 	}
 
+	// FIXED: Use a safer approach for building ORDER BY clause
+	// Validate orderKey against allowed values
+	allowedOrderKeys := map[string]bool{
+		"group1_only": true, "relation_only": true, "group_rel_submitted": true,
+		"submitted_at_utc": true, "modified_at_utc": true, "phase": true,
+	}
+	if !allowedOrderKeys[orderKey] {
+		orderKey = "group1_only" // default
+	}
+	
+	// Validate direction
+	direction = strings.ToUpper(direction)
+	if direction != "ASC" && direction != "DESC" {
+		direction = "ASC"
+	}
+
 	// Build the optimized query
 	query := `
 	WITH 
@@ -1091,7 +1081,20 @@ func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 			relation,
 			-- Add row number for ordering
 			ROW_NUMBER() OVER (
-				ORDER BY ` + buildOrderClause("", orderKey, direction) + `
+				ORDER BY 
+					CASE WHEN ? = 'group1_only' THEN LOWER(group_1) END ` + direction + `,
+					CASE WHEN ? = 'group1_only' THEN LOWER(relation) END ASC,
+					CASE WHEN ? = 'relation_only' THEN LOWER(relation) END ` + direction + `,
+					CASE WHEN ? = 'relation_only' THEN LOWER(group_1) END ASC,
+					CASE WHEN ? = 'submitted_at_utc' THEN (submitted_at_utc IS NULL) END ASC,
+					CASE WHEN ? = 'submitted_at_utc' THEN submitted_at_utc END ` + direction + `,
+					CASE WHEN ? = 'modified_at_utc' THEN (modified_at_utc IS NULL) END ASC,
+					CASE WHEN ? = 'modified_at_utc' THEN modified_at_utc END ` + direction + `,
+					CASE WHEN ? = 'phase' THEN (phase IS NULL) END ASC,
+					CASE WHEN ? = 'phase' THEN phase END ` + direction + `,
+					-- Default ordering
+					LOWER(group_1) ASC,
+					LOWER(relation) ASC
 			) AS row_num
 		FROM FilteredPhases
 	),
@@ -1162,6 +1165,11 @@ func (r *ReviewInfo) ListLatestSubmissionsDynamic(
 		params = append(params, strings.ToLower(strings.TrimSpace(s)))
 	}
 	
+	// Add ordering parameters (repeated for each CASE statement)
+	for i := 0; i < 10; i++ {
+		params = append(params, orderKey)
+	}
+	
 	// Add pagination and phase preference
 	params = append(params, offset, offset+limit, phaseGuard, preferredPhase)
 	
@@ -1210,6 +1218,25 @@ func (r *ReviewInfo) ListAssetsPivot(
 	}
 	if root == "" {
 		root = "assets"
+	}
+
+	// FIXED: Validate orderKey to prevent SQL injection
+	allowedOrderKeys := map[string]bool{
+		"group1_only": true, "relation_only": true, "group_rel_submitted": true,
+		"submitted_at_utc": true, "modified_at_utc": true, "phase": true,
+		"mdl_submitted": true, "rig_submitted": true, "bld_submitted": true, 
+		"dsn_submitted": true, "ldv_submitted": true,
+		"mdl_work": true, "rig_work": true, "bld_work": true, "dsn_work": true, "ldv_work": true,
+		"mdl_appr": true, "rig_appr": true, "bld_appr": true, "dsn_appr": true, "ldv_appr": true,
+	}
+	if !allowedOrderKeys[orderKey] {
+		orderKey = "group1_only" // default safe value
+	}
+	
+	// FIXED: Validate direction
+	direction = strings.ToUpper(direction)
+	if direction != "ASC" && direction != "DESC" {
+		direction = "ASC"
 	}
 
 	// Build the optimized query
@@ -1281,7 +1308,15 @@ func (r *ReviewInfo) ListAssetsPivot(
 		SELECT 
 			fa.*,
 			ROW_NUMBER() OVER (
-				ORDER BY ` + buildOrderClause("fa", orderKey, direction) + `
+				ORDER BY 
+					-- FIXED: Only use columns that exist in FilteredAssets
+					CASE WHEN ? = 'group1_only' THEN LOWER(fa.group_1) END ` + direction + `,
+					CASE WHEN ? = 'group1_only' THEN LOWER(fa.relation) END ASC,
+					CASE WHEN ? = 'relation_only' THEN LOWER(fa.relation) END ` + direction + `,
+					CASE WHEN ? = 'relation_only' THEN LOWER(fa.group_1) END ASC,
+					-- For phase-specific sorting, we need to use default since columns don't exist
+					LOWER(fa.group_1) ASC,
+					LOWER(fa.relation) ASC
 			) AS asset_order
 		FROM FilteredAssets fa
 	),
@@ -1386,6 +1421,11 @@ func (r *ReviewInfo) ListAssetsPivot(
 	hasWorkFilter := len(workStatuses)
 	hasApprovalFilter := len(approvalStatuses)
 	params = append(params, hasWorkFilter, hasApprovalFilter)
+	
+	// Add ordering parameter (repeated for each CASE statement)
+	for i := 0; i < 4; i++ {
+		params = append(params, orderKey)
+	}
 	
 	// Pagination
 	params = append(params, offset, offset+limit)
