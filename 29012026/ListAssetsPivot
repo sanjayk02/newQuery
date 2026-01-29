@@ -13,11 +13,11 @@ func (r *ReviewInfo) ListAssetsPivot(
 		root = "assets"
 	}
 
-	// FIXED: Add timeout context to prevent hanging
+	// Add timeout context
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	// Build the optimized query - simplified with fewer CTEs
+	// Build query without the self-reference issue
 	query := `
 	WITH LatestReviews AS (
 		SELECT 
@@ -32,21 +32,19 @@ func (r *ReviewInfo) ListAssetsPivot(
 		AND ri.deleted = 0
 		AND (LOWER(ri.group_1) LIKE LOWER(?) OR ? = '')
 	),
+	LatestOnly AS (
+		SELECT * FROM LatestReviews WHERE rn = 1
+	),
 	FilteredLatest AS (
 		SELECT 
-			lr.*,
+			lo.*,
 			CASE 
 				WHEN ` + buildStatusMatchCondition(workStatuses, approvalStatuses) + ` THEN 1
 				ELSE 0
 			END AS matches_filter
-		FROM LatestReviews lr
-		WHERE lr.rn = 1
-		AND (CASE 
-			WHEN ? = 0 AND ? = 0 THEN 1  -- No status filters
-			ELSE matches_filter
-		END) = 1
+		FROM LatestOnly lo
 	),
-	AssetGroups AS (
+	FilteredAssets AS (
 		SELECT DISTINCT
 			project,
 			root,
@@ -85,22 +83,26 @@ func (r *ReviewInfo) ListAssetsPivot(
 			) as top_group_node,
 			COUNT(*) OVER () AS total_count
 		FROM FilteredLatest fl
+		WHERE (CASE 
+			WHEN ? = 0 AND ? = 0 THEN 1  -- No status filters
+			ELSE matches_filter
+		END) = 1
 		GROUP BY project, root, group_1, relation
 	),
 	PaginatedAssets AS (
 		SELECT 
-			ag.*,
+			fa.*,
 			ROW_NUMBER() OVER (
 				ORDER BY 
-					CASE WHEN ? = 'group1_only' THEN LOWER(ag.group_1) END,
-					CASE WHEN ? = 'group1_only' THEN LOWER(ag.relation) END,
-					CASE WHEN ? = 'relation_only' THEN LOWER(ag.relation) END,
-					CASE WHEN ? = 'relation_only' THEN LOWER(ag.group_1) END,
+					CASE WHEN ? = 'group1_only' THEN LOWER(fa.group_1) END,
+					CASE WHEN ? = 'group1_only' THEN LOWER(fa.relation) END,
+					CASE WHEN ? = 'relation_only' THEN LOWER(fa.relation) END,
+					CASE WHEN ? = 'relation_only' THEN LOWER(fa.group_1) END,
 					-- Default ordering
-					LOWER(ag.group_1) ASC,
-					LOWER(ag.relation) ASC
+					LOWER(fa.group_1) ASC,
+					LOWER(fa.relation) ASC
 			) AS asset_order
-		FROM AssetGroups ag
+		FROM FilteredAssets fa
 	)
 	SELECT 
 		pa.root,
@@ -138,6 +140,10 @@ func (r *ReviewInfo) ListAssetsPivot(
 		AND fl.root = pa.root 
 		AND fl.group_1 = pa.group_1 
 		AND fl.relation = pa.relation
+		AND (CASE 
+			WHEN ? = 0 AND ? = 0 THEN 1  -- No status filters
+			ELSE fl.matches_filter
+		END) = 1
 	WHERE pa.asset_order > ? AND pa.asset_order <= ?
 	GROUP BY 
 		pa.project, pa.root, pa.group_1, pa.relation,
@@ -159,7 +165,7 @@ func (r *ReviewInfo) ListAssetsPivot(
 	}
 	params = append(params, namePattern, namePattern)
 	
-	// Status filter parameters
+	// Status filter parameters for matches_filter calculation
 	for _, s := range workStatuses {
 		params = append(params, strings.ToLower(strings.TrimSpace(s)))
 	}
@@ -167,7 +173,7 @@ func (r *ReviewInfo) ListAssetsPivot(
 		params = append(params, strings.ToLower(strings.TrimSpace(s)))
 	}
 	
-	// Status filter flags
+	// Status filter flags - first set for FilteredAssets WHERE clause
 	hasWorkFilter := len(workStatuses)
 	hasApprovalFilter := len(approvalStatuses)
 	params = append(params, hasWorkFilter, hasApprovalFilter)
@@ -176,6 +182,9 @@ func (r *ReviewInfo) ListAssetsPivot(
 	for i := 0; i < 4; i++ {
 		params = append(params, orderKey)
 	}
+	
+	// Status filter flags again for the JOIN condition
+	params = append(params, hasWorkFilter, hasApprovalFilter)
 	
 	// Pagination
 	params = append(params, offset, offset+limit)
@@ -189,7 +198,7 @@ func (r *ReviewInfo) ListAssetsPivot(
 	
 	if err := r.db.WithContext(ctxWithTimeout).Raw(query, params...).Scan(&rows).Error; err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, 0, fmt.Errorf("ListAssetsPivot: query timeout - consider adding indexes or reducing data scope")
+			return nil, 0, fmt.Errorf("ListAssetsPivot: query timeout")
 		}
 		return nil, 0, fmt.Errorf("ListAssetsPivot: %w", err)
 	}
@@ -199,7 +208,6 @@ func (r *ReviewInfo) ListAssetsPivot(
 	results := make([]AssetPivot, 0, len(rows))
 	
 	for i, row := range rows {
-		// Set leaf_group_name from group_category_path
 		results = append(results, AssetPivot{
 			Root:              row.Root,
 			Project:           row.Project,
