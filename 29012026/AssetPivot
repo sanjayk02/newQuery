@@ -1,0 +1,30 @@
+type AssetPivot struct {
+    Root     string `gorm:"column:root" json:"root"`
+    Project  string `gorm:"column:project" json:"project"`
+    Group1   string `gorm:"column:group_1" json:"group_1"`   // ✅ FIX
+    Relation string `gorm:"column:relation" json:"relation"`
+
+    LeafGroupName     string `gorm:"column:leaf_group_name" json:"leaf_group_name"`
+    GroupCategoryPath string `gorm:"column:group_category_path" json:"group_category_path"`
+    TopGroupNode      string `gorm:"column:top_group_node" json:"top_group_node"`
+
+    MDLWorkStatus     *string    `gorm:"column:mdl_work_status" json:"mdl_work_status"`
+    MDLApprovalStatus *string    `gorm:"column:mdl_approval_status" json:"mdl_approval_status"`
+    MDLSubmittedAtUTC *time.Time `gorm:"column:mdl_submitted_at_utc" json:"mdl_submitted_at_utc"`
+
+    RIGWorkStatus     *string    `gorm:"column:rig_work_status" json:"rig_work_status"`
+    RIGApprovalStatus *string    `gorm:"column:rig_approval_status" json:"rig_approval_status"`
+    RIGSubmittedAtUTC *time.Time `gorm:"column:rig_submitted_at_utc" json:"rig_submitted_at_utc"`
+
+    BLDWorkStatus     *string    `gorm:"column:bld_work_status" json:"bld_work_status"`
+    BLDApprovalStatus *string    `gorm:"column:bld_approval_status" json:"bld_approval_status"`
+    BLDSubmittedAtUTC *time.Time `gorm:"column:bld_submitted_at_utc" json:"bld_submitted_at_utc"`
+
+    DSNWorkStatus     *string    `gorm:"column:dsn_work_status" json:"dsn_work_status"`
+    DSNApprovalStatus *string    `gorm:"column:dsn_approval_status" json:"dsn_approval_status"`
+    DSNSubmittedAtUTC *time.Time `gorm:"column:dsn_submitted_at_utc" json:"dsn_submitted_at_utc"`
+
+    LDVWorkStatus     *string    `gorm:"column:ldv_work_status" json:"ldv_work_status"`
+    LDVApprovalStatus *string    `gorm:"column:ldv_approval_status" json:"ldv_approval_status"`
+    LDVSubmittedAtUTC *time.Time `gorm:"column:ldv_submitted_at_utc" json:"ldv_submitted_at_utc"`
+}
