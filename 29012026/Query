@@ -1,0 +1,51 @@
+sb.WriteString(`
+WITH ranked AS (
+  SELECT
+    ri.project,
+    ri.root,
+    ri.group_1,
+    ri.relation,
+    ri.phase,
+    ri.work_status,
+    ri.approval_status,
+    ri.submitted_at_utc,
+    ri.` + "`groups`" + `,
+    ROW_NUMBER() OVER (
+      PARTITION BY ri.project, ri.root, ri.group_1, ri.relation, ri.phase
+      ORDER BY ri.modified_at_utc DESC
+    ) AS rn
+  FROM t_review_info ri
+  INNER JOIN asset_keys ak
+          ON ak.project  = ri.project
+         AND ak.root     = ri.root
+         AND ak.group_1  = ri.group_1
+         AND ak.relation = ri.relation
+  WHERE ri.deleted = 0
+),
+latest_records AS (
+  /* This step isolates the latest data, drastically 
+     reducing the number of rows that need the JSON function */
+  SELECT * FROM ranked WHERE rn = 1
+)
+SELECT
+  lr.project,
+  lr.root,
+  lr.group_1,
+  lr.relation,
+  lr.phase,
+  lr.work_status,
+  lr.approval_status,
+  lr.submitted_at_utc,
+  JSON_UNQUOTE(JSON_EXTRACT(lr.` + "`groups`" + `, '$[0]')) AS leaf_group_name,
+  gc.path AS group_category_path,
+  SUBSTRING_INDEX(gc.path, '/', 1) AS top_group_node
+FROM latest_records lr
+LEFT JOIN t_group_category_group gcg
+       ON gcg.project = lr.project
+      AND gcg.deleted = 0
+      AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(lr.` + "`groups`" + `, '$[0]'))
+LEFT JOIN t_group_category gc
+       ON gc.id = gcg.group_category_id
+      AND gc.deleted = 0
+      AND gc.root = 'assets';
+`)
