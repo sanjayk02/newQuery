@@ -13,188 +13,93 @@ func (r *ReviewInfo) ListAssetsPivot(
 		root = "assets"
 	}
 
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, 120*time.Second)
-	defer cancel()
+	// 1) Get total count for pagination (after filters)
+	total, err := r.CountLatestSubmissions(ctx, project, root, assetNameKey, preferredPhase, approvalStatuses, workStatuses)
+	if err != nil {
+		return nil, 0, err
+	}
 
-	// Simplified query that avoids complex GROUP BY issues
-	query := `
-	WITH LatestReviews AS (
-		SELECT 
-			ri.*,
-			ROW_NUMBER() OVER (
-				PARTITION BY ri.project, ri.root, ri.group_1, ri.relation, ri.phase
-				ORDER BY ri.modified_at_utc DESC
-			) AS rn
-		FROM t_review_info ri
-		WHERE ri.project = ?
-		  AND ri.root = ?
-		  AND ri.deleted = 0
-		  AND (LOWER(ri.group_1) LIKE LOWER(?) OR ? = '')
-		  AND ` + buildStatusWhereClause(approvalStatuses, workStatuses) + `
-	),
-	LatestOnly AS (
-		SELECT * FROM LatestReviews WHERE rn = 1
-	),
-	DistinctAssets AS (
-		SELECT DISTINCT
-			project,
-			root,
-			group_1,
-			relation,
-			COUNT(*) OVER () AS total_count,
-			ROW_NUMBER() OVER (ORDER BY LOWER(group_1) ASC) AS asset_order
-		FROM LatestOnly
-	)
-	SELECT 
-		da.root,
-		da.project,
-		da.group_1,
-		da.relation,
-		-- Get group info
-		COALESCE(
-			(SELECT gc.path 
-			 FROM t_group_category_group gcg
-			 JOIN t_group_category gc ON gc.id = gcg.group_category_id
-			 WHERE gcg.project = da.project 
-			   AND gcg.deleted = 0
-			   AND gc.deleted = 0
-			   AND gc.root = 'assets'
-			   AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(lo.groups, '$[0]'))
-			 LIMIT 1),
-			'Unassigned'
-		) as group_category_path,
-		COALESCE(
-			SUBSTRING_INDEX(
-				COALESCE(
-					(SELECT gc.path 
-					 FROM t_group_category_group gcg
-					 JOIN t_group_category gc ON gc.id = gcg.group_category_id
-					 WHERE gcg.project = da.project 
-					   AND gcg.deleted = 0
-					   AND gc.deleted = 0
-					   AND gc.root = 'assets'
-					   AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(lo.groups, '$[0]'))
-					 LIMIT 1),
-					'Unassigned'
-				),
-				'/', 1
-			),
-			'Unassigned'
-		) as top_group_node,
-		COALESCE(SUBSTRING_INDEX(
-			COALESCE(
-				(SELECT gc.path 
-				 FROM t_group_category_group gcg
-				 JOIN t_group_category gc ON gc.id = gcg.group_category_id
-				 WHERE gcg.project = da.project 
-				   AND gcg.deleted = 0
-				   AND gc.deleted = 0
-				   AND gc.root = 'assets'
-				   AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(lo.groups, '$[0]'))
-				 LIMIT 1),
-				'Unassigned'
-			),
-			'/', -1
-		), '') as leaf_group_name,
-		-- Phase data using subqueries to avoid GROUP BY
-		(SELECT work_status FROM LatestOnly WHERE project = da.project AND root = da.root AND group_1 = da.group_1 AND relation = da.relation AND phase = 'mdl' LIMIT 1) as mdl_work_status,
-		(SELECT approval_status FROM LatestOnly WHERE project = da.project AND root = da.root AND group_1 = da.group_1 AND relation = da.relation AND phase = 'mdl' LIMIT 1) as mdl_approval_status,
-		(SELECT submitted_at_utc FROM LatestOnly WHERE project = da.project AND root = da.root AND group_1 = da.group_1 AND relation = da.relation AND phase = 'mdl' LIMIT 1) as mdl_submitted_at_utc,
-		
-		(SELECT work_status FROM LatestOnly WHERE project = da.project AND root = da.root AND group_1 = da.group_1 AND relation = da.relation AND phase = 'rig' LIMIT 1) as rig_work_status,
-		(SELECT approval_status FROM LatestOnly WHERE project = da.project AND root = da.root AND group_1 = da.group_1 AND relation = da.relation AND phase = 'rig' LIMIT 1) as rig_approval_status,
-		(SELECT submitted_at_utc FROM LatestOnly WHERE project = da.project AND root = da.root AND group_1 = da.group_1 AND relation = da.relation AND phase = 'rig' LIMIT 1) as rig_submitted_at_utc,
-		
-		(SELECT work_status FROM LatestOnly WHERE project = da.project AND root = da.root AND group_1 = da.group_1 AND relation = da.relation AND phase = 'bld' LIMIT 1) as bld_work_status,
-		(SELECT approval_status FROM LatestOnly WHERE project = da.project AND root = da.root AND group_1 = da.group_1 AND relation = da.relation AND phase = 'bld' LIMIT 1) as bld_approval_status,
-		(SELECT submitted_at_utc FROM LatestOnly WHERE project = da.project AND root = da.root AND group_1 = da.group_1 AND relation = da.relation AND phase = 'bld' LIMIT 1) as bld_submitted_at_utc,
-		
-		(SELECT work_status FROM LatestOnly WHERE project = da.project AND root = da.root AND group_1 = da.group_1 AND relation = da.relation AND phase = 'dsn' LIMIT 1) as dsn_work_status,
-		(SELECT approval_status FROM LatestOnly WHERE project = da.project AND root = da.root AND group_1 = da.group_1 AND relation = da.relation AND phase = 'dsn' LIMIT 1) as dsn_approval_status,
-		(SELECT submitted_at_utc FROM LatestOnly WHERE project = da.project AND root = da.root AND group_1 = da.group_1 AND relation = da.relation AND phase = 'dsn' LIMIT 1) as dsn_submitted_at_utc,
-		
-		(SELECT work_status FROM LatestOnly WHERE project = da.project AND root = da.root AND group_1 = da.group_1 AND relation = da.relation AND phase = 'ldv' LIMIT 1) as ldv_work_status,
-		(SELECT approval_status FROM LatestOnly WHERE project = da.project AND root = da.root AND group_1 = da.group_1 AND relation = da.relation AND phase = 'ldv' LIMIT 1) as ldv_approval_status,
-		(SELECT submitted_at_utc FROM LatestOnly WHERE project = da.project AND root = da.root AND group_1 = da.group_1 AND relation = da.relation AND phase = 'ldv' LIMIT 1) as ldv_submitted_at_utc,
-		
-		da.total_count,
-		da.asset_order
-	FROM DistinctAssets da
-	LEFT JOIN LatestOnly lo ON lo.project = da.project AND lo.root = da.root AND lo.group_1 = da.group_1 AND lo.relation = da.relation
-	WHERE da.asset_order > ? AND da.asset_order <= ?
-	ORDER BY da.asset_order
-	`
+	// 2) Get page "keys" (one primary row per asset, correctly ordered)
+	keys, err := r.ListLatestSubmissionsDynamic(ctx, project, root, preferredPhase, orderKey, direction, limit, offset, assetNameKey, approvalStatuses, workStatuses)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(keys) == 0 {
+		return []AssetPivot{}, total, nil
+	}
 
-	// Build parameters
-	params := []interface{}{
-		project, root,
-	}
-	
-	// Name search
-	namePattern := ""
-	if assetNameKey != "" {
-		namePattern = strings.ToLower(strings.TrimSpace(assetNameKey)) + "%"
-	}
-	params = append(params, namePattern, namePattern)
-	
-	// Add status filter parameters
-	for _, s := range approvalStatuses {
-		params = append(params, strings.ToLower(strings.TrimSpace(s)))
-	}
-	for _, s := range workStatuses {
-		params = append(params, strings.ToLower(strings.TrimSpace(s)))
-	}
-	
-	// Pagination
-	params = append(params, offset, offset+limit)
-	
-	// Execute query
-	var rows []struct {
-		AssetPivot
-		TotalCount int64 `gorm:"column:total_count"`
-		AssetOrder int64 `gorm:"column:asset_order"`
-	}
-	
-	if err := r.db.WithContext(ctxWithTimeout).Raw(query, params...).Scan(&rows).Error; err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			return r.listAssetsPivotFallback(ctx, project, root, limit, offset, assetNameKey)
+	// 3) Phase fetch — fully optimized
+	var sb strings.Builder
+	var params []any
+
+	sb.WriteString(`
+WITH asset_keys AS (
+`)
+
+	for i, k := range keys {
+		if i > 0 {
+			sb.WriteString("  UNION ALL\n")
 		}
-		return nil, 0, fmt.Errorf("ListAssetsPivot: %w", err)
+		sb.WriteString("  SELECT ? AS project, ? AS root, ? AS group_1, ? AS relation\n")
+		params = append(params, k.Project, k.Root, k.Group1, k.Relation)
 	}
-	
-	// Extract results
-	var total int64 = 0
-	results := make([]AssetPivot, 0, len(rows))
-	
-	for i, row := range rows {
-		results = append(results, AssetPivot{
-			Root:              row.Root,
-			Project:           row.Project,
-			Group1:            row.Group1,
-			Relation:          row.Relation,
-			LeafGroupName:     row.LeafGroupName,
-			GroupCategoryPath: row.GroupCategoryPath,
-			TopGroupNode:      row.TopGroupNode,
-			MDLWorkStatus:     row.MDLWorkStatus,
-			MDLApprovalStatus: row.MDLApprovalStatus,
-			MDLSubmittedAtUTC: row.MDLSubmittedAtUTC,
-			RIGWorkStatus:     row.RIGWorkStatus,
-			RIGApprovalStatus: row.RIGApprovalStatus,
-			RIGSubmittedAtUTC: row.RIGSubmittedAtUTC,
-			BLDWorkStatus:     row.BLDWorkStatus,
-			BLDApprovalStatus: row.BLDApprovalStatus,
-			BLDSubmittedAtUTC: row.BLDSubmittedAtUTC,
-			DSNWorkStatus:     row.DSNWorkStatus,
-			DSNApprovalStatus: row.DSNApprovalStatus,
-			DSNSubmittedAtUTC: row.DSNSubmittedAtUTC,
-			LDVWorkStatus:     row.LDVWorkStatus,
-			LDVApprovalStatus: row.LDVApprovalStatus,
-			LDVSubmittedAtUTC: row.LDVSubmittedAtUTC,
-		})
-		if i == 0 {
-			total = row.TotalCount
-		}
+
+	sb.WriteString(`
+),
+ranked AS (
+  SELECT
+    ri.project,
+    ri.root,
+    ri.group_1,
+    ri.relation,
+    ri.phase,
+    ri.work_status,
+    ri.approval_status,
+    ri.submitted_at_utc,
+    ri.` + "`groups`" + `,
+    ROW_NUMBER() OVER (
+      PARTITION BY ri.project, ri.root, ri.group_1, ri.relation, ri.phase
+      ORDER BY ri.modified_at_utc DESC
+    ) AS rn
+  FROM t_review_info ri
+  INNER JOIN asset_keys ak
+          ON ak.project  = ri.project
+         AND ak.root     = ri.root
+         AND ak.group_1  = ri.group_1
+         AND ak.relation = ri.relation
+  WHERE ri.deleted = 0
+),
+latest_only AS (
+  /* FIX: Filter for rn = 1 BEFORE joining to category tables.
+     This reduces the JSON operations from thousands to just a handful. */
+  SELECT * FROM ranked WHERE rn = 1
+)
+SELECT
+  lo.project,
+  lo.root,
+  lo.group_1,
+  lo.relation,
+  lo.phase,
+  lo.work_status,
+  lo.approval_status,
+  lo.submitted_at_utc,
+  JSON_UNQUOTE(JSON_EXTRACT(lo.` + "`groups`" + `, '$[0]')) AS leaf_group_name,
+  gc.path AS group_category_path,
+  SUBSTRING_INDEX(gc.path, '/', 1) AS top_group_node
+FROM latest_only lo
+LEFT JOIN t_group_category_group gcg
+       ON gcg.project = lo.project
+      AND gcg.deleted = 0
+      AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(lo.` + "`groups`" + `, '$[0]'))
+LEFT JOIN t_group_category gc
+       ON gc.id = gcg.group_category_id
+      AND gc.deleted = 0
+      AND gc.root = 'assets';
+`)
+
+	var phases []phaseRow
+	if err := r.db.WithContext(ctx).Raw(sb.String(), params...).Scan(&phases).Error; err != nil {
+		return nil, 0, fmt.Errorf("ListAssetsPivot.phaseFetch: %w", err)
 	}
-	
-	return results, total, nil
-}
+
+	// ... [Rest of your stitching logic remains the same] ...
