@@ -1,0 +1,228 @@
+func (r *ReviewInfo) ListAssetsPivot(
+	ctx context.Context,
+	project, root, preferredPhase, orderKey, direction string,
+	limit, offset int,
+	assetNameKey string,
+	approvalStatuses []string,
+	workStatuses []string,
+) ([]AssetPivot, int64, error) {
+	if project == "" {
+		return nil, 0, fmt.Errorf("project is required")
+	}
+	if root == "" {
+		root = "assets"
+	}
+	if limit <= 0 {
+		limit = 60
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	/*
+		KEY IDEA:
+		---------
+		At ASSET LEVEL there is NO submitted_at_utc.
+		So we DERIVE:
+		  - asset_submitted_at_utc = MAX(submitted_at_utc)
+		  - asset_modified_at_utc  = MAX(modified_at_utc)
+	*/
+
+	query := `
+	WITH
+	BaseWithGroups AS (
+		SELECT
+			ri.*,
+			COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]')), '') AS extracted_leaf_group,
+			COALESCE(gc.path, 'Unassigned') AS extracted_group_path,
+			COALESCE(SUBSTRING_INDEX(gc.path, '/', 1), 'Unassigned') AS extracted_top_node
+		FROM t_review_info ri
+		LEFT JOIN t_group_category_group gcg
+			ON gcg.project = ri.project
+			AND gcg.deleted = 0
+			AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]'))
+		LEFT JOIN t_group_category gc
+			ON gc.id = gcg.group_category_id
+			AND gc.deleted = 0
+			AND gc.root = 'assets'
+		WHERE ri.project = ?
+		  AND ri.root = ?
+		  AND ri.deleted = 0
+		  AND (LOWER(ri.group_1) LIKE LOWER(?) OR ? = '')
+	),
+
+	LatestPerPhase AS (
+		SELECT
+			bwg.*,
+			ROW_NUMBER() OVER (
+				PARTITION BY bwg.project, bwg.root, bwg.group_1, bwg.relation, bwg.phase
+				ORDER BY bwg.modified_at_utc DESC
+			) AS phase_rank
+		FROM BaseWithGroups bwg
+	),
+
+	FilteredPhases AS (
+		SELECT
+			lpp.*,
+			CASE
+				WHEN ` + buildStatusMatchCondition(workStatuses, approvalStatuses) + ` THEN 1
+				ELSE 0
+			END AS matches_filter
+		FROM LatestPerPhase lpp
+		WHERE lpp.phase_rank = 1
+	),
+
+	FilteredAssets AS (
+		SELECT
+			project,
+			root,
+			group_1,
+			relation,
+
+			MAX(extracted_leaf_group)      AS leaf_group_name,
+			MAX(extracted_group_path)      AS group_category_path,
+			MAX(extracted_top_node)        AS top_group_node,
+
+			-- ✅ DERIVED ASSET-LEVEL TIMESTAMPS
+			MAX(submitted_at_utc)          AS asset_submitted_at_utc,
+			MAX(modified_at_utc)           AS asset_modified_at_utc,
+
+			COUNT(*) OVER ()               AS total_count
+		FROM FilteredPhases
+		WHERE (
+			CASE
+				WHEN ? = 0 AND ? = 0 THEN 1
+				ELSE matches_filter
+			END
+		) = 1
+		GROUP BY project, root, group_1, relation
+	),
+
+	OrderedAssets AS (
+		SELECT
+			fa.*,
+			ROW_NUMBER() OVER (
+				ORDER BY ` + buildOrderClause("fa", orderKey, direction) + `
+			) AS asset_order
+		FROM FilteredAssets fa
+	),
+
+	PaginatedAssets AS (
+		SELECT *
+		FROM OrderedAssets
+		WHERE asset_order > ? AND asset_order <= ?
+	),
+
+	PivotedData AS (
+		SELECT
+			pa.*,
+
+			-- MDL
+			MAX(CASE WHEN fp.phase = 'mdl' THEN fp.work_status END)        AS mdl_work_status,
+			MAX(CASE WHEN fp.phase = 'mdl' THEN fp.approval_status END)    AS mdl_approval_status,
+			MAX(CASE WHEN fp.phase = 'mdl' THEN fp.submitted_at_utc END)   AS mdl_submitted_at_utc,
+
+			-- RIG
+			MAX(CASE WHEN fp.phase = 'rig' THEN fp.work_status END)        AS rig_work_status,
+			MAX(CASE WHEN fp.phase = 'rig' THEN fp.approval_status END)    AS rig_approval_status,
+			MAX(CASE WHEN fp.phase = 'rig' THEN fp.submitted_at_utc END)   AS rig_submitted_at_utc,
+
+			-- BLD
+			MAX(CASE WHEN fp.phase = 'bld' THEN fp.work_status END)        AS bld_work_status,
+			MAX(CASE WHEN fp.phase = 'bld' THEN fp.approval_status END)    AS bld_approval_status,
+			MAX(CASE WHEN fp.phase = 'bld' THEN fp.submitted_at_utc END)   AS bld_submitted_at_utc,
+
+			-- DSN
+			MAX(CASE WHEN fp.phase = 'dsn' THEN fp.work_status END)        AS dsn_work_status,
+			MAX(CASE WHEN fp.phase = 'dsn' THEN fp.approval_status END)    AS dsn_approval_status,
+			MAX(CASE WHEN fp.phase = 'dsn' THEN fp.submitted_at_utc END)   AS dsn_submitted_at_utc,
+
+			-- LDV
+			MAX(CASE WHEN fp.phase = 'ldv' THEN fp.work_status END)        AS ldv_work_status,
+			MAX(CASE WHEN fp.phase = 'ldv' THEN fp.approval_status END)    AS ldv_approval_status,
+			MAX(CASE WHEN fp.phase = 'ldv' THEN fp.submitted_at_utc END)   AS ldv_submitted_at_utc
+
+		FROM PaginatedAssets pa
+		LEFT JOIN FilteredPhases fp
+			ON fp.project  = pa.project
+			AND fp.root     = pa.root
+			AND fp.group_1  = pa.group_1
+			AND fp.relation = pa.relation
+		GROUP BY
+			pa.project, pa.root, pa.group_1, pa.relation,
+			pa.leaf_group_name, pa.group_category_path, pa.top_group_node,
+			pa.asset_submitted_at_utc, pa.asset_modified_at_utc,
+			pa.total_count, pa.asset_order
+	)
+
+	SELECT
+		root,
+		project,
+		group_1,
+		relation,
+
+		leaf_group_name,
+		group_category_path,
+		top_group_node,
+
+		mdl_work_status,
+		mdl_approval_status,
+		mdl_submitted_at_utc,
+		rig_work_status,
+		rig_approval_status,
+		rig_submitted_at_utc,
+		bld_work_status,
+		bld_approval_status,
+		bld_submitted_at_utc,
+		dsn_work_status,
+		dsn_approval_status,
+		dsn_submitted_at_utc,
+		ldv_work_status,
+		ldv_approval_status,
+		ldv_submitted_at_utc,
+
+		total_count
+	FROM PivotedData
+	ORDER BY asset_order
+	`
+
+	// ---------- PARAMETERS ----------
+	namePattern := ""
+	if assetNameKey != "" {
+		namePattern = strings.ToLower(strings.TrimSpace(assetNameKey)) + "%"
+	}
+
+	params := []interface{}{
+		project, root,
+		namePattern, namePattern,
+		len(workStatuses), len(approvalStatuses),
+		offset, offset + limit,
+	}
+
+	for _, s := range workStatuses {
+		params = append(params, strings.ToLower(strings.TrimSpace(s)))
+	}
+	for _, s := range approvalStatuses {
+		params = append(params, strings.ToLower(strings.TrimSpace(s)))
+	}
+
+	var rows []struct {
+		AssetPivot
+		TotalCount int64 `gorm:"column:total_count"`
+	}
+
+	if err := r.db.WithContext(ctx).Raw(query, params...).Scan(&rows).Error; err != nil {
+		return nil, 0, fmt.Errorf("ListAssetsPivot: %w", err)
+	}
+
+	var total int64
+	results := make([]AssetPivot, 0, len(rows))
+	for i, row := range rows {
+		results = append(results, row.AssetPivot)
+		if i == 0 {
+			total = row.TotalCount
+		}
+	}
+
+	return results, total, nil
+}
