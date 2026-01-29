@@ -1,0 +1,27 @@
+func (h *ReviewHandler) ListAssetsPivot(c *gin.Context) {
+    parentCtx := c.Request.Context()
+
+    // ✅ ADD TIMEOUT HERE
+    ctx, cancel := context.WithTimeout(parentCtx, 10*time.Second)
+    defer cancel()
+
+    rows, total, err := h.reviewRepo.ListAssetsPivot(
+        ctx,
+        project,
+        root,
+        preferredPhase,
+        orderKey,
+        direction,
+        limit,
+        offset,
+        assetNameKey,
+        approvalStatuses,
+        workStatuses,
+    )
+    if err != nil {
+        // handle error
+        return
+    }
+
+    // respond
+}
