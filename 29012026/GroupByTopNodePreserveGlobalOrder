@@ -1,51 +1,37 @@
-func GroupByTopNodePreserveGlobalOrder(rows []AssetPivot) []GroupedAssetBucket {
+func GroupAndSortByTopNode(rows []AssetPivot) []GroupedAssetBucket {
 	grouped := make(map[string][]AssetPivot)
-	groupOrder := make([]string, 0)
+	order := []string{}
 
-	// 1️⃣ Group rows WITHOUT reordering
 	for _, row := range rows {
 		key := strings.TrimSpace(row.TopGroupNode)
 		if key == "" {
 			key = "Unassigned"
 		}
-
-		if _, exists := grouped[key]; !exists {
+		if _, ok := grouped[key]; !ok {
 			grouped[key] = []AssetPivot{}
-			groupOrder = append(groupOrder, key)
+			order = append(order, key)
 		}
-
-		// ⛔ DO NOT SORT — preserve SQL order
 		grouped[key] = append(grouped[key], row)
 	}
 
-	// 2️⃣ Sort ONLY group headers
-	isUnassigned := func(s string) bool {
-		return strings.EqualFold(strings.TrimSpace(s), "unassigned")
-	}
-
-	sort.Slice(groupOrder, func(i, j int) bool {
-		ai := strings.TrimSpace(groupOrder[i])
-		aj := strings.TrimSpace(groupOrder[j])
-
-		if isUnassigned(ai) && !isUnassigned(aj) {
+	// Group headers A→Z, Unassigned last
+	sort.Slice(order, func(i, j int) bool {
+		if order[i] == "Unassigned" {
 			return false
 		}
-		if !isUnassigned(ai) && isUnassigned(aj) {
+		if order[j] == "Unassigned" {
 			return true
 		}
-
-		return strings.ToLower(ai) < strings.ToLower(aj)
+		return strings.ToLower(order[i]) < strings.ToLower(order[j])
 	})
 
-	// 3️⃣ Build result (order preserved)
-	result := make([]GroupedAssetBucket, 0, len(groupOrder))
-	for _, key := range groupOrder {
-		result = append(result, GroupedAssetBucket{
+	out := make([]GroupedAssetBucket, 0, len(order))
+	for _, key := range order {
+		out = append(out, GroupedAssetBucket{
 			TopGroupNode: key,
-			Items:        grouped[key],
-			ItemCount:    len(grouped[key]),
+			Items:        grouped[key], // order preserved
 		})
 	}
 
-	return result
+	return out
 }
