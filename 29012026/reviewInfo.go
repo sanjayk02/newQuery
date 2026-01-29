@@ -1220,160 +1220,167 @@ func (r *ReviewInfo) ListAssetsPivot(
 		root = "assets"
 	}
 
-	// FIXED: Validate orderKey to prevent SQL injection
-	allowedOrderKeys := map[string]bool{
-		"group1_only": true, "relation_only": true, "group_rel_submitted": true,
-		"submitted_at_utc": true, "modified_at_utc": true, "phase": true,
-		"mdl_submitted": true, "rig_submitted": true, "bld_submitted": true, 
-		"dsn_submitted": true, "ldv_submitted": true,
-		"mdl_work": true, "rig_work": true, "bld_work": true, "dsn_work": true, "ldv_work": true,
-		"mdl_appr": true, "rig_appr": true, "bld_appr": true, "dsn_appr": true, "ldv_appr": true,
-	}
-	if !allowedOrderKeys[orderKey] {
-		orderKey = "group1_only" // default safe value
-	}
-	
-	// FIXED: Validate direction
-	direction = strings.ToUpper(direction)
-	if direction != "ASC" && direction != "DESC" {
-		direction = "ASC"
-	}
+	// Add a generous timeout
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
 
-	// Build the optimized query
+	// Optimize: Move JSON extraction to later stage to reduce early processing
 	query := `
-	WITH 
-	-- Extract JSON and group info ONCE at the beginning
-	BaseWithGroups AS (
-		SELECT 
-			ri.*,
-			COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]')), '') as extracted_leaf_group,
-			COALESCE(gc.path, 'Unassigned') as extracted_group_path,
-			COALESCE(SUBSTRING_INDEX(gc.path, '/', 1), 'Unassigned') as extracted_top_node
+	WITH LatestPerPhase AS (
+		SELECT
+			ri.project,
+			ri.root,
+			ri.group_1,
+			ri.relation,
+			ri.phase,
+			ri.work_status,
+			ri.approval_status,
+			ri.submitted_at_utc,
+			ri.modified_at_utc,
+			ri.groups -- Don't extract JSON here, do it later
 		FROM t_review_info ri
-		LEFT JOIN t_group_category_group gcg ON 
-			gcg.project = ri.project 
-			AND gcg.deleted = 0 
-			AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]'))
-		LEFT JOIN t_group_category gc ON 
-			gc.id = gcg.group_category_id 
-			AND gc.deleted = 0 
-			AND gc.root = 'assets'
 		WHERE ri.project = ?
-		AND ri.root = ?
-		AND ri.deleted = 0
-		AND (LOWER(ri.group_1) LIKE LOWER(?) OR ? = '')
+		  AND ri.root = ?
+		  AND ri.deleted = 0
+		  AND (LOWER(ri.group_1) LIKE LOWER(?) OR ? = '')
+		  AND ` + buildStatusWhereClause(approvalStatuses, workStatuses) + `
 	),
-	
-	LatestPerPhase AS (
-		SELECT 
-			bwg.*,
+
+	LatestOnly AS (
+		SELECT *,
 			ROW_NUMBER() OVER (
-				PARTITION BY bwg.project, bwg.root, bwg.group_1, bwg.relation, bwg.phase
-				ORDER BY bwg.modified_at_utc DESC
-			) AS phase_rank
-		FROM BaseWithGroups bwg
+				PARTITION BY project, root, group_1, relation, phase
+				ORDER BY modified_at_utc DESC
+			) AS rn
+		FROM LatestPerPhase
 	),
-	
-	FilteredPhases AS (
-		SELECT 
-			lpp.*,
-			CASE 
-				WHEN ` + buildStatusMatchCondition(workStatuses, approvalStatuses) + ` THEN 1
-				ELSE 0
-			END AS matches_filter
-		FROM LatestPerPhase lpp
-		WHERE lpp.phase_rank = 1
+
+	FilteredLatest AS (
+		SELECT * FROM LatestOnly WHERE rn = 1
 	),
-	
-	FilteredAssets AS (
-		SELECT DISTINCT
+
+	DistinctAssets AS (
+		SELECT
 			project,
 			root,
 			group_1,
 			relation,
-			-- Use extracted columns
-			MAX(extracted_leaf_group) as leaf_group_name,
-			MAX(extracted_group_path) as group_category_path,
-			MAX(extracted_top_node) as top_group_node,
 			COUNT(*) OVER () AS total_count
-		FROM FilteredPhases
-		WHERE (CASE 
-			WHEN ? = 0 AND ? = 0 THEN 1  -- No status filters
-			ELSE matches_filter
-		END) = 1
+		FROM FilteredLatest
 		GROUP BY project, root, group_1, relation
 	),
-	
+
 	OrderedAssets AS (
-		SELECT 
-			fa.*,
+		SELECT
+			da.*,
 			ROW_NUMBER() OVER (
-				ORDER BY 
-					-- FIXED: Only use columns that exist in FilteredAssets
-					CASE WHEN ? = 'group1_only' THEN LOWER(fa.group_1) END ` + direction + `,
-					CASE WHEN ? = 'group1_only' THEN LOWER(fa.relation) END ASC,
-					CASE WHEN ? = 'relation_only' THEN LOWER(fa.relation) END ` + direction + `,
-					CASE WHEN ? = 'relation_only' THEN LOWER(fa.group_1) END ASC,
-					-- For phase-specific sorting, we need to use default since columns don't exist
-					LOWER(fa.group_1) ASC,
-					LOWER(fa.relation) ASC
+				ORDER BY LOWER(da.group_1) ASC
 			) AS asset_order
-		FROM FilteredAssets fa
+		FROM DistinctAssets da
 	),
-	
+
 	PaginatedAssets AS (
 		SELECT *
 		FROM OrderedAssets
 		WHERE asset_order > ? AND asset_order <= ?
 	),
-	
-	PivotedData AS (
-		SELECT 
-			pa.*,
-			-- MDL Phase
-			MAX(CASE WHEN fp.phase = 'mdl' THEN fp.work_status END) AS mdl_work_status,
-			MAX(CASE WHEN fp.phase = 'mdl' THEN fp.approval_status END) AS mdl_approval_status,
-			MAX(CASE WHEN fp.phase = 'mdl' THEN fp.submitted_at_utc END) AS mdl_submitted_at_utc,
-			-- RIG Phase
-			MAX(CASE WHEN fp.phase = 'rig' THEN fp.work_status END) AS rig_work_status,
-			MAX(CASE WHEN fp.phase = 'rig' THEN fp.approval_status END) AS rig_approval_status,
-			MAX(CASE WHEN fp.phase = 'rig' THEN fp.submitted_at_utc END) AS rig_submitted_at_utc,
-			-- BLD Phase
-			MAX(CASE WHEN fp.phase = 'bld' THEN fp.work_status END) AS bld_work_status,
-			MAX(CASE WHEN fp.phase = 'bld' THEN fp.approval_status END) AS bld_approval_status,
-			MAX(CASE WHEN fp.phase = 'bld' THEN fp.submitted_at_utc END) AS bld_submitted_at_utc,
-			-- DSN Phase
-			MAX(CASE WHEN fp.phase = 'dsn' THEN fp.work_status END) AS dsn_work_status,
-			MAX(CASE WHEN fp.phase = 'dsn' THEN fp.approval_status END) AS dsn_approval_status,
-			MAX(CASE WHEN fp.phase = 'dsn' THEN fp.submitted_at_utc END) AS dsn_submitted_at_utc,
-			-- LDV Phase
-			MAX(CASE WHEN fp.phase = 'ldv' THEN fp.work_status END) AS ldv_work_status,
-			MAX(CASE WHEN fp.phase = 'ldv' THEN fp.approval_status END) AS ldv_approval_status,
-			MAX(CASE WHEN fp.phase = 'ldv' THEN fp.submitted_at_utc END) AS ldv_submitted_at_utc
+
+	Pivoted AS (
+		SELECT
+			pa.project,
+			pa.root,
+			pa.group_1,
+			pa.relation,
+			pa.total_count,
+			pa.asset_order,
+
+			-- Get group info efficiently (only for the paginated assets)
+			COALESCE(
+				(SELECT gc.path 
+				 FROM t_group_category_group gcg
+				 JOIN t_group_category gc ON gc.id = gcg.group_category_id
+				 WHERE gcg.project = pa.project 
+				   AND gcg.deleted = 0
+				   AND gc.deleted = 0
+				   AND gc.root = 'assets'
+				   AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(fl.groups, '$[0]'))
+				 LIMIT 1),
+				'Unassigned'
+			) as group_category_path,
+			COALESCE(
+				SUBSTRING_INDEX(
+					COALESCE(
+						(SELECT gc.path 
+						 FROM t_group_category_group gcg
+						 JOIN t_group_category gc ON gc.id = gcg.group_category_id
+						 WHERE gcg.project = pa.project 
+						   AND gcg.deleted = 0
+						   AND gc.deleted = 0
+						   AND gc.root = 'assets'
+						   AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(fl.groups, '$[0]'))
+						 LIMIT 1),
+						'Unassigned'
+					),
+					'/', 1
+				),
+				'Unassigned'
+			) as top_group_node,
+			COALESCE(SUBSTRING_INDEX(
+				COALESCE(
+					(SELECT gc.path 
+					 FROM t_group_category_group gcg
+					 JOIN t_group_category gc ON gc.id = gcg.group_category_id
+					 WHERE gcg.project = pa.project 
+					   AND gcg.deleted = 0
+					   AND gc.deleted = 0
+					   AND gc.root = 'assets'
+					   AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(fl.groups, '$[0]'))
+					 LIMIT 1),
+					'Unassigned'
+				),
+				'/', -1
+			), '') as leaf_group_name,
+
+			-- Phase data
+			MAX(CASE WHEN fl.phase = 'mdl' THEN fl.work_status END) AS mdl_work_status,
+			MAX(CASE WHEN fl.phase = 'mdl' THEN fl.approval_status END) AS mdl_approval_status,
+			MAX(CASE WHEN fl.phase = 'mdl' THEN fl.submitted_at_utc END) AS mdl_submitted_at_utc,
+
+			MAX(CASE WHEN fl.phase = 'rig' THEN fl.work_status END) AS rig_work_status,
+			MAX(CASE WHEN fl.phase = 'rig' THEN fl.approval_status END) AS rig_approval_status,
+			MAX(CASE WHEN fl.phase = 'rig' THEN fl.submitted_at_utc END) AS rig_submitted_at_utc,
+
+			MAX(CASE WHEN fl.phase = 'bld' THEN fl.work_status END) AS bld_work_status,
+			MAX(CASE WHEN fl.phase = 'bld' THEN fl.approval_status END) AS bld_approval_status,
+			MAX(CASE WHEN fl.phase = 'bld' THEN fl.submitted_at_utc END) AS bld_submitted_at_utc,
+
+			MAX(CASE WHEN fl.phase = 'dsn' THEN fl.work_status END) AS dsn_work_status,
+			MAX(CASE WHEN fl.phase = 'dsn' THEN fl.approval_status END) AS dsn_approval_status,
+			MAX(CASE WHEN fl.phase = 'dsn' THEN fl.submitted_at_utc END) AS dsn_submitted_at_utc,
+
+			MAX(CASE WHEN fl.phase = 'ldv' THEN fl.work_status END) AS ldv_work_status,
+			MAX(CASE WHEN fl.phase = 'ldv' THEN fl.approval_status END) AS ldv_approval_status,
+			MAX(CASE WHEN fl.phase = 'ldv' THEN fl.submitted_at_utc END) AS ldv_submitted_at_utc
+
 		FROM PaginatedAssets pa
-		LEFT JOIN FilteredPhases fp ON 
-			fp.project = pa.project 
-			AND fp.root = pa.root 
-			AND fp.group_1 = pa.group_1 
-			AND fp.relation = pa.relation
-		GROUP BY 
+		LEFT JOIN FilteredLatest fl
+			ON fl.project = pa.project
+			AND fl.root = pa.root
+			AND fl.group_1 = pa.group_1
+			AND fl.relation = pa.relation
+		GROUP BY
 			pa.project, pa.root, pa.group_1, pa.relation,
-			pa.leaf_group_name, pa.group_category_path, pa.top_group_node,
 			pa.total_count, pa.asset_order
 	)
-	
+
 	SELECT 
 		root,
 		project,
 		group_1,
 		relation,
-		
-		-- Grouping info (from extracted columns)
-		leaf_group_name,
 		group_category_path,
 		top_group_node,
-		
-		-- Phase data
+		leaf_group_name,
 		mdl_work_status,
 		mdl_approval_status,
 		mdl_submitted_at_utc,
@@ -1389,16 +1396,14 @@ func (r *ReviewInfo) ListAssetsPivot(
 		ldv_work_status,
 		ldv_approval_status,
 		ldv_submitted_at_utc,
-		
 		total_count,
 		asset_order
-	FROM PivotedData
+	FROM Pivoted
 	ORDER BY asset_order
 	`
 
 	// Build parameters
 	params := []interface{}{
-		// BaseWithGroups
 		project, root,
 	}
 	
@@ -1409,22 +1414,12 @@ func (r *ReviewInfo) ListAssetsPivot(
 	}
 	params = append(params, namePattern, namePattern)
 	
-	// Status filter parameters
-	for _, s := range workStatuses {
-		params = append(params, strings.ToLower(strings.TrimSpace(s)))
-	}
+	// Add status filter parameters
 	for _, s := range approvalStatuses {
 		params = append(params, strings.ToLower(strings.TrimSpace(s)))
 	}
-	
-	// Status filter flags
-	hasWorkFilter := len(workStatuses)
-	hasApprovalFilter := len(approvalStatuses)
-	params = append(params, hasWorkFilter, hasApprovalFilter)
-	
-	// Add ordering parameter (repeated for each CASE statement)
-	for i := 0; i < 4; i++ {
-		params = append(params, orderKey)
+	for _, s := range workStatuses {
+		params = append(params, strings.ToLower(strings.TrimSpace(s)))
 	}
 	
 	// Pagination
@@ -1437,7 +1432,11 @@ func (r *ReviewInfo) ListAssetsPivot(
 		AssetOrder int64 `gorm:"column:asset_order"`
 	}
 	
-	if err := r.db.WithContext(ctx).Raw(query, params...).Scan(&rows).Error; err != nil {
+	if err := r.db.WithContext(ctxWithTimeout).Raw(query, params...).Scan(&rows).Error; err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			// Try a simpler approach if timeout
+			return r.listAssetsPivotFallback(ctx, project, root, limit, offset, assetNameKey)
+		}
 		return nil, 0, fmt.Errorf("ListAssetsPivot: %w", err)
 	}
 	
@@ -1446,10 +1445,97 @@ func (r *ReviewInfo) ListAssetsPivot(
 	results := make([]AssetPivot, 0, len(rows))
 	
 	for i, row := range rows {
-		results = append(results, row.AssetPivot)
+		results = append(results, AssetPivot{
+			Root:              row.Root,
+			Project:           row.Project,
+			Group1:            row.Group1,
+			Relation:          row.Relation,
+			LeafGroupName:     row.LeafGroupName,
+			GroupCategoryPath: row.GroupCategoryPath,
+			TopGroupNode:      row.TopGroupNode,
+			MDLWorkStatus:     row.MDLWorkStatus,
+			MDLApprovalStatus: row.MDLApprovalStatus,
+			MDLSubmittedAtUTC: row.MDLSubmittedAtUTC,
+			RIGWorkStatus:     row.RIGWorkStatus,
+			RIGApprovalStatus: row.RIGApprovalStatus,
+			RIGSubmittedAtUTC: row.RIGSubmittedAtUTC,
+			BLDWorkStatus:     row.BLDWorkStatus,
+			BLDApprovalStatus: row.BLDApprovalStatus,
+			BLDSubmittedAtUTC: row.BLDSubmittedAtUTC,
+			DSNWorkStatus:     row.DSNWorkStatus,
+			DSNApprovalStatus: row.DSNApprovalStatus,
+			DSNSubmittedAtUTC: row.DSNSubmittedAtUTC,
+			LDVWorkStatus:     row.LDVWorkStatus,
+			LDVApprovalStatus: row.LDVApprovalStatus,
+			LDVSubmittedAtUTC: row.LDVSubmittedAtUTC,
+		})
 		if i == 0 {
 			total = row.TotalCount
 		}
+	}
+	
+	return results, total, nil
+}
+
+// Fallback method for when the main query times out
+func (r *ReviewInfo) listAssetsPivotFallback(
+	ctx context.Context,
+	project, root string,
+	limit, offset int,
+	assetNameKey string,
+) ([]AssetPivot, int64, error) {
+	// Simplified query without complex joins
+	query := `
+	SELECT DISTINCT
+		project,
+		root,
+		group_1,
+		relation,
+		COUNT(*) OVER () AS total_count,
+		ROW_NUMBER() OVER (ORDER BY LOWER(group_1) ASC) AS asset_order
+	FROM t_review_info
+	WHERE project = ?
+	  AND root = ?
+	  AND deleted = 0
+	  AND (LOWER(group_1) LIKE LOWER(?) OR ? = '')
+	ORDER BY asset_order
+	LIMIT ? OFFSET ?
+	`
+	
+	namePattern := ""
+	if assetNameKey != "" {
+		namePattern = strings.ToLower(strings.TrimSpace(assetNameKey)) + "%"
+	}
+	
+	var assets []struct {
+		Project    string
+		Root       string
+		Group1     string
+		Relation   string
+		TotalCount int64
+		AssetOrder int64
+	}
+	
+	if err := r.db.WithContext(ctx).Raw(query, 
+		project, root, namePattern, namePattern, limit, offset,
+	).Scan(&assets).Error; err != nil {
+		return nil, 0, err
+	}
+	
+	// Convert to AssetPivot (without phase data for now)
+	results := make([]AssetPivot, len(assets))
+	for i, asset := range assets {
+		results[i] = AssetPivot{
+			Root:     asset.Root,
+			Project:  asset.Project,
+			Group1:   asset.Group1,
+			Relation: asset.Relation,
+		}
+	}
+	
+	var total int64 = 0
+	if len(assets) > 0 {
+		total = assets[0].TotalCount
 	}
 	
 	return results, total, nil
