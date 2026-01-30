@@ -1,0 +1,49 @@
+func (r *ReviewInfo) CountLatestSubmissions(
+	ctx context.Context,
+	project, root, assetNameKey string,
+	preferredPhase string, // kept for API compatibility
+	approvalStatuses []string,
+	workStatuses []string,
+) (int64, error) {
+	if project == "" {
+		return 0, fmt.Errorf("project is required")
+	}
+	if root == "" {
+		root = "assets"
+	}
+
+	db := r.db.WithContext(ctx)
+
+	// Build filter conditions
+	nameCond := ""
+	var nameArg any
+	if strings.TrimSpace(assetNameKey) != "" {
+		nameCond = " AND LOWER(group_1) LIKE ?"
+		nameArg = strings.ToLower(strings.TrimSpace(assetNameKey)) + "%"
+	}
+
+	statusWhere, statusArgs := buildPhaseAwareStatusWhere(preferredPhase, approvalStatuses, workStatuses)
+
+	// OPTIMIZATION: Instead of window functions, use a simple GROUP BY/DISTINCT
+	// to count unique assets that have at least one valid review record.
+	sql := `
+SELECT COUNT(*) FROM (
+	SELECT 1
+	FROM t_review_info
+	WHERE project = ? AND root = ? AND deleted = 0` + nameCond + statusWhere + `
+	GROUP BY project, root, group_1, relation
+) AS count_table`
+
+	args := []any{project, root}
+	if nameArg != nil {
+		args = append(args, nameArg)
+	}
+	args = append(args, statusArgs...)
+
+	var total int64
+	if err := db.Raw(sql, args...).Scan(&total).Error; err != nil {
+		return 0, fmt.Errorf("CountLatestSubmissions: %w", err)
+	}
+
+	return total, nil
+}
