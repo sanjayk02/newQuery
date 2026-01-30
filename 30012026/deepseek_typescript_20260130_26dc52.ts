@@ -1,0 +1,91 @@
+// Add progress tracking interface
+interface FetchOptions {
+  signal?: AbortSignal;
+  onProgress?: (progress: number) => void;
+  timeout?: number;
+}
+
+// Enhanced fetchAssetsPivot with progress and timeout
+export const fetchAssetsPivot = async (
+  project: string,
+  page: number,
+  rowsPerPage: number,
+  sortKey: string,
+  sortDir: string,
+  phase: string,
+  assetNameKey: string,
+  approvalStatuses: string[],
+  workStatuses: string[],
+  view: 'list' | 'grouped',
+  options?: FetchOptions,
+): Promise<AssetsPivotResponse> => {
+  const headers = getAuthHeader();
+  const encodedProject = encodeURIComponent(project);
+  let url = `/api/projects/${encodedProject}/reviews/assets/pivot`;
+
+  const params = new URLSearchParams();
+  params.set('per_page', String(rowsPerPage));
+  params.set('page', String(page + 1));
+  if (sortKey) params.set('sort', sortKey);
+  if (sortDir) params.set('dir', sortDir.toUpperCase());
+  if (phase && phase !== 'none') params.set('phase', phase);
+  if (view) params.set('view', view);
+
+  const trimmed = (assetNameKey || '').trim();
+  if (trimmed) {
+    params.set('name', trimmed);
+    params.set('name_mode', 'prefix');
+  }
+
+  // CSV formats for array filters
+  if (workStatuses.length) params.set('work', workStatuses.join(','));
+  if (approvalStatuses.length) params.set('appr', approvalStatuses.join(','));
+
+  url += `?${params.toString()}`;
+
+  const timeout = options?.timeout || 45000; // 45 seconds default
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  
+  // Progress tracking
+  let progress = 0;
+  const progressInterval = setInterval(() => {
+    if (progress < 90) {
+      progress += 10;
+      options?.onProgress?.(progress);
+    }
+  }, 1000);
+
+  try {
+    // Use fetch with AbortController
+    const res = await fetch(url, {
+      method: 'GET',
+      headers,
+      mode: 'cors',
+      signal: options?.signal || controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+    clearInterval(progressInterval);
+    options?.onProgress?.(100);
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      throw new Error(`Pivot API Error [${res.status}]: ${errorText}`);
+    }
+
+    setNewToken(res);
+    const data = await res.json();
+    
+    // Add pagination metadata if not present
+    if (!data.total && data.assets) {
+      data.total = data.assets.length;
+    }
+    
+    return data;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    clearInterval(progressInterval);
+    throw error;
+  }
+};
