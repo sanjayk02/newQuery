@@ -1,105 +1,145 @@
+package repository
+
+import (
+	"context"
+	"time"
+
+	"github.com/PolygonPictures/central30-web/front/entity"
+	"gorm.io/gorm"
+)
+
+type ReviewInfo struct {
+	db *gorm.DB
+}
+
+func NewReviewInfo(db *gorm.DB) *ReviewInfo {
+	return &ReviewInfo{db: db}
+}
+
 func (r *ReviewInfo) ListAssetsPivot(
-    ctx context.Context,
-    project, root string,
-    limit, offset int,
-    assetNameKey string,
+	ctx context.Context,
+	project string,
+	root string,
+	limit int,
+	offset int,
+	assetNameKey string,
 ) ([]entity.AssetPivot, int64, error) {
 
-    var (
-        assetKeys []struct {
-            AssetKey string
-            LatestAt time.Time
-        }
-        total int64
-        pivots []entity.AssetPivot
-    )
+	// ----------------------------
+	// STEP 0: result containers
+	// ----------------------------
+	var (
+		total     int64
+		assetKeys []struct {
+			AssetKey string    `gorm:"column:asset_key"`
+			LatestAt time.Time `gorm:"column:latest_submitted_at"`
+		}
+		pivots []entity.AssetPivot
+	)
 
-    // -------------------------------
-    // STEP 1: TOTAL COUNT
-    // -------------------------------
-    countSQL := `
-        SELECT COUNT(*) FROM (
-            SELECT ri.asset_key
-            FROM review_info ri
-            WHERE ri.project = ?
-              AND ri.root = ?
-              AND (? = '' OR ri.asset_key LIKE CONCAT(?, '%'))
-            GROUP BY ri.asset_key
-        ) t;
-    `
+	// ----------------------------
+	// STEP 1: TOTAL COUNT
+	// ----------------------------
+	countSQL := `
+		SELECT COUNT(*) AS total
+		FROM (
+			SELECT ri.asset_key
+			FROM central30.t_review_info ri
+			WHERE ri.project = ?
+			  AND ri.root = ?
+			  AND (? = '' OR ri.asset_key LIKE CONCAT(?, '%'))
+			GROUP BY ri.asset_key
+		) t;
+	`
 
-    if err := r.db.WithContext(ctx).
-        Raw(countSQL, project, root, assetNameKey, assetNameKey).
-        Scan(&total).Error; err != nil {
-        return nil, 0, err
-    }
+	if err := r.db.WithContext(ctx).
+		Raw(
+			countSQL,
+			project,
+			root,
+			assetNameKey,
+			assetNameKey,
+		).
+		Scan(&total).Error; err != nil {
+		return nil, 0, err
+	}
 
-    // -------------------------------
-    // STEP 2: PAGINATED ASSET KEYS
-    // -------------------------------
-    keysSQL := `
-        WITH distinct_assets AS (
-            SELECT
-                ri.asset_key,
-                MAX(ri.submitted_at_utc) AS latest_submitted_at
-            FROM review_info ri
-            WHERE ri.project = ?
-              AND ri.root = ?
-              AND (? = '' OR ri.asset_key LIKE CONCAT(?, '%'))
-            GROUP BY ri.asset_key
-        )
-        SELECT asset_key, latest_submitted_at
-        FROM distinct_assets
-        ORDER BY latest_submitted_at DESC
-        LIMIT ? OFFSET ?;
-    `
+	// ----------------------------
+	// STEP 2: PAGINATED ASSET KEYS
+	// ----------------------------
+	keysSQL := `
+		WITH distinct_assets AS (
+			SELECT
+				ri.asset_key,
+				MAX(ri.submitted_at_utc) AS latest_submitted_at
+			FROM central30.t_review_info ri
+			WHERE ri.project = ?
+			  AND ri.root = ?
+			  AND (? = '' OR ri.asset_key LIKE CONCAT(?, '%'))
+			GROUP BY ri.asset_key
+		)
+		SELECT
+			asset_key,
+			latest_submitted_at
+		FROM distinct_assets
+		ORDER BY latest_submitted_at DESC
+		LIMIT ? OFFSET ?;
+	`
 
-    if err := r.db.WithContext(ctx).
-        Raw(
-            keysSQL,
-            project, root,
-            assetNameKey, assetNameKey,
-            limit, offset,
-        ).
-        Scan(&assetKeys).Error; err != nil {
-        return nil, 0, err
-    }
+	if err := r.db.WithContext(ctx).
+		Raw(
+			keysSQL,
+			project,
+			root,
+			assetNameKey,
+			assetNameKey,
+			limit,
+			offset,
+		).
+		Scan(&assetKeys).Error; err != nil {
+		return nil, 0, err
+	}
 
-    if len(assetKeys) == 0 {
-        return []entity.AssetPivot{}, total, nil
-    }
+	if len(assetKeys) == 0 {
+		return []entity.AssetPivot{}, total, nil
+	}
 
-    keys := make([]string, 0, len(assetKeys))
-    for _, k := range assetKeys {
-        keys = append(keys, k.AssetKey)
-    }
+	keys := make([]string, 0, len(assetKeys))
+	for _, k := range assetKeys {
+		keys = append(keys, k.AssetKey)
+	}
 
-    // -------------------------------
-    // STEP 3: LATEST PHASE DATA
-    // -------------------------------
-    dataSQL := `
-        WITH ranked AS (
-            SELECT
-                ri.*,
-                ROW_NUMBER() OVER (
-                    PARTITION BY ri.asset_key, ri.phase
-                    ORDER BY ri.submitted_at_utc DESC
-                ) AS rn
-            FROM review_info ri
-            WHERE ri.project = ?
-              AND ri.root = ?
-              AND ri.asset_key IN (?)
-        )
-        SELECT *
-        FROM ranked
-        WHERE rn = 1;
-    `
+	// ----------------------------
+	// STEP 3: LATEST PER PHASE
+	// ----------------------------
+	dataSQL := `
+		WITH ranked AS (
+			SELECT
+				ri.*,
+				ROW_NUMBER() OVER (
+					PARTITION BY ri.asset_key, ri.phase
+					ORDER BY ri.submitted_at_utc DESC
+				) AS rn
+			FROM central30.t_review_info ri
+			WHERE ri.project = ?
+			  AND ri.root = ?
+			  AND ri.asset_key IN (?)
+		)
+		SELECT *
+		FROM ranked
+		WHERE rn = 1;
+	`
 
-    if err := r.db.WithContext(ctx).
-        Raw(dataSQL, project, root, keys).
-        Scan(&pivots).Error; err != nil {
-        return nil, 0, err
-    }
+	if err := r.db.WithContext(ctx).
+		Raw(
+			dataSQL,
+			project,
+			root,
+			keys,
+		).
+		Scan(&pivots).Error; err != nil {
+		return nil, 0, err
+	}
 
-    return pivots, total, nil
+	return pivots, total, nil
 }
