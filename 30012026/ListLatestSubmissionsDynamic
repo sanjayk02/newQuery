@@ -1,0 +1,139 @@
+func (r *ReviewInfo) ListLatestSubmissionsDynamic(
+	ctx context.Context,
+	project string,
+	root string,
+	preferredPhase string,
+	orderKey string,
+	direction string,
+	limit, offset int,
+	assetNameKey string,
+	approvalStatuses []string,
+	workStatuses []string,
+) ([]LatestSubmissionRow, error) {
+
+	if project == "" {
+		return nil, fmt.Errorf("project is required")
+	}
+	if root == "" {
+		root = "assets"
+	}
+	if limit <= 0 {
+		limit = 15
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	// ------------------------------------------------------------
+	// 🔴 HARD SAFETY GUARD (CRITICAL)
+	// ------------------------------------------------------------
+	// OFFSET + window functions = guaranteed timeout in MySQL.
+	// Pivot/List views MUST be page-based only.
+	const maxOffset = 200
+	if offset > maxOffset {
+		// Return empty page instead of crashing
+		return []LatestSubmissionRow{}, nil
+	}
+
+	db := r.db.WithContext(ctx)
+
+	// ------------------------------------------------------------
+	// Optional name prefix filter
+	// ------------------------------------------------------------
+	nameCond := ""
+	var nameArg any
+	if strings.TrimSpace(assetNameKey) != "" {
+		nameCond = " AND LOWER(group_1) LIKE ?"
+		nameArg = strings.ToLower(strings.TrimSpace(assetNameKey)) + "%"
+	}
+
+	// ------------------------------------------------------------
+	// Status filter (phase-aware)
+	// ------------------------------------------------------------
+	statusWhere, statusArgs := buildPhaseAwareStatusWhere(
+		preferredPhase,
+		approvalStatuses,
+		workStatuses,
+	)
+
+	// ------------------------------------------------------------
+	// Ordering
+	// ------------------------------------------------------------
+	orderClause := buildOrderClause("", orderKey, direction)
+
+	// ------------------------------------------------------------
+	// SQL
+	// ------------------------------------------------------------
+	sql := `
+WITH latest_phase AS (
+  SELECT
+    project,
+    root,
+    group_1,
+    relation,
+    phase,
+    submitted_at_utc,
+    modified_at_utc,
+    ROW_NUMBER() OVER (
+      PARTITION BY project, root, group_1, relation, phase
+      ORDER BY modified_at_utc DESC
+    ) AS rn
+  FROM t_review_info
+  WHERE project = ?
+    AND root = ?
+    AND deleted = 0
+    ` + nameCond + `
+),
+latest_only AS (
+  SELECT *
+  FROM latest_phase
+  WHERE rn = 1
+  ` + statusWhere + `
+),
+ranked AS (
+  SELECT
+    root,
+    project,
+    group_1,
+    relation,
+    phase,
+    submitted_at_utc,
+    ROW_NUMBER() OVER (
+      PARTITION BY project, root, group_1, relation
+      ORDER BY ` + orderClause + `
+    ) AS asset_rank
+  FROM latest_only
+)
+SELECT
+  root,
+  project,
+  group_1,
+  relation,
+  phase,
+  submitted_at_utc
+FROM ranked
+WHERE asset_rank = 1
+ORDER BY ` + orderClause + `
+LIMIT ? OFFSET ?;
+`
+
+	// ------------------------------------------------------------
+	// Args
+	// ------------------------------------------------------------
+	args := []any{project, root}
+	if nameArg != nil {
+		args = append(args, nameArg)
+	}
+	args = append(args, statusArgs...)
+	args = append(args, limit, offset)
+
+	// ------------------------------------------------------------
+	// Execute
+	// ------------------------------------------------------------
+	var rows []LatestSubmissionRow
+	if err := db.Raw(sql, args...).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("ListLatestSubmissionsDynamic: %w", err)
+	}
+
+	return rows, nil
+}
