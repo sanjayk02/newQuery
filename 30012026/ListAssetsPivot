@@ -14,9 +14,9 @@ func (r *ReviewInfo) ListAssetsPivot(
 		root = "assets"
 	}
 
-	// ------------------------------------------------------------
-	// 1) Total count (uses existing optimized logic)
-	// ------------------------------------------------------------
+	// ------------------------------------------------------------------
+	// 1) Total count (same logic as List View)
+	// ------------------------------------------------------------------
 	total, err := r.CountLatestSubmissions(
 		ctx,
 		project,
@@ -30,9 +30,9 @@ func (r *ReviewInfo) ListAssetsPivot(
 		return nil, 0, err
 	}
 
-	// ------------------------------------------------------------
-	// 2) Page keys (ordered, one row per asset)
-	// ------------------------------------------------------------
+	// ------------------------------------------------------------------
+	// 2) Page keys (ONE row per asset, ordered)
+	// ------------------------------------------------------------------
 	keys, err := r.ListLatestSubmissionsDynamic(
 		ctx,
 		project,
@@ -54,12 +54,9 @@ func (r *ReviewInfo) ListAssetsPivot(
 		return []AssetPivot{}, total, nil
 	}
 
-	// ------------------------------------------------------------
-	// 3) Phase fetch (FULLY OPTIMIZED)
-	//    - JSON extracted ONCE
-	//    - tuple IN instead of OR
-	//    - joins happen LAST
-	// ------------------------------------------------------------
+	// ------------------------------------------------------------------
+	// 3) Phase fetch (optimized, JSON only once, tuple IN)
+	// ------------------------------------------------------------------
 	var sb strings.Builder
 	var params []any
 
@@ -135,9 +132,10 @@ LEFT JOIN t_group_category gc
 		return nil, 0, fmt.Errorf("ListAssetsPivot.phaseFetch: %w", err)
 	}
 
-	// ------------------------------------------------------------
-	// 4) Stitch phases → pivot rows (order preserved)
-	// ------------------------------------------------------------
+	// ------------------------------------------------------------------
+	// 4) Build base AssetPivot rows FROM KEYS (NOT phases)
+	//     This guarantees 1 row per asset
+	// ------------------------------------------------------------------
 	type keyStruct struct {
 		p, r, g, rel string
 	}
@@ -157,6 +155,9 @@ LEFT JOIN t_group_category gc
 		orderedPtrs = append(orderedPtrs, ap)
 	}
 
+	// ------------------------------------------------------------------
+	// 5) Stitch phase + category data (if exists)
+	// ------------------------------------------------------------------
 	for _, pr := range phases {
 		id := keyStruct{pr.Project, pr.Root, pr.Group1, pr.Relation}
 		ap, ok := index[id]
@@ -164,7 +165,7 @@ LEFT JOIN t_group_category gc
 			continue
 		}
 
-		// grouping info (set once)
+		// grouping info (only once)
 		if ap.LeafGroupName == "" {
 			ap.LeafGroupName = pr.LeafGroupName
 			ap.GroupCategoryPath = pr.GroupCategoryPath
@@ -195,9 +196,18 @@ LEFT JOIN t_group_category gc
 		}
 	}
 
-	// ------------------------------------------------------------
-	// 5) Materialize result (stable order)
-	// ------------------------------------------------------------
+	// ------------------------------------------------------------------
+	// 6) FINAL FIX: ensure EVERY asset belongs to a group
+	// ------------------------------------------------------------------
+	for _, ap := range orderedPtrs {
+		if strings.TrimSpace(ap.TopGroupNode) == "" {
+			ap.TopGroupNode = "Unassigned"
+		}
+	}
+
+	// ------------------------------------------------------------------
+	// 7) Materialize result (stable order)
+	// ------------------------------------------------------------------
 	result := make([]AssetPivot, len(orderedPtrs))
 	for i, ap := range orderedPtrs {
 		result[i] = *ap
