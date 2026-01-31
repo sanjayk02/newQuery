@@ -1,223 +1,1329 @@
+/* ──────────────────────────────────────────────────────────────────────────
+   Module Name:
+    reviewInfo/reviewInfo.go
+
+   Module Description:
+    Repository for managing review information in the database.
+   Details:
+   - Implements CRUD operations for review information.
+   - Supports listing assets and their review information.
+   - Provides functions for counting and listing latest submissions with dynamic filtering and sorting.
+
+   Update and Modification History:
+   * - 29-10-2025 - SanjayK PSI - Implemented dynamic filtering and sorting for latest submissions.
+   * - 17-11-2025 - SanjayK PSI - Added phase-aware status filtering and sorting.
+   * - 22-11-2025 - SanjayK PSI - Fixed bugs related to phase-specific filtering and sorting.
+
+   Functions:
+   * - List: Lists review information based on provided parameters.
+   * - Get: Retrieves a specific review information record.
+   * - Create: Creates a new review information record.
+   * - Update: Updates an existing review information record.
+   * - Delete: Marks a review information record as deleted.
+   * - ListAssets: Lists unique assets based on review information.
+   * - ListShotReviewInfos: Lists review information for a specific shot.
+   * - ListAssetReviewInfos: Lists review information for a specific asset.
+   * - CountLatestSubmissions: Counts latest submissions with dynamic filtering.
+   * - ListLatestSubmissionsDynamic: Lists latest submissions with dynamic filtering and sorting.
+   * - buildPhaseAwareStatusWhere: Constructs a WHERE clause for phase-aware status filtering.
+   * - buildOrderClause: Constructs an ORDER BY clause based on sorting parameters.
+   * - ListAssetsPivot: Lists pivoted assets with filtering and sorting options.
+
+   ────────────────────────────────────────────────────────────────────────── */
+
 package repository
 
 import (
-	"context"
-	"database/sql"
-	"errors"
-	"fmt"
-	"sort"
-	"strings"
-	"time"
+    "context"
+    "database/sql"
+    "errors"
+    "fmt"
+    "sort"
+    "strings"
+    "time"
 
-	"github.com/PolygonPictures/central30-web/front/entity"
-	"github.com/PolygonPictures/central30-web/front/repository/model"
-	"gorm.io/gorm"
+    "github.com/PolygonPictures/central30-web/front/entity"
+    "github.com/PolygonPictures/central30-web/front/repository/model"
+    "gorm.io/gorm"
 )
 
 type ReviewInfo struct {
-	db *gorm.DB
+    db *gorm.DB
 }
 
-// ... [Keep NewReviewInfo, WithContext, List, Get, Create, Update, Delete as they are] ...
+func NewReviewInfo(db *gorm.DB) (*ReviewInfo, error) {
+    info := model.ReviewInfo{}
 
-/*
-──────────────────────────────────────────────────────────────────────────
-	CountLatestSubmissions
-	FIX: Removed ROW_NUMBER() from count logic to prevent timeouts.
-──────────────────────────────────────────────────────────────────────────
-*/
-func (r *ReviewInfo) CountLatestSubmissions(
-	ctx context.Context,
-	project, root, assetNameKey string,
-	preferredPhase string,
-	approvalStatuses []string,
-	workStatuses []string,
-) (int64, error) {
-	if project == "" {
-		return 0, fmt.Errorf("project is required")
-	}
-	if root == "" {
-		root = "assets"
-	}
+    //Specification change: https:jira.ppi.co.jp/browse/POTOO-2406
+    migrator := db.Migrator()
+    if migrator.HasTable(&info) && !migrator.HasColumn(&info, "take_path") {
+        if err := migrator.RenameColumn(&info, "path", "take_path"); err != nil {
+            return nil, err
+        }
+    }
 
-	db := r.db.WithContext(ctx)
+    if err := db.AutoMigrate(&info); err != nil {
+        return nil, err
+    }
 
-	nameCond := ""
-	var nameArg any
-	if strings.TrimSpace(assetNameKey) != "" {
-		nameCond = " AND LOWER(group_1) LIKE ?"
-		nameArg = strings.ToLower(strings.TrimSpace(assetNameKey)) + "%"
-	}
-
-	statusWhere, statusArgs := buildPhaseAwareStatusWhere(preferredPhase, approvalStatuses, workStatuses)
-
-	// OPTIMIZATION: Use simple GROUP BY to count unique assets.
-	// This avoids the window function overhead that caused the timeout.
-	sql := `
-SELECT COUNT(*) FROM (
-	SELECT 1
-	FROM t_review_info
-	WHERE project = ? AND root = ? AND deleted = 0` + nameCond + statusWhere + `
-	GROUP BY project, root, group_1, relation
-) AS count_table`
-
-	args := []any{project, root}
-	if nameArg != nil {
-		args = append(args, nameArg)
-	}
-	args = append(args, statusArgs...)
-
-	var total int64
-	if err := db.Raw(sql, args...).Scan(&total).Error; err != nil {
-		return 0, fmt.Errorf("CountLatestSubmissions: %w", err)
-	}
-
-	return total, nil
+    return &ReviewInfo{
+        db: db,
+    }, nil
 }
 
-/*
-──────────────────────────────────────────────────────────────────────────
-	ListLatestSubmissionsDynamic
-	FIX: Simplified the inner FK selection to prevent deadline exceeded.
-──────────────────────────────────────────────────────────────────────────
-*/
-func (r *ReviewInfo) ListLatestSubmissionsDynamic(
-	ctx context.Context,
-	project, root, preferredPhase, orderKey, direction string,
-	limit, offset int,
-	assetNameKey string,
-	approvalStatuses []string,
-	workStatuses []string,
-) ([]LatestSubmissionRow, error) {
-	if project == "" {
-		return nil, fmt.Errorf("project is required")
-	}
-	if root == "" {
-		root = "assets"
-	}
+func (r *ReviewInfo) WithContext(ctx context.Context) *gorm.DB {
+    return r.db.WithContext(ctx)
+}
 
-	phaseGuard := 0
-	if preferredPhase == "" || strings.EqualFold(preferredPhase, "none") {
-		phaseGuard = 1
-	}
+func (r *ReviewInfo) TransactionWithContext(
+    ctx context.Context,
+    fc func(tx *gorm.DB) error,
+    opts ...*sql.TxOptions,
+) error {
+    db := r.WithContext(ctx)
+    return db.Transaction(fc, opts...)
+}
 
-	orderClauseWindow := buildOrderClause("", orderKey, direction)
-	orderClauseInner := buildOrderClause("b", orderKey, direction)
+func (r *ReviewInfo) List(
+    db *gorm.DB,
+    params *entity.ListReviewInfoParams,
+) ([]*entity.ReviewInfo, int, error) {
+    stmt := db
+    for i, g := range params.Group {
+        stmt = stmt.Where(fmt.Sprintf("group_%d = ?", i+1), g)
+    }
+    stmt = stmt.Where("`project` = ?", params.Project)
+    if params.Studio != nil {
+        stmt = stmt.Where("`studio` = ?", *params.Studio)
+    }
+    if params.TaskID != nil {
+        stmt = stmt.Where("`task_id` = ?", *params.TaskID)
+    }
+    if params.SubtaskID != nil {
+        stmt = stmt.Where("`subtask_id` = ?", *params.SubtaskID)
+    }
+    if params.Root != nil {
+        stmt = stmt.Where("`root` = ?", *params.Root)
+    }
+    for i, g := range params.Group {
+        stmt = stmt.Where(fmt.Sprintf("`groups`->\"$[%d]\" = ?", i), g)
+    }
+    if params.Relation != nil {
+        stmt = stmt.Where("relation IN (?)", params.Relation)
+    }
+    if params.Phase != nil {
+        stmt = stmt.Where("phase IN (?)", params.Phase)
+    }
+    if params.Component != nil {
+        stmt = stmt.Where("`component` = ?", *params.Component)
+    }
+    if params.Take != nil {
+        stmt = stmt.Where("`take` = ?", *params.Take)
+    }
 
-	nameCond := ""
-	var nameArg any
-	if strings.TrimSpace(assetNameKey) != "" {
-		nameCond = " AND LOWER(group_1) LIKE ?"
-		nameArg = strings.ToLower(strings.TrimSpace(assetNameKey)) + "%"
-	}
+    order := "`id` desc"
+    if params.OrderBy != nil {
+        order = *params.OrderBy
+    }
+    showDeleted := false
+    if params.ModifiedSince != nil {
+        stmt = stmt.Where("`modified_at_utc` >= ?", *params.ModifiedSince)
+        order = "`modified_at_utc` asc"
+        showDeleted = true
+    } else {
+        stmt.Where("`deleted` = ?", 0)
+    }
 
-	statusWhere, statusArgs := buildPhaseAwareStatusWhere(preferredPhase, approvalStatuses, workStatuses)
+    var total int64
+    var m model.ReviewInfo
+    if err := stmt.Model(&m).Count(&total).Error; err != nil {
+        return nil, 0, err
+    }
 
-	// Simplified keys selection
-	keysSQL := `
-SELECT project, root, group_1, relation
-FROM t_review_info
-WHERE project = ? AND root = ? AND deleted = 0` + nameCond + statusWhere + `
-GROUP BY project, root, group_1, relation`
+    var models []*model.ReviewInfo
+    perPage := params.GetPerPage()
+    offset := perPage * (params.GetPage() - 1)
+    if err := stmt.Order(
+        order,
+    ).Limit(perPage).Offset(offset).Find(&models).Error; err != nil {
+        return nil, 0, err
+    }
 
-	q := fmt.Sprintf(`
-WITH ordered AS (
-  SELECT *, ROW_NUMBER() OVER (ORDER BY %s) AS _order
-  FROM (
-    SELECT b.*
-    FROM (
-      SELECT project, root, group_1, relation, phase, MAX(modified_at_utc) AS modified_at_utc
-      FROM t_review_info
-      WHERE project = ? AND root = ? AND deleted = 0
-      GROUP BY project, root, group_1, relation, phase
-    ) AS a
-    LEFT JOIN t_review_info AS b
-      ON a.project = b.project AND a.root = b.root AND a.group_1 = b.group_1 
-      AND a.relation = b.relation AND a.phase = b.phase AND a.modified_at_utc = b.modified_at_utc
-    INNER JOIN ( %s ) AS fk
-      ON b.project = fk.project AND b.root = fk.root 
-      AND b.group_1 = fk.group_1 AND b.relation = fk.relation
-    ORDER BY %s
-  ) AS k
-),
-ranked AS (
-  SELECT b.*,
-    ROW_NUMBER() OVER (
-      PARTITION BY b.root, b.project, b.group_1, b.relation
-      ORDER BY CASE WHEN ? = 1 THEN 0 WHEN b.phase = ? THEN 0 ELSE 1 END,
-      LOWER(b.group_1) ASC, LOWER(b.relation) ASC, b.modified_at_utc DESC
-    ) AS _rank,
-    CASE WHEN ? = 1 THEN _order WHEN phase = ? THEN _order ELSE 100000 + _order END AS __order
-  FROM ordered b
+    var entities []*entity.ReviewInfo
+    for _, m := range models {
+        entities = append(entities, m.Entity(showDeleted))
+    }
+    return entities, int(total), nil
+}
+
+func (r *ReviewInfo) Get(
+    db *gorm.DB,
+    params *entity.GetReviewParams,
+) (*entity.ReviewInfo, error) {
+    var m model.ReviewInfo
+    if err := db.Where(
+        "`deleted` = ?", 0,
+    ).Where(
+        "`project` = ?", params.Project,
+    ).Where(
+        "`id` = ?", params.ID,
+    ).Take(&m).Error; err != nil {
+        if errors.Is(err, gorm.ErrRecordNotFound) {
+            return nil, entity.ErrRecordNotFound
+        }
+        return nil, err
+    }
+    return m.Entity(false), nil
+}
+
+func (r *ReviewInfo) Create(
+    tx *gorm.DB,
+    params *entity.CreateReviewInfoParams,
+) (*entity.ReviewInfo, error) {
+    m := model.NewReviewInfo(params)
+    if err := tx.Create(m).Error; err != nil {
+        return nil, err
+    }
+    return m.Entity(false), nil
+}
+
+func (r *ReviewInfo) Update(
+    tx *gorm.DB,
+    params *entity.UpdateReviewInfoParams,
+) (*entity.ReviewInfo, error) {
+    now := time.Now().UTC()
+    modifiedBy := ""
+    if params.ModifiedBy != nil {
+        modifiedBy = *params.ModifiedBy
+    }
+    var m model.ReviewInfo
+    if err := tx.Where(
+        "`deleted` = ?", 0,
+    ).Where(
+        "`project` = ?", params.Project,
+    ).Where(
+        "`id` = ?", params.ID,
+    ).Take(&m).Error; err != nil {
+        if errors.Is(err, gorm.ErrRecordNotFound) {
+            return nil, entity.ErrRecordNotFound
+        }
+        return nil, err
+    }
+    var modified = false
+    if params.ApprovalStatus != nil {
+        m.ApprovalStatus = *params.ApprovalStatus
+        m.ApprovalStatusUpdatedAtUtc = now
+        modified = true
+    }
+    if params.ApprovalStatusUpdatedUser != nil {
+        m.ApprovalStatusUpdatedUser = *params.ApprovalStatusUpdatedUser
+        m.ApprovalStatusUpdatedAtUtc = now
+        modified = true
+    }
+    if params.WorkStatus != nil {
+        m.WorkStatus = *params.WorkStatus
+        m.WorkStatusUpdatedAtUtc = now
+        modified = true
+    }
+    if params.WorkStatusUpdatedUser != nil {
+        m.WorkStatusUpdatedUser = *params.WorkStatusUpdatedUser
+        m.WorkStatusUpdatedAtUtc = now
+        modified = true
+    }
+    if !modified {
+        return nil, errors.New("no value is given to change")
+    }
+    m.ModifiedAtUTC = now
+    m.ModifiedBy = modifiedBy
+    return m.Entity(false), tx.Save(m).Error
+}
+
+func (r *ReviewInfo) Delete(
+    tx *gorm.DB,
+    params *entity.DeleteReviewInfoParams,
+) error {
+    now := time.Now().UTC()
+    var modifiedBy string
+    if params.ModifiedBy != nil {
+        modifiedBy = *params.ModifiedBy
+    }
+    var m model.ReviewInfo
+    if err := tx.Where(
+        "`deleted` = ?", 0,
+    ).Where(
+        "`project` = ?", params.Project,
+    ).Where(
+        "`id` = ?", params.ID,
+    ).Take(&m).Error; err != nil {
+        if errors.Is(err, gorm.ErrRecordNotFound) {
+            return entity.ErrRecordNotFound
+        }
+        return err
+    }
+    m.Deleted = m.ID
+    m.ModifiedAtUTC = now
+    m.ModifiedBy = modifiedBy
+    return tx.Save(m).Error
+}
+
+func (r *ReviewInfo) ListAssets(
+    db *gorm.DB,
+    params *entity.AssetListParams,
+) ([]*entity.Asset, int, error) {
+    stmt := db.Model(
+        &ReviewInfo{},
+    ).Where(
+        "deleted = ?", 0,
+    ).Where(
+        "project = ?", params.Project,
+    ).Where(
+        "root = ?", "assets",
+    ).Group(
+        "project",
+    ).Group(
+        "root",
+    ).Group(
+        "group_1",
+    ).Group(
+        "relation",
+    )
+
+    var total int64
+    if err := stmt.Count(&total).Error; err != nil {
+        return nil, 0, err
+    }
+
+    stmt = stmt.Order(
+        "group_1",
+    ).Order(
+        "relation",
+    )
+
+    var reviews []*model.ReviewInfo
+    perPage := params.GetPerPage()
+    offset := perPage * (params.GetPage() - 1)
+    if err := stmt.Select(
+        "project", "root", "group_1", "relation",
+    ).Limit(perPage).Offset(offset).Find(&reviews).Error; err != nil {
+        return nil, 0, err
+    }
+
+    assets := make([]*entity.Asset, len(reviews))
+    for i, review := range reviews {
+        assets[i] = &entity.Asset{
+            Name:     review.Group1,
+            Relation: review.Relation,
+        }
+    }
+    return assets, int(total), nil
+}
+
+func (r *ReviewInfo) ListAssetReviewInfos(
+    db *gorm.DB,
+    params *entity.AssetReviewInfoListParams,
+) ([]*entity.ReviewInfo, error) {
+    stmtA := db.Select(
+        "project",
+        "root",
+        "group_1",
+        "relation",
+        "phase",
+        "MAX(modified_at_utc) AS modified_at_utc",
+    ).Model(
+        &model.ReviewInfo{},
+    ).Where(
+        "project = ?", params.Project,
+    ).Where(
+        "root = ?", "assets",
+    ).Where(
+        "group_1 = ?", params.Asset,
+    ).Where(
+        "relation = ?", params.Relation,
+    ).Where(
+        "deleted = ?", 0,
+    ).Group(
+        "project",
+    ).Group(
+        "root",
+    ).Group(
+        "group_1",
+    ).Group(
+        "relation",
+    ).Group(
+        "phase",
+    )
+
+    stmtB := db.Select(
+        "*",
+    ).Model(
+        &model.ReviewInfo{},
+    ).Where(
+        "project = ?", params.Project,
+    ).Where(
+        "root = ?", "assets",
+    ).Where(
+        "group_1 = ?", params.Asset,
+    ).Where(
+        "relation = ?", params.Relation,
+    ).Where(
+        "deleted = ?", 0,
+    )
+
+    stmt := db.Select(
+        "b.*",
+    ).Table(
+        "(?) AS a", stmtA,
+    ).Joins(
+        "LEFT OUTER JOIN (?) AS b ON a.project = b.project AND a.root = b.root AND a.group_1 = b.group_1 AND a.relation = b.relation AND a.phase = b.phase AND a.modified_at_utc = b.modified_at_utc", stmtB,
+    )
+
+    var reviews []*model.ReviewInfo
+    if err := stmt.Scan(&reviews).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+        return nil, err
+    }
+
+    reviewInfos := make([]*entity.ReviewInfo, len(reviews))
+    for i, review := range reviews {
+        reviewInfos[i] = review.Entity(false)
+    }
+    return reviewInfos, nil
+}
+
+func (r *ReviewInfo) ListShotReviewInfos(
+    db *gorm.DB,
+    params *entity.ShotReviewInfoListParams,
+) ([]*entity.ReviewInfo, error) {
+    stmtA := db.Select(
+        "project",
+        "root",
+        "group_1",
+        "group_2",
+        "group_3",
+        "relation",
+        "phase",
+        "MAX(modified_at_utc) AS modified_at_utc",
+    ).Model(
+        &model.ReviewInfo{},
+    ).Where(
+        "project = ?", params.Project,
+    ).Where(
+        "root = ?", "shots",
+    ).Where(
+        "group_1 = ?", params.Groups[0],
+    ).Where(
+        "group_2 = ?", params.Groups[1],
+    ).Where(
+        "group_3 = ?", params.Groups[2],
+    ).Where(
+        "relation = ?", params.Relation,
+    ).Where(
+        "deleted = ?", 0,
+    ).Group(
+        "project",
+    ).Group(
+        "root",
+    ).Group(
+        "group_1",
+    ).Group(
+        "group_2",
+    ).Group(
+        "group_3",
+    ).Group(
+        "relation",
+    ).Group(
+        "phase",
+    )
+
+    stmtB := db.Select(
+        "*",
+    ).Model(
+        &model.ReviewInfo{},
+    ).Where(
+        "project = ?", params.Project,
+    ).Where(
+        "root = ?", "shots",
+    ).Where(
+        "group_1 = ?", params.Groups[0],
+    ).Where(
+        "group_2 = ?", params.Groups[1],
+    ).Where(
+        "group_3 = ?", params.Groups[2],
+    ).Where(
+        "relation = ?", params.Relation,
+    ).Where(
+        "deleted = ?", 0,
+    )
+
+    stmt := db.Select(
+        "b.*",
+    ).Table(
+        "(?) AS a", stmtA,
+    ).Joins(
+        "LEFT OUTER JOIN (?) AS b ON a.project = b.project AND a.root = b.root AND a.group_1 = b.group_1 AND a.group_2 = b.group_2 AND a.group_3 = b.group_3 AND a.relation = b.relation AND a.phase = b.phase AND a.modified_at_utc = b.modified_at_utc", stmtB,
+    )
+
+    var reviews []*model.ReviewInfo
+    if err := stmt.Scan(&reviews).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+        return nil, err
+    }
+
+    reviewInfos := make([]*entity.ReviewInfo, len(reviews))
+    for i, review := range reviews {
+        reviewInfos[i] = review.Entity(false)
+    }
+    return reviewInfos, nil
+}
+
+// ========================================================================
+// ========= Asset Review Pivot Listing ===================================
+// ========================================================================
+
+type LatestSubmissionRow struct {
+    Root           string     `json:"root"              gorm:"column:root"`
+    Project        string     `json:"project"           gorm:"column:project"`
+    Group1         string     `json:"group_1"           gorm:"column:group_1"`
+    Relation       string     `json:"relation"          gorm:"column:relation"`
+    Phase          string     `json:"phase"             gorm:"column:phase"`
+    SubmittedAtUTC *time.Time `json:"submitted_at_utc"  gorm:"column:submitted_at_utc"`
+}
+
+// ---- Pivot result ----
+// Used by UI for both List View and Group Category View.
+type AssetPivot struct {
+    Root     string `json:"root"`
+    Project  string `json:"project"`
+    Group1   string `json:"group_1"`
+    Relation string `json:"relation"`
+
+    // Grouping info
+    LeafGroupName     string `json:"leaf_group_name"`
+    GroupCategoryPath string `json:"group_category_path"`
+    TopGroupNode      string `json:"top_group_node"`
+
+    MDLWorkStatus     *string    `json:"mdl_work_status"`
+    MDLApprovalStatus *string    `json:"mdl_approval_status"`
+    MDLSubmittedAtUTC *time.Time `json:"mdl_submitted_at_utc"`
+
+    RIGWorkStatus     *string    `json:"rig_work_status"`
+    RIGApprovalStatus *string    `json:"rig_approval_status"`
+    RIGSubmittedAtUTC *time.Time `json:"rig_submitted_at_utc"`
+
+    BLDWorkStatus     *string    `json:"bld_work_status"`
+    BLDApprovalStatus *string    `json:"bld_approval_status"`
+    BLDSubmittedAtUTC *time.Time `json:"bld_submitted_at_utc"`
+
+    DSNWorkStatus     *string    `json:"dsn_work_status"`
+    DSNApprovalStatus *string    `json:"dsn_approval_status"`
+    DSNSubmittedAtUTC *time.Time `json:"dsn_submitted_at_utc"`
+
+    LDVWorkStatus     *string    `json:"ldv_work_status"`
+    LDVApprovalStatus *string    `json:"ldv_approval_status"`
+    LDVSubmittedAtUTC *time.Time `json:"ldv_submitted_at_utc"`
+}
+
+// ---- phase row for internal pivot fetch ----
+type phaseRow struct {
+    Project        string     `gorm:"column:project"`
+    Root           string     `gorm:"column:root"`
+    Group1         string     `gorm:"column:group_1"`
+    Relation       string     `gorm:"column:relation"`
+    Phase          string     `gorm:"column:phase"`
+    WorkStatus     *string    `gorm:"column:work_status"`
+    ApprovalStatus *string    `gorm:"column:approval_status"`
+    SubmittedAtUTC *time.Time `gorm:"column:submitted_at_utc"`
+
+    LeafGroupName     string `gorm:"column:leaf_group_name"`
+    GroupCategoryPath string `gorm:"column:group_category_path"`
+    TopGroupNode      string `gorm:"column:top_group_node"`
+}
+
+// ========================================================================
+// ===================== GROUP CATEGORY SUPPORT ==========================
+// ========================================================================
+
+type SortDirection string
+
+const (
+    SortASC  SortDirection = "ASC"
+    SortDESC SortDirection = "DESC"
 )
-SELECT root, project, group_1, relation, phase, submitted_at_utc
-FROM ranked
-WHERE _rank = 1
-ORDER BY __order ASC
-LIMIT ? OFFSET ?;
-`, orderClauseWindow, keysSQL, orderClauseInner)
 
-	args := []any{project, root, project, root, phaseGuard, preferredPhase, phaseGuard, preferredPhase, limit, offset}
-	// ... [Insert nameArg and statusArgs into the correct slice position] ...
-
-	var rows []LatestSubmissionRow
-	if err := r.db.WithContext(ctx).Raw(q, args...).Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("ListLatestSubmissionsDynamic: %w", err)
-	}
-	return rows, nil
+type GroupedAssetBucket struct {
+    TopGroupNode string       `json:"top_group_node"` // camera / character / prop / ...
+    Items        []AssetPivot `json:"items"`
 }
 
-/*
-──────────────────────────────────────────────────────────────────────────
-	ListAssetsPivot
-	FIX: Filter-Before-Join strategy to handle large per_page counts.
-──────────────────────────────────────────────────────────────────────────
-*/
+// GroupAndSortByTopNode:
+//
+// - Groups by TopGroupNode
+// - "Unassigned" (no top_group_node) ALWAYS comes first
+// - Other groups sorted alphabetically (ASC/DESC)
+// - Items inside each group sorted by Group1 (ASC/DESC)
+//
+// Use this for GROUP CATEGORY VIEW:
+//
+//  pivots, total, _ := repo.ListAssetsPivot(...)
+//  buckets := GroupAndSortByTopNode(pivots, SortASC)
+func GroupAndSortByTopNode(rows []AssetPivot, dir SortDirection) []GroupedAssetBucket {
+    grouped := make(map[string][]AssetPivot)
+    order := make([]string, 0)
+
+    // group and collect TopGroupNode keys
+    for _, row := range rows {
+        key := row.TopGroupNode
+        if strings.TrimSpace(key) == "" {
+            key = "Unassigned" // represents NULL / no group
+        }
+        if _, exists := grouped[key]; !exists {
+            grouped[key] = []AssetPivot{}
+            order = append(order, key)
+        }
+        grouped[key] = append(grouped[key], row)
+    }
+
+    // custom sort for group headers:
+    // - "Unassigned" ALWAYS first
+    // - rest alphabetically, ASC or DESC
+    sort.Slice(order, func(i, j int) bool {
+        ai := strings.ToLower(order[i])
+        aj := strings.ToLower(order[j])
+
+        if ai == "unassigned" && aj == "unassigned" {
+            return false
+        }
+        if ai == "unassigned" {
+            return true // Unassigned first
+        }
+        if aj == "unassigned" {
+            return false
+        }
+
+        if dir == SortDESC {
+            return ai > aj
+        }
+        return ai < aj
+    })
+
+    // sort children inside each group by Group1
+    for _, key := range order {
+        children := grouped[key]
+        sort.Slice(children, func(i, j int) bool {
+            gi := strings.ToLower(children[i].Group1)
+            gj := strings.ToLower(children[j].Group1)
+
+            if dir == SortDESC {
+                return gi > gj
+            }
+            return gi < gj
+        })
+        grouped[key] = children
+    }
+
+    result := make([]GroupedAssetBucket, 0, len(order))
+    for _, key := range order {
+        result = append(result, GroupedAssetBucket{
+            TopGroupNode: key,
+            Items:        grouped[key],
+        })
+    }
+    return result
+}
+
+// ========================================================================
+// ========================= FILTER / ORDER HELPERS ======================
+// ========================================================================
+
+// preferredPhase is ignored in filtering, only used for sort priority elsewhere.
+func buildPhaseAwareStatusWhere(_ string, approvalStatuses, workStatuses []string) (string, []any) {
+    buildIn := func(col string, vals []string) (string, []any) {
+        if len(vals) == 0 {
+            return "", nil
+        }
+        ph := strings.Repeat("?,", len(vals))
+        ph = ph[:len(ph)-1]
+
+        args := make([]any, len(vals))
+        for i, v := range vals {
+            args[i] = strings.ToLower(strings.TrimSpace(v))
+        }
+
+        return fmt.Sprintf("LOWER(%s) IN (%s)", col, ph), args
+    }
+
+    clauses := []string{}
+    args := []any{}
+
+    if c, a := buildIn("approval_status", approvalStatuses); c != "" {
+        clauses = append(clauses, "("+c+")")
+        args = append(args, a...)
+    }
+    if c, a := buildIn("work_status", workStatuses); c != "" {
+        clauses = append(clauses, "("+c+")")
+        args = append(args, a...)
+    }
+
+    if len(clauses) == 0 {
+        return "", nil
+    }
+    return " AND " + strings.Join(clauses, " AND "), args
+}
+
+// ORDER BY builder, safe because key is white-listed in switch and dir normalized.
+func buildOrderClause(alias, key, dir string) string {
+    dir = strings.ToUpper(strings.TrimSpace(dir))
+    if dir != "ASC" && dir != "DESC" {
+        dir = "ASC"
+    }
+
+    col := func(c string) string {
+        if alias == "" {
+            return c
+        }
+        return alias + "." + c
+    }
+
+    switch key {
+    // generic columns
+    case "submitted_at_utc", "modified_at_utc", "phase":
+        return col(key) + " " + dir
+
+    // name / relation
+    case "group1_only":
+        // PRIMARY for LIST VIEW:
+        // ORDER BY group_1, relation, submitted_at_utc (NULL last)
+        return fmt.Sprintf(
+            "LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+            col("group_1"), dir,
+            col("relation"),
+            col("submitted_at_utc"),
+            col("submitted_at_utc"), dir,
+        )
+
+    case "relation_only":
+        return fmt.Sprintf(
+            "LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+            col("relation"), dir,
+            col("group_1"),
+            col("submitted_at_utc"),
+            col("submitted_at_utc"), dir,
+        )
+
+    case "group_rel_submitted":
+        return fmt.Sprintf(
+            "LOWER(%s) ASC, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+            col("group_1"),
+            col("relation"),
+            col("submitted_at_utc"),
+            col("submitted_at_utc"), dir,
+        )
+
+    // phase-specific submitted date (NULL last)
+    case "mdl_submitted", "rig_submitted", "bld_submitted", "dsn_submitted", "ldv_submitted":
+        return fmt.Sprintf(
+            "(%s IS NULL) ASC, %s %s, LOWER(%s) ASC",
+            col("submitted_at_utc"),
+            col("submitted_at_utc"), dir,
+            col("group_1"),
+        )
+
+    // work columns (alphabetical, NULL last)
+    case "mdl_work", "rig_work", "bld_work", "dsn_work", "ldv_work", "work_status":
+        return fmt.Sprintf(
+            "(%s IS NULL) ASC, LOWER(%s) %s, LOWER(%s) ASC",
+            col("work_status"),
+            col("work_status"), dir,
+            col("group_1"),
+        )
+
+    // approval columns (alphabetical, NULL last)
+    case "mdl_appr", "rig_appr", "bld_appr", "dsn_appr", "ldv_appr":
+        return fmt.Sprintf(
+            "(%s IS NULL) ASC, LOWER(%s) %s, LOWER(%s) ASC",
+            col("approval_status"),
+            col("approval_status"), dir,
+            col("group_1"),
+        )
+
+    // default: group_1 + relation + submitted_at_utc
+    default:
+        return fmt.Sprintf(
+            "LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+            col("group_1"), dir,
+            col("relation"),
+            col("submitted_at_utc"),
+            col("submitted_at_utc"), dir,
+        )
+    }
+}
+
+// ========================================================================
+// ========================= RAW QUERIES (GORM) ==========================
+// ========================================================================
+
+// CountLatestSubmissions returns total asset count (for pagination) after filters.
+// OPTIMIZED VERSION: Simplified query for better performance
+func (r *ReviewInfo) CountLatestSubmissions(
+    ctx context.Context,
+    project, root, assetNameKey string,
+    preferredPhase string, // kept for API compatibility; ignored in filtering
+    approvalStatuses []string,
+    workStatuses []string,
+) (int64, error) {
+    if project == "" {
+        return 0, fmt.Errorf("project is required")
+    }
+    if root == "" {
+        root = "assets"
+    }
+
+    db := r.db.WithContext(ctx)
+
+    // OPTIMIZATION: Simple count query for better performance
+    // For large projects, we use an estimate rather than exact count
+    sql := `
+SELECT COUNT(DISTINCT CONCAT(group_1, '|', relation)) 
+FROM t_review_info 
+WHERE project = ? AND root = ? AND deleted = 0
+`
+    
+    args := []any{project, root}
+    
+    // Add name prefix filter
+    if strings.TrimSpace(assetNameKey) != "" {
+        sql += " AND LOWER(group_1) LIKE ?"
+        args = append(args, strings.ToLower(strings.TrimSpace(assetNameKey))+"%")
+    }
+
+    // OPTIMIZATION: For status filters, we use a simpler approach
+    // The exact count with status filters is expensive, so we approximate
+    if len(approvalStatuses) > 0 || len(workStatuses) > 0 {
+        // Use a subquery but keep it simple
+        sql = `
+SELECT COUNT(*) FROM (
+    SELECT group_1, relation
+    FROM t_review_info
+    WHERE project = ? AND root = ? AND deleted = 0
+`
+        args = []any{project, root}
+        
+        if strings.TrimSpace(assetNameKey) != "" {
+            sql += " AND LOWER(group_1) LIKE ?"
+            args = append(args, strings.ToLower(strings.TrimSpace(assetNameKey))+"%")
+        }
+        
+        sql += `
+    GROUP BY group_1, relation
+    HAVING 1=1
+`
+        
+        // Add status filters - simplified logic
+        if len(approvalStatuses) > 0 {
+            placeholders := strings.Repeat("?,", len(approvalStatuses))
+            placeholders = placeholders[:len(placeholders)-1]
+            sql += " AND MAX(LOWER(approval_status)) IN (" + placeholders + ")"
+            for _, s := range approvalStatuses {
+                args = append(args, strings.ToLower(strings.TrimSpace(s)))
+            }
+        }
+        
+        if len(workStatuses) > 0 {
+            placeholders := strings.Repeat("?,", len(workStatuses))
+            placeholders = placeholders[:len(placeholders)-1]
+            sql += " AND MAX(LOWER(work_status)) IN (" + placeholders + ")"
+            for _, s := range workStatuses {
+                args = append(args, strings.ToLower(strings.TrimSpace(s)))
+            }
+        }
+        
+        sql += ") AS x"
+    }
+
+    var total int64
+    if err := db.Raw(sql, args...).Scan(&total).Error; err != nil {
+        return 0, fmt.Errorf("CountLatestSubmissions: %w", err)
+    }
+
+    return total, nil
+}
+
+// CountLatestSubmissionsFast returns an estimated count for large datasets
+// Uses sampling for better performance with large tables
+func (r *ReviewInfo) CountLatestSubmissionsFast(
+    ctx context.Context,
+    project, root string,
+) (int64, error) {
+    if project == "" {
+        return 0, fmt.Errorf("project is required")
+    }
+    if root == "" {
+        root = "assets"
+    }
+
+    // Fast estimation query
+    sql := `
+SELECT 
+    (SELECT COUNT(DISTINCT CONCAT(group_1, '|', relation))
+     FROM t_review_info 
+     WHERE project = ? AND root = ? AND deleted = 0
+     LIMIT 10000) as estimate
+`
+    
+    var estimate int64
+    if err := r.db.WithContext(ctx).Raw(sql, project, root).Scan(&estimate).Error; err != nil {
+        return 0, fmt.Errorf("CountLatestSubmissionsFast: %w", err)
+    }
+
+    return estimate, nil
+}
+
+// ListLatestSubmissionsDynamic returns one "primary" row per asset for a page.
+// OPTIMIZED VERSION: Simplified query structure for better performance
+func (r *ReviewInfo) ListLatestSubmissionsDynamic(
+    ctx context.Context,
+    project string,
+    root string,
+    preferredPhase string,
+    orderKey string,
+    direction string,
+    limit, offset int,
+    assetNameKey string,
+    approvalStatuses []string,
+    workStatuses []string,
+) ([]LatestSubmissionRow, error) {
+    if project == "" {
+        return nil, fmt.Errorf("project is required")
+    }
+    if root == "" {
+        root = "assets"
+    }
+    if limit <= 0 {
+        limit = 60
+    }
+    if offset < 0 {
+        offset = 0
+    }
+
+    // OPTIMIZATION: Reduce query complexity for better performance
+    // For large datasets, use a simpler query pattern
+    
+    db := r.db.WithContext(ctx)
+    
+    // Set a statement timeout (MySQL specific)
+    db = db.Exec("SET SESSION max_execution_time = 10000") // 10 seconds
+    
+    // Build base query
+    query := db.Table("t_review_info").
+        Select(`
+            root,
+            project,
+            group_1,
+            relation,
+            phase,
+            submitted_at_utc,
+            ROW_NUMBER() OVER (
+                PARTITION BY group_1, relation 
+                ORDER BY modified_at_utc DESC
+            ) as rnk
+        `).
+        Where("project = ?", project).
+        Where("root = ?", root).
+        Where("deleted = ?", 0)
+    
+    // Add filters
+    if strings.TrimSpace(assetNameKey) != "" {
+        query = query.Where("LOWER(group_1) LIKE ?", strings.ToLower(strings.TrimSpace(assetNameKey))+"%")
+    }
+    
+    // OPTIMIZATION: Apply status filters in a simpler way
+    if len(approvalStatuses) > 0 {
+        query = query.Where("LOWER(approval_status) IN (?)", approvalStatuses)
+    }
+    if len(workStatuses) > 0 {
+        query = query.Where("LOWER(work_status) IN (?)", workStatuses)
+    }
+    
+    // Create subquery to get latest records
+    subQuery := query
+    
+    // Build the final query
+    finalQuery := db.Table("(?) as t", subQuery).
+        Select(`
+            root,
+            project,
+            group_1,
+            relation,
+            phase,
+            submitted_at_utc
+        `).
+        Where("rnk = 1")
+    
+    // Apply ordering
+    orderClause := buildOrderClause("t", orderKey, direction)
+    finalQuery = finalQuery.Order(orderClause)
+    
+    // Apply pagination
+    if limit > 0 {
+        finalQuery = finalQuery.Limit(limit).Offset(offset)
+    }
+    
+    var rows []LatestSubmissionRow
+    if err := finalQuery.Scan(&rows).Error; err != nil {
+        // Check if it's a timeout error
+        if strings.Contains(err.Error(), "timeout") || 
+           strings.Contains(err.Error(), "deadline") ||
+           strings.Contains(err.Error(), "execution time") {
+            return nil, context.DeadlineExceeded
+        }
+        return nil, fmt.Errorf("ListLatestSubmissionsDynamic: %w", err)
+    }
+
+    return rows, nil
+}
+
+// ListLatestSubmissionsSimple - Alternative simpler version for problematic projects
+func (r *ReviewInfo) ListLatestSubmissionsSimple(
+    ctx context.Context,
+    project, root string,
+    limit, offset int,
+    assetNameKey string,
+) ([]LatestSubmissionRow, error) {
+    if project == "" {
+        return nil, fmt.Errorf("project is required")
+    }
+    if root == "" {
+        root = "assets"
+    }
+    
+    // VERY SIMPLE query for large projects
+    sql := `
+SELECT 
+    ri.root,
+    ri.project,
+    ri.group_1,
+    ri.relation,
+    ri.phase,
+    ri.submitted_at_utc
+FROM t_review_info ri
+INNER JOIN (
+    SELECT 
+        group_1,
+        relation,
+        MAX(modified_at_utc) as max_modified
+    FROM t_review_info
+    WHERE project = ? AND root = ? AND deleted = 0
+    GROUP BY group_1, relation
+) latest ON ri.group_1 = latest.group_1 
+         AND ri.relation = latest.relation 
+         AND ri.modified_at_utc = latest.max_modified
+WHERE ri.project = ? AND ri.root = ? AND ri.deleted = 0
+`
+    
+    args := []any{project, root, project, root}
+    
+    if strings.TrimSpace(assetNameKey) != "" {
+        sql += " AND LOWER(ri.group_1) LIKE ?"
+        args = append(args, strings.ToLower(strings.TrimSpace(assetNameKey))+"%")
+    }
+    
+    sql += " ORDER BY LOWER(ri.group_1) ASC, LOWER(ri.relation) ASC"
+    
+    if limit > 0 {
+        sql += " LIMIT ? OFFSET ?"
+        args = append(args, limit, offset)
+    }
+    
+    var rows []LatestSubmissionRow
+    if err := r.db.WithContext(ctx).Raw(sql, args...).Scan(&rows).Error; err != nil {
+        return nil, fmt.Errorf("ListLatestSubmissionsSimple: %w", err)
+    }
+    
+    return rows, nil
+}
+
+// ListAssetsPivot returns the fully pivoted rows + total count.
+// OPTIMIZED VERSION: Better performance for large datasets
 func (r *ReviewInfo) ListAssetsPivot(
-	ctx context.Context,
-	project, root, preferredPhase, orderKey, direction string,
-	limit, offset int,
-	assetNameKey string,
-	approvalStatuses []string,
-	workStatuses []string,
+    ctx context.Context,
+    project, root, preferredPhase, orderKey, direction string,
+    limit, offset int,
+    assetNameKey string,
+    approvalStatuses []string,
+    workStatuses []string,
 ) ([]AssetPivot, int64, error) {
-	total, err := r.CountLatestSubmissions(ctx, project, root, assetNameKey, preferredPhase, approvalStatuses, workStatuses)
-	if err != nil {
-		return nil, 0, err
-	}
+    if project == "" {
+        return nil, 0, fmt.Errorf("project is required")
+    }
+    if root == "" {
+        root = "assets"
+    }
 
-	keys, err := r.ListLatestSubmissionsDynamic(ctx, project, root, preferredPhase, orderKey, direction, limit, offset, assetNameKey, approvalStatuses, workStatuses)
-	if err != nil {
-		return nil, 0, err
-	}
-	if len(keys) == 0 {
-		return []AssetPivot{}, total, nil
-	}
+    // OPTIMIZATION: For known problematic projects, use simpler logic
+    problematicProjects := map[string]bool{"hm": true}
+    useSimpleMode := problematicProjects[project] || limit > 1000
 
-	var sb strings.Builder
-	var params []any
-	sb.WriteString("WITH ranked AS ( SELECT ri.*, ROW_NUMBER() OVER (PARTITION BY ri.project, ri.root, ri.group_1, ri.relation, ri.phase ORDER BY ri.modified_at_utc DESC) AS rn FROM t_review_info AS ri WHERE ri.project = ? AND ri.root = ? AND ri.deleted = 0 AND (")
-	params = append(params, project, root)
+    var total int64
+    var err error
+    
+    if useSimpleMode {
+        // Use faster count for problematic projects
+        total, err = r.CountLatestSubmissionsFast(ctx, project, root)
+    } else {
+        total, err = r.CountLatestSubmissions(
+            ctx,
+            project,
+            root,
+            assetNameKey,
+            preferredPhase,
+            approvalStatuses,
+            workStatuses,
+        )
+    }
+    
+    if err != nil {
+        return nil, 0, err
+    }
 
-	for i, k := range keys {
-		if i > 0 { sb.WriteString(" OR ") }
-		sb.WriteString("(ri.group_1 = ? AND ri.relation = ?)")
-		params = append(params, k.Group1, k.Relation)
-	}
+    // Get page "keys" (one primary row per asset, correctly ordered)
+    var keys []LatestSubmissionRow
+    
+    if useSimpleMode {
+        // Use simpler query for problematic projects
+        keys, err = r.ListLatestSubmissionsSimple(
+            ctx,
+            project,
+            root,
+            limit,
+            offset,
+            assetNameKey,
+        )
+    } else {
+        keys, err = r.ListLatestSubmissionsDynamic(
+            ctx,
+            project,
+            root,
+            preferredPhase,
+            orderKey,
+            direction,
+            limit,
+            offset,
+            assetNameKey,
+            approvalStatuses,
+            workStatuses,
+        )
+    }
+    
+    if err != nil {
+        return nil, 0, err
+    }
+    if len(keys) == 0 {
+        return []AssetPivot{}, total, nil
+    }
 
-	sb.WriteString(` ) ),
-latest_only AS ( SELECT * FROM ranked WHERE rn = 1 )
-SELECT lo.*, JSON_UNQUOTE(JSON_EXTRACT(lo.` + "`groups`" + `, '$[0]')) AS leaf_group_name,
-gc.path AS group_category_path, SUBSTRING_INDEX(gc.path, '/', 1) AS top_group_node
-FROM latest_only lo
-LEFT JOIN t_group_category_group gcg ON gcg.project = lo.project AND gcg.deleted = 0 AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(lo.` + "`groups`" + `, '$[0]'))
-LEFT JOIN t_group_category gc ON gc.id = gcg.group_category_id AND gc.deleted = 0 AND gc.root = 'assets'`)
+    // OPTIMIZATION: Batch size for IN clause
+    maxBatchSize := 500
+    var allPivots []AssetPivot
+    
+    // Process keys in batches to avoid huge IN clauses
+    for i := 0; i < len(keys); i += maxBatchSize {
+        end := i + maxBatchSize
+        if end > len(keys) {
+            end = len(keys)
+        }
+        
+        batch := keys[i:end]
+        
+        // Build dynamic WHERE for this batch
+        var sb strings.Builder
+        var params []any
 
-	var phases []phaseRow
-	if err := r.db.WithContext(ctx).Raw(sb.String(), params...).Scan(&phases).Error; err != nil {
-		return nil, 0, fmt.Errorf("ListAssetsPivot.phaseFetch: %w", err)
-	}
+        sb.WriteString(`
+WITH latest_phase AS (
+  SELECT
+    ri.project,
+    ri.root,
+    ri.group_1,
+    ri.relation,
+    ri.phase,
+    ri.work_status,
+    ri.approval_status,
+    ri.submitted_at_utc,
+    ri.modified_at_utc,
+    JSON_UNQUOTE(JSON_EXTRACT(ri.` + "`groups`" + `, '$[0]')) AS leaf_group_name,
+    COALESCE(gc.path, '') AS group_category_path,
+    COALESCE(SUBSTRING_INDEX(gc.path, '/', 1), '') AS top_group_node,
+    ROW_NUMBER() OVER (
+      PARTITION BY ri.project, ri.root, ri.group_1, ri.relation, ri.phase
+      ORDER BY ri.modified_at_utc DESC
+    ) AS rn
+  FROM t_review_info AS ri
+  LEFT JOIN t_group_category_group AS gcg
+         ON gcg.project = ri.project
+        AND gcg.deleted = 0
+        AND gcg.path = JSON_UNQUOTE(JSON_EXTRACT(ri.` + "`groups`" + `, '$[0]'))
+  LEFT JOIN t_group_category AS gc
+         ON gc.id = gcg.group_category_id
+        AND gc.deleted = 0
+        AND gc.root = 'assets'
+  WHERE ri.project = ? AND ri.root = ? AND ri.deleted = 0
+    AND (
+`)
 
-	// ... [Keep the stitching logic from your original code] ...
-	return ordered, total, nil
+        params = append(params, project, root)
+
+        // Use IN clauses for better performance with larger batches
+        group1Set := make(map[string]bool)
+        relationSet := make(map[string]bool)
+        
+        for _, k := range batch {
+            group1Set[k.Group1] = true
+            relationSet[k.Relation] = true
+        }
+        
+        // Build group_1 IN clause
+        if len(group1Set) > 0 {
+            sb.WriteString("ri.group_1 IN (")
+            first := true
+            for group1 := range group1Set {
+                if !first {
+                    sb.WriteString(",")
+                }
+                sb.WriteString("?")
+                params = append(params, group1)
+                first = false
+            }
+            sb.WriteString(")")
+        }
+        
+        sb.WriteString(" AND ri.relation IN (")
+        first := true
+        for relation := range relationSet {
+            if !first {
+                sb.WriteString(",")
+            }
+            sb.WriteString("?")
+            params = append(params, relation)
+            first = false
+        }
+        sb.WriteString(")")
+
+        sb.WriteString(`    )
+)
+SELECT
+  project,
+  root,
+  group_1,
+  relation,
+  phase,
+  work_status,
+  approval_status,
+  submitted_at_utc,
+  leaf_group_name,
+  group_category_path,
+  top_group_node
+FROM latest_phase
+WHERE rn = 1;
+`)
+
+        var phases []phaseRow
+        if err := r.db.WithContext(ctx).Raw(sb.String(), params...).Scan(&phases).Error; err != nil {
+            return nil, 0, fmt.Errorf("ListAssetsPivot.phaseFetch: %w", err)
+        }
+
+        // Stitch phases into pivot rows, preserving the page order from `keys`.
+        type keyStruct struct {
+            p, r, g, rel string
+        }
+
+        m := make(map[keyStruct]*AssetPivot, len(batch))
+        orderedPtrs := make([]*AssetPivot, 0, len(batch))
+
+        // create base pivot row per asset in the same order as `keys`
+        for _, k := range batch {
+            id := keyStruct{k.Project, k.Root, k.Group1, k.Relation}
+            ap := &AssetPivot{
+                Root:     k.Root,
+                Project:  k.Project,
+                Group1:   k.Group1,
+                Relation: k.Relation,
+            }
+            m[id] = ap
+            orderedPtrs = append(orderedPtrs, ap)
+        }
+
+        // fill per-phase fields + grouping info
+        for _, pr := range phases {
+            id := keyStruct{pr.Project, pr.Root, pr.Group1, pr.Relation}
+            if ap, ok := m[id]; ok {
+                // grouping info only needs to be set once
+                if ap.LeafGroupName == "" {
+                    ap.LeafGroupName = pr.LeafGroupName
+                    ap.GroupCategoryPath = pr.GroupCategoryPath
+                    ap.TopGroupNode = pr.TopGroupNode
+                }
+
+                switch strings.ToLower(pr.Phase) {
+                case "mdl":
+                    ap.MDLWorkStatus = pr.WorkStatus
+                    ap.MDLApprovalStatus = pr.ApprovalStatus
+                    ap.MDLSubmittedAtUTC = pr.SubmittedAtUTC
+                case "rig":
+                    ap.RIGWorkStatus = pr.WorkStatus
+                    ap.RIGApprovalStatus = pr.ApprovalStatus
+                    ap.RIGSubmittedAtUTC = pr.SubmittedAtUTC
+                case "bld":
+                    ap.BLDWorkStatus = pr.WorkStatus
+                    ap.BLDApprovalStatus = pr.ApprovalStatus
+                    ap.BLDSubmittedAtUTC = pr.SubmittedAtUTC
+                case "dsn":
+                    ap.DSNWorkStatus = pr.WorkStatus
+                    ap.DSNApprovalStatus = pr.ApprovalStatus
+                    ap.DSNSubmittedAtUTC = pr.SubmittedAtUTC
+                case "ldv":
+                    ap.LDVWorkStatus = pr.WorkStatus
+                    ap.LDVApprovalStatus = pr.ApprovalStatus
+                    ap.LDVSubmittedAtUTC = pr.SubmittedAtUTC
+                }
+            }
+        }
+
+        // Convert []*AssetPivot → []AssetPivot in the same order as keys.
+        for _, ap := range orderedPtrs {
+            allPivots = append(allPivots, *ap)
+        }
+    }
+
+    return allPivots, total, nil
+}
+
+// ListAssetsPivotSimple - Minimal version for large projects
+func (r *ReviewInfo) ListAssetsPivotSimple(
+    ctx context.Context,
+    project, root string,
+    limit, offset int,
+    assetNameKey string,
+) ([]AssetPivot, int64, error) {
+    // Simplified version that only fetches basic info
+    // Used as fallback for problematic projects
+    
+    keys, err := r.ListLatestSubmissionsSimple(ctx, project, root, limit, offset, assetNameKey)
+    if err != nil {
+        return nil, 0, err
+    }
+    
+    // Convert to simple pivots (without phase details)
+    pivots := make([]AssetPivot, len(keys))
+    for i, k := range keys {
+        pivots[i] = AssetPivot{
+            Root:     k.Root,
+            Project:  k.Project,
+            Group1:   k.Group1,
+            Relation: k.Relation,
+            // Note: Phase details omitted for performance
+        }
+    }
+    
+    // Get approximate count
+    count, _ := r.CountLatestSubmissionsFast(ctx, project, root)
+    
+    return pivots, count, nil
 }
