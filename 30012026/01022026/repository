@@ -10,21 +10,30 @@ import (
 	"gorm.io/gorm"
 )
 
-const (
-	DefaultRoot   = "assets"
-	DefaultLimit  = 60
-	DefaultOffset = 0
-
-	GroupsJSONField = "`groups`"
-	BaseTableName   = "review_info" // 🔴 CHANGE if your base table name is different
-)
+//
+// ========================================================================
+// ============================== CONSTANTS ================================
+// ========================================================================
+//
 
 type SortDirection string
 
 const (
 	SortASC  SortDirection = "ASC"
 	SortDESC SortDirection = "DESC"
+
+	DefaultRoot   = "assets"
+	DefaultLimit  = 60
+	DefaultOffset = 0
+
+	GroupsJSONField = "`groups`"
 )
+
+//
+// ========================================================================
+// ============================== MODELS ==================================
+// ========================================================================
+//
 
 type AssetPivot struct {
 	Root     string `json:"root"`
@@ -67,6 +76,12 @@ type CategoryInfo struct {
 	TopGroup string
 }
 
+//
+// ========================================================================
+// ============================ REPOSITORY ================================
+// ========================================================================
+//
+
 type ReviewInfo struct {
 	db *gorm.DB
 }
@@ -76,7 +91,9 @@ func NewReviewInfo(db *gorm.DB) *ReviewInfo {
 }
 
 //
-// ======================= GROUPED VIEW =======================
+// ========================================================================
+// ======================= GROUPED VIEW SUPPORT ===========================
+// ========================================================================
 //
 
 func GroupAndSortByTopNode(rows []AssetPivot, dir SortDirection) []GroupedAssetBucket {
@@ -111,38 +128,56 @@ func GroupAndSortByTopNode(rows []AssetPivot, dir SortDirection) []GroupedAssetB
 		sort.Slice(items, func(i, j int) bool {
 			return strings.ToLower(items[i].Group1) < strings.ToLower(items[j].Group1)
 		})
-		out = append(out, GroupedAssetBucket{TopGroupNode: k, Items: items})
+		out = append(out, GroupedAssetBucket{
+			TopGroupNode: k,
+			Items:        items,
+		})
 	}
 	return out
 }
 
 //
-// ======================= CATEGORY MAP =======================
+// ========================================================================
+// ======================= CATEGORY RESOLUTION ============================
+// ========================================================================
 //
 
-func (r *ReviewInfo) loadCategoryMap(ctx context.Context, project string) map[string]CategoryInfo {
-	type row struct{ Path string }
-	var rows []row
+func (r *ReviewInfo) loadCategoryMap(
+	ctx context.Context,
+	project string,
+) (map[string]CategoryInfo, error) {
 
-	_ = r.db.WithContext(ctx).
+	type row struct {
+		Path string
+	}
+
+	var rows []row
+	if err := r.db.WithContext(ctx).
 		Table("t_group_category_group").
 		Select("path").
 		Where("project = ? AND deleted = 0", project).
-		Scan(&rows).Error
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
 
-	m := map[string]CategoryInfo{}
+	m := make(map[string]CategoryInfo, len(rows))
 	for _, r := range rows {
 		top := r.Path
 		if i := strings.Index(top, "/"); i > 0 {
 			top = top[:i]
 		}
-		m[r.Path] = CategoryInfo{Path: r.Path, TopGroup: top}
+		m[r.Path] = CategoryInfo{
+			Path:     r.Path,
+			TopGroup: top,
+		}
 	}
-	return m
+	return m, nil
 }
 
 //
-// ======================= ORDER BUILDER =======================
+// ========================================================================
+// ============================ ORDER BY ==================================
+// ========================================================================
 //
 
 func buildOrderClause(dir string) string {
@@ -153,7 +188,9 @@ func buildOrderClause(dir string) string {
 }
 
 //
-// ======================= MAIN QUERY =======================
+// ========================================================================
+// ========================== MAIN PIVOT QUERY ============================
+// ========================================================================
 //
 
 func (r *ReviewInfo) ListAssetsPivot(
@@ -204,64 +241,76 @@ WITH base AS (
         ri.approval_status,
         ri.submitted_at_utc,
         ri.modified_at_utc,
+
+        -- JSON used ONLY for projection (SAFE)
         JSON_UNQUOTE(JSON_EXTRACT(ri.%s,'$[0]')) AS leaf_group_name,
+
         ROW_NUMBER() OVER (
             PARTITION BY ri.project, ri.root, ri.group_1, ri.relation, ri.phase
             ORDER BY ri.modified_at_utc DESC
-        ) rn
-    FROM %s ri
+        ) AS rn
+    FROM t_review_info ri
     WHERE %s
 ),
 latest AS (
     SELECT * FROM base WHERE rn = 1
 ),
-assets AS (
+asset_keys AS (
     SELECT
-        project, root, group_1, relation,
-        MAX(submitted_at_utc) latest_submitted_at
+        project,
+        root,
+        group_1,
+        relation,
+        MAX(submitted_at_utc) AS latest_submitted_at
     FROM latest
     GROUP BY project, root, group_1, relation
 ),
 ordered AS (
     SELECT *,
-           ROW_NUMBER() OVER (ORDER BY %s) rownum,
-           COUNT(*) OVER () total
-    FROM assets
+           ROW_NUMBER() OVER (ORDER BY %s) AS rownum,
+           COUNT(*) OVER () AS total_count
+    FROM asset_keys
 )
 SELECT
-    l.project, l.root, l.group_1, l.relation, l.leaf_group_name,
-    MAX(o.total) total_count,
+    l.project,
+    l.root,
+    l.group_1,
+    l.relation,
+    l.leaf_group_name,
+    MAX(o.total_count) AS total_count,
 
-    MAX(CASE WHEN l.phase='mdl' THEN l.work_status END) mdl_work_status,
-    MAX(CASE WHEN l.phase='mdl' THEN l.approval_status END) mdl_approval_status,
-    MAX(CASE WHEN l.phase='mdl' THEN l.submitted_at_utc END) mdl_submitted_at_utc,
+    MAX(CASE WHEN l.phase='mdl' THEN l.work_status END)      AS mdl_work_status,
+    MAX(CASE WHEN l.phase='mdl' THEN l.approval_status END)  AS mdl_approval_status,
+    MAX(CASE WHEN l.phase='mdl' THEN l.submitted_at_utc END) AS mdl_submitted_at_utc,
 
-    MAX(CASE WHEN l.phase='rig' THEN l.work_status END) rig_work_status,
-    MAX(CASE WHEN l.phase='rig' THEN l.approval_status END) rig_approval_status,
-    MAX(CASE WHEN l.phase='rig' THEN l.submitted_at_utc END) rig_submitted_at_utc,
+    MAX(CASE WHEN l.phase='rig' THEN l.work_status END)      AS rig_work_status,
+    MAX(CASE WHEN l.phase='rig' THEN l.approval_status END)  AS rig_approval_status,
+    MAX(CASE WHEN l.phase='rig' THEN l.submitted_at_utc END) AS rig_submitted_at_utc,
 
-    MAX(CASE WHEN l.phase='bld' THEN l.work_status END) bld_work_status,
-    MAX(CASE WHEN l.phase='bld' THEN l.approval_status END) bld_approval_status,
-    MAX(CASE WHEN l.phase='bld' THEN l.submitted_at_utc END) bld_submitted_at_utc,
+    MAX(CASE WHEN l.phase='bld' THEN l.work_status END)      AS bld_work_status,
+    MAX(CASE WHEN l.phase='bld' THEN l.approval_status END)  AS bld_approval_status,
+    MAX(CASE WHEN l.phase='bld' THEN l.submitted_at_utc END) AS bld_submitted_at_utc,
 
-    MAX(CASE WHEN l.phase='dsn' THEN l.work_status END) dsn_work_status,
-    MAX(CASE WHEN l.phase='dsn' THEN l.approval_status END) dsn_approval_status,
-    MAX(CASE WHEN l.phase='dsn' THEN l.submitted_at_utc END) dsn_submitted_at_utc,
+    MAX(CASE WHEN l.phase='dsn' THEN l.work_status END)      AS dsn_work_status,
+    MAX(CASE WHEN l.phase='dsn' THEN l.approval_status END)  AS dsn_approval_status,
+    MAX(CASE WHEN l.phase='dsn' THEN l.submitted_at_utc END) AS dsn_submitted_at_utc,
 
-    MAX(CASE WHEN l.phase='ldv' THEN l.work_status END) ldv_work_status,
-    MAX(CASE WHEN l.phase='ldv' THEN l.approval_status END) ldv_approval_status,
-    MAX(CASE WHEN l.phase='ldv' THEN l.submitted_at_utc END) ldv_submitted_at_utc
+    MAX(CASE WHEN l.phase='ldv' THEN l.work_status END)      AS ldv_work_status,
+    MAX(CASE WHEN l.phase='ldv' THEN l.approval_status END)  AS ldv_approval_status,
+    MAX(CASE WHEN l.phase='ldv' THEN l.submitted_at_utc END) AS ldv_submitted_at_utc
 
 FROM ordered o
 JOIN latest l
-  ON l.project=o.project AND l.root=o.root
- AND l.group_1=o.group_1 AND l.relation=o.relation
+  ON l.project=o.project
+ AND l.root=o.root
+ AND l.group_1=o.group_1
+ AND l.relation=o.relation
 WHERE o.rownum > ? AND o.rownum <= ?
-GROUP BY l.project,l.root,l.group_1,l.relation,l.leaf_group_name
+GROUP BY
+    l.project, l.root, l.group_1, l.relation, l.leaf_group_name
 ORDER BY o.rownum;
 `,
 		GroupsJSONField,
-		BaseTableName,
 		whereSQL,
 		orderSQL,
 	)
@@ -277,7 +326,7 @@ ORDER BY o.rownum;
 		return nil, 0, err
 	}
 
-	catMap := r.loadCategoryMap(ctx, project)
+	catMap, _ := r.loadCategoryMap(ctx, project)
 
 	out := make([]AssetPivot, len(rows))
 	for i, r := range rows {
