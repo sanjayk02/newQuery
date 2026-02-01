@@ -113,14 +113,14 @@ type ListAssetsPivotOptions struct {
 	GroupPaths       []string
 }
 
-// ReviewInfoRepository handles review information operations
-type ReviewInfoRepository struct {
+// ReviewInfo handles review information operations
+type ReviewInfo struct {
 	db *gorm.DB
 }
 
-// NewReviewInfoRepository creates a new ReviewInfoRepository
-func NewReviewInfoRepository(db *gorm.DB) *ReviewInfoRepository {
-	return &ReviewInfoRepository{db: db}
+// NewReviewInfo creates a new ReviewInfo
+func NewReviewInfo(db *gorm.DB) (*ReviewInfo, error) {
+	return &ReviewInfo{db: db}, nil
 }
 
 // ========================================================================
@@ -190,7 +190,7 @@ func GroupAndSortByTopNode(rows []AssetPivot, dir SortDirection) []GroupedAssetB
 // ========================================================================
 
 // loadCategoryMap loads category information from the database
-func (r *ReviewInfoRepository) loadCategoryMap(
+func (r *ReviewInfo) loadCategoryMap(
 	ctx context.Context,
 	project string,
 ) (map[string]CategoryInfo, error) {
@@ -266,16 +266,51 @@ func buildOrderClause(key, dir string) (string, error) {
 // ============================ REPOSITORY ================================
 // ========================================================================
 
-// ListAssetsPivot retrieves pivoted asset data with pagination
-func (r *ReviewInfoRepository) ListAssetsPivot(
+// ListAssetsPivot retrieves pivoted asset data with pagination (OLD SIGNATURE - for backward compatibility)
+func (r *ReviewInfo) ListAssetsPivot(
+	ctx context.Context,
+	project, root, preferredPhase, orderKey, direction string,
+	limit, offset int,
+	assetNameKey string,
+	approvalStatuses, workStatuses []string,
+) ([]AssetPivot, int64, error) {
+	
+	// Convert old parameters to new options struct
+	opts := ListAssetsPivotOptions{
+		Project:          project,
+		Root:             root,
+		PreferredPhase:   preferredPhase,
+		OrderKey:         orderKey,
+		Direction:        direction,
+		Limit:            limit,
+		Offset:           offset,
+		AssetNameKey:     assetNameKey,
+		ApprovalStatuses: approvalStatuses,
+		WorkStatuses:     workStatuses,
+		Phases:           []string{},
+		GroupPaths:       []string{},
+	}
+	
+	// Handle phase parameter
+	if preferredPhase != "" && preferredPhase != "none" {
+		opts.Phases = []string{preferredPhase}
+	}
+	
+	// Call the new method
+	return r.ListAssetsPivotWithOptions(ctx, opts)
+}
+
+// ListAssetsPivotWithOptions retrieves pivoted asset data with pagination (NEW SIGNATURE with options struct)
+func (r *ReviewInfo) ListAssetsPivotWithOptions(
 	ctx context.Context,
 	opts ListAssetsPivotOptions,
 ) ([]AssetPivot, int64, error) {
+	
 	// Validate required fields
 	if opts.Project == "" {
 		return nil, 0, fmt.Errorf("project is required")
 	}
-
+	
 	// Set defaults
 	if opts.Root == "" {
 		opts.Root = DefaultRoot
@@ -326,7 +361,7 @@ func (r *ReviewInfoRepository) ListAssetsPivot(
 }
 
 // buildWhereClause builds the WHERE clause for the SQL query
-func (r *ReviewInfoRepository) buildWhereClause(opts ListAssetsPivotOptions) (string, []any, error) {
+func (r *ReviewInfo) buildWhereClause(opts ListAssetsPivotOptions) (string, []any, error) {
 	whereClauses := []string{
 		"ri.project = ?",
 		"ri.root = ?",
@@ -392,7 +427,7 @@ func (r *ReviewInfoRepository) buildWhereClause(opts ListAssetsPivotOptions) (st
 }
 
 // buildSQLQuery builds the complete SQL query string
-func (r *ReviewInfoRepository) buildSQLQuery(whereClause, orderClause string) string {
+func (r *ReviewInfo) buildSQLQuery(whereClause, orderClause string) string {
 	return fmt.Sprintf(`
 WITH base AS (
     SELECT
@@ -483,7 +518,7 @@ ORDER BY pa.asset_row_num;
 }
 
 // resolveCategories resolves category information for assets
-func (r *ReviewInfoRepository) resolveCategories(
+func (r *ReviewInfo) resolveCategories(
 	ctx context.Context,
 	project string,
 	rows []struct {
@@ -526,7 +561,7 @@ func (r *ReviewInfoRepository) resolveCategories(
 }
 
 // GetAssetByID retrieves a single asset by its identifiers
-func (r *ReviewInfoRepository) GetAssetByID(
+func (r *ReviewInfo) GetAssetByID(
 	ctx context.Context,
 	project, root, group1, relation string,
 ) (*AssetPivot, error) {
@@ -565,7 +600,7 @@ LIMIT 1
 }
 
 // CountAssetsByStatus counts assets by their approval/work status
-func (r *ReviewInfoRepository) CountAssetsByStatus(
+func (r *ReviewInfo) CountAssetsByStatus(
 	ctx context.Context,
 	project, root string,
 	phase string,
