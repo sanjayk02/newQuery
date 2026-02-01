@@ -22,6 +22,7 @@ type AssetPivot struct {
 	Group1   string `json:"group_1"`
 	Relation string `json:"relation"`
 
+	// grouping info (resolved in Go)
 	LeafGroupName     string `json:"leaf_group_name"`
 	GroupCategoryPath string `json:"group_category_path"`
 	TopGroupNode      string `json:"top_group_node"`
@@ -113,63 +114,84 @@ func GroupAndSortByTopNode(rows []AssetPivot, dir SortDirection) []GroupedAssetB
 
 //
 // ========================================================================
-// ========================= FILTER / ORDER ===============================
+// ======================= CATEGORY RESOLVER ==============================
+// ========================================================================
+//
+
+type categoryInfo struct {
+	Path     string
+	TopGroup string
+}
+
+func (r *ReviewInfo) loadCategoryMap(
+	ctx context.Context,
+	project string,
+) (map[string]categoryInfo, error) {
+
+	type row struct {
+		Path string
+	}
+
+	var rows []row
+	err := r.db.WithContext(ctx).
+		Table("t_group_category_group").
+		Select("path").
+		Where("project = ? AND deleted = 0", project).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	m := make(map[string]categoryInfo, len(rows))
+	for _, r := range rows {
+		top := r.Path
+		if i := strings.Index(top, "/"); i > 0 {
+			top = top[:i]
+		}
+		m[r.Path] = categoryInfo{
+			Path:     r.Path,
+			TopGroup: top,
+		}
+	}
+	return m, nil
+}
+
+//
+// ========================================================================
+// ========================= ORDER BUILDER ================================
 // ========================================================================
 //
 
 // IMPORTANT:
-// buildOrderClause is used ONLY for ASSET-LEVEL window ordering.
-// Only columns present in `asset_keys` may be referenced here.
-// NEVER use phase-level columns like `submitted_at_utc`.
+// Asset-level ordering ONLY.
+// Never reference phase-level columns here.
 func buildOrderClause(key, dir string) string {
 	dir = strings.ToUpper(dir)
 	if dir != "ASC" && dir != "DESC" {
 		dir = "ASC"
 	}
 
-	col := func(c string) string { return c }
-
 	switch key {
 
-	case "group1_only":
-		return fmt.Sprintf(
-			"LOWER(%s) %s, LOWER(%s) ASC",
-			col("group_1"), dir,
-			col("relation"),
-		)
-
 	case "relation_only":
-		return fmt.Sprintf(
-			"LOWER(%s) %s, LOWER(%s) ASC",
-			col("relation"), dir,
-			col("group_1"),
-		)
+		return fmt.Sprintf("LOWER(relation) %s, LOWER(group_1) ASC", dir)
 
 	case "group_rel_submitted":
 		return fmt.Sprintf(
-			"LOWER(%s) ASC, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
-			col("group_1"),
-			col("relation"),
-			col("latest_submitted_at"),
-			col("latest_submitted_at"), dir,
+			"LOWER(group_1) ASC, LOWER(relation) ASC, (latest_submitted_at IS NULL) ASC, latest_submitted_at %s",
+			dir,
 		)
 
-	// phase-specific submitted date (asset-level)
 	case "mdl_submitted", "rig_submitted", "bld_submitted", "dsn_submitted", "ldv_submitted":
 		return fmt.Sprintf(
-			"(%s IS NULL) ASC, %s %s, LOWER(%s) ASC",
-			col("latest_submitted_at"),
-			col("latest_submitted_at"), dir,
-			col("group_1"),
+			"(latest_submitted_at IS NULL) ASC, latest_submitted_at %s, LOWER(group_1) ASC",
+			dir,
 		)
 
-	default:
+	default: // group1_only
 		return fmt.Sprintf(
-			"LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
-			col("group_1"), dir,
-			col("relation"),
-			col("latest_submitted_at"),
-			col("latest_submitted_at"), dir,
+			"LOWER(group_1) %s, LOWER(relation) ASC, (latest_submitted_at IS NULL) ASC, latest_submitted_at %s",
+			dir,
 		)
 	}
 }
@@ -233,31 +255,19 @@ WITH base AS (
         ri.approval_status,
         ri.submitted_at_utc,
         ri.modified_at_utc,
+
+        -- JSON extraction ONCE (kept intentionally)
         JSON_UNQUOTE(JSON_EXTRACT(ri.%s,'$[0]')) AS leaf_group_name,
+
         ROW_NUMBER() OVER (
             PARTITION BY ri.project, ri.root, ri.group_1, ri.relation, ri.phase
             ORDER BY ri.modified_at_utc DESC
-        ) AS phase_rn
+        ) AS rn
     FROM t_review_info ri
     WHERE %s
 ),
 latest_phases AS (
-    SELECT * FROM base WHERE phase_rn = 1
-),
-with_category AS (
-    SELECT
-        lp.*,
-        gc.path AS group_category_path,
-        SUBSTRING_INDEX(gc.path,'/',1) AS top_group_node
-    FROM latest_phases lp
-    LEFT JOIN t_group_category_group gcg
-        ON gcg.project = lp.project
-       AND gcg.deleted = 0
-       AND gcg.path = lp.leaf_group_name
-    LEFT JOIN t_group_category gc
-        ON gc.id = gcg.group_category_id
-       AND gc.deleted = 0
-       AND gc.root = 'assets'
+    SELECT * FROM base WHERE rn = 1
 ),
 asset_keys AS (
     SELECT
@@ -266,7 +276,7 @@ asset_keys AS (
         group_1,
         relation,
         MAX(submitted_at_utc) AS latest_submitted_at
-    FROM with_category
+    FROM latest_phases
     GROUP BY project, root, group_1, relation
 ),
 ordered_assets AS (
@@ -279,55 +289,45 @@ paged_assets AS (
     SELECT *
     FROM ordered_assets
     WHERE asset_row_num > ? AND asset_row_num <= ?
-),
-final_data AS (
-    SELECT
-        wc.*,
-        pa.total_count,
-        pa.asset_row_num
-    FROM paged_assets pa
-    JOIN with_category wc
-      ON wc.project = pa.project
-     AND wc.root = pa.root
-     AND wc.group_1 = pa.group_1
-     AND wc.relation = pa.relation
 )
 SELECT
-    project,
-    root,
-    group_1,
-    relation,
-    leaf_group_name,
-    group_category_path,
-    top_group_node,
-    total_count,
+    lp.project,
+    lp.root,
+    lp.group_1,
+    lp.relation,
+    lp.leaf_group_name,
+    pa.total_count,
 
-    MAX(CASE WHEN phase='mdl' THEN work_status END)      AS mdl_work_status,
-    MAX(CASE WHEN phase='mdl' THEN approval_status END)  AS mdl_approval_status,
-    MAX(CASE WHEN phase='mdl' THEN submitted_at_utc END) AS mdl_submitted_at_utc,
+    MAX(CASE WHEN lp.phase='mdl' THEN lp.work_status END)      AS mdl_work_status,
+    MAX(CASE WHEN lp.phase='mdl' THEN lp.approval_status END)  AS mdl_approval_status,
+    MAX(CASE WHEN lp.phase='mdl' THEN lp.submitted_at_utc END) AS mdl_submitted_at_utc,
 
-    MAX(CASE WHEN phase='rig' THEN work_status END)      AS rig_work_status,
-    MAX(CASE WHEN phase='rig' THEN approval_status END)  AS rig_approval_status,
-    MAX(CASE WHEN phase='rig' THEN submitted_at_utc END) AS rig_submitted_at_utc,
+    MAX(CASE WHEN lp.phase='rig' THEN lp.work_status END)      AS rig_work_status,
+    MAX(CASE WHEN lp.phase='rig' THEN lp.approval_status END)  AS rig_approval_status,
+    MAX(CASE WHEN lp.phase='rig' THEN lp.submitted_at_utc END) AS rig_submitted_at_utc,
 
-    MAX(CASE WHEN phase='bld' THEN work_status END)      AS bld_work_status,
-    MAX(CASE WHEN phase='bld' THEN approval_status END)  AS bld_approval_status,
-    MAX(CASE WHEN phase='bld' THEN submitted_at_utc END) AS bld_submitted_at_utc,
+    MAX(CASE WHEN lp.phase='bld' THEN lp.work_status END)      AS bld_work_status,
+    MAX(CASE WHEN lp.phase='bld' THEN lp.approval_status END)  AS bld_approval_status,
+    MAX(CASE WHEN lp.phase='bld' THEN lp.submitted_at_utc END) AS bld_submitted_at_utc,
 
-    MAX(CASE WHEN phase='dsn' THEN work_status END)      AS dsn_work_status,
-    MAX(CASE WHEN phase='dsn' THEN approval_status END)  AS dsn_approval_status,
-    MAX(CASE WHEN phase='dsn' THEN submitted_at_utc END) AS dsn_submitted_at_utc,
+    MAX(CASE WHEN lp.phase='dsn' THEN lp.work_status END)      AS dsn_work_status,
+    MAX(CASE WHEN lp.phase='dsn' THEN lp.approval_status END)  AS dsn_approval_status,
+    MAX(CASE WHEN lp.phase='dsn' THEN lp.submitted_at_utc END) AS dsn_submitted_at_utc,
 
-    MAX(CASE WHEN phase='ldv' THEN work_status END)      AS ldv_work_status,
-    MAX(CASE WHEN phase='ldv' THEN approval_status END)  AS ldv_approval_status,
-    MAX(CASE WHEN phase='ldv' THEN submitted_at_utc END) AS ldv_submitted_at_utc
+    MAX(CASE WHEN lp.phase='ldv' THEN lp.work_status END)      AS ldv_work_status,
+    MAX(CASE WHEN lp.phase='ldv' THEN lp.approval_status END)  AS ldv_approval_status,
+    MAX(CASE WHEN lp.phase='ldv' THEN lp.submitted_at_utc END) AS ldv_submitted_at_utc
 
-FROM final_data
+FROM paged_assets pa
+JOIN latest_phases lp
+  ON lp.project  = pa.project
+ AND lp.root     = pa.root
+ AND lp.group_1  = pa.group_1
+ AND lp.relation = pa.relation
 GROUP BY
-    project, root, group_1, relation,
-    leaf_group_name, group_category_path,
-    top_group_node, total_count
-ORDER BY asset_row_num
+    lp.project, lp.root, lp.group_1, lp.relation,
+    lp.leaf_group_name, pa.total_count
+ORDER BY pa.asset_row_num;
 `,
 		"`groups`",
 		whereSQL,
@@ -349,9 +349,16 @@ ORDER BY asset_row_num
 		return []AssetPivot{}, 0, nil
 	}
 
+	// Resolve category info in Go (fast, cacheable)
+	catMap, _ := r.loadCategoryMap(ctx, project)
+
 	out := make([]AssetPivot, len(rows))
 	for i := range rows {
 		out[i] = rows[i].AssetPivot
+		if info, ok := catMap[out[i].LeafGroupName]; ok {
+			out[i].GroupCategoryPath = info.Path
+			out[i].TopGroupNode = info.TopGroup
+		}
 	}
 
 	return out, rows[0].Total, nil
