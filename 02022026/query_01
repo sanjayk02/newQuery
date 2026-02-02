@@ -6,42 +6,66 @@ WITH filtered_reviews AS (
   WHERE project = 'hm'
     AND root = 'assets'
     AND deleted = 0
+    -- Optional performance filter:
+    -- AND modified_at_utc > DATE_SUB(NOW(), INTERVAL 90 DAY)
 ),
 ranked_reviews AS (
   SELECT 
     fr.*,
-    -- Extract the first element of the array cleanly
-    fr.`groups`->>'$[0]' AS first_group_name,
+    -- Extract first group with compatibility
+    COALESCE(
+      fr.`groups`->>'$[0]',
+      JSON_UNQUOTE(JSON_EXTRACT(fr.`groups`, '$[0]'))
+    ) AS first_group_name,
+    
     gcg.path AS group_leaf_path,
     gc.path AS group_category_path,
     COALESCE(SUBSTRING_INDEX(gc.path, '/', 1), 'uncategorized') AS top_group_node,
     
-    -- Rank records within each partition
+    -- Rank: empty/null phases first, then by recency
     ROW_NUMBER() OVER (
       PARTITION BY fr.root, fr.project, fr.group_1, fr.relation
       ORDER BY 
-        (fr.phase IS NOT NULL AND fr.phase != '') DESC, -- Priorities filled phase
+        CASE 
+          WHEN fr.phase IS NULL OR fr.phase = '' THEN 0 
+          ELSE 1 
+        END,
         fr.modified_at_utc DESC
     ) AS rn
   FROM filtered_reviews fr
-  -- Using a simple join on the extracted JSON value
   LEFT JOIN t_group_category_group gcg
     ON gcg.project = fr.project
     AND gcg.deleted = 0
-    AND gcg.path = fr.`groups`->>'$[0]'
+    AND gcg.path = COALESCE(
+      fr.`groups`->>'$[0]',
+      JSON_UNQUOTE(JSON_EXTRACT(fr.`groups`, '$[0]'))
+    )
+    AND COALESCE(
+      fr.`groups`->>'$[0]',
+      JSON_UNQUOTE(JSON_EXTRACT(fr.`groups`, '$[0]'))
+    ) IS NOT NULL
   LEFT JOIN t_group_category gc
     ON gc.id = gcg.group_category_id
     AND gc.deleted = 0
     AND gc.root = 'assets'
 )
 SELECT 
-  root, project, group_1, relation, COALESCE(phase, '') AS phase,
-  work_status, submitted_at_utc, modified_at_utc,
-  top_group_node, group_leaf_path, group_category_path, first_group_name
+  root, 
+  project, 
+  group_1, 
+  relation, 
+  COALESCE(phase, '') AS phase,
+  work_status, 
+  submitted_at_utc, 
+  modified_at_utc,
+  top_group_node, 
+  group_leaf_path, 
+  group_category_path, 
+  first_group_name
 FROM ranked_reviews
 WHERE rn = 1
 ORDER BY 
-  (phase = '') ASC, 
+  CASE WHEN COALESCE(phase, '') = '' THEN 0 ELSE 1 END,
   group_1 ASC, 
   relation ASC
 LIMIT 1000;
