@@ -41,4 +41,5 @@ WITH ranked AS (
 
 SELECT *
 FROM ranked
-WHERE rn = 1;
+WHERE rn = 1
+LIMIT 20;
