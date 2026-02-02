@@ -1,0 +1,63 @@
+SELECT
+  project,
+  root,
+  group_1,
+  relation,
+  MAX(modified_at_utc) AS latest_modified_at,
+  COUNT(*) OVER () AS total_count
+FROM t_review_info
+WHERE project = 'hm'
+  AND root = 'assets'
+  AND deleted = 0
+GROUP BY project, root, group_1, relation
+ORDER BY group_1 ASC, relation ASC
+LIMIT 50 OFFSET 0;
+
+
+
+# ====================================
+
+SELECT
+  ri.project,
+  ri.root,
+  ri.group_1,
+  ri.relation,
+  ri.phase,
+  ri.work_status,
+  ri.submitted_at_utc,
+  ri.modified_at_utc,
+
+  -- SAFE extraction (not used in JOIN)
+  TRIM(BOTH '"' FROM SUBSTRING_INDEX(
+    SUBSTRING_INDEX(
+      REPLACE(REPLACE(ri.`groups`, '[', ''), ']', ''),
+      ',', 1
+    ),
+    ',', -1
+  )) AS first_group_name
+
+FROM t_review_info ri
+WHERE ri.deleted = 0
+  AND (
+    (ri.group_1='asset1' AND ri.relation='com')
+    OR
+    (ri.group_1='asset2' AND ri.relation='com')
+    -- one OR per paged asset
+  )
+  AND ri.modified_at_utc = (
+    SELECT MAX(x.modified_at_utc)
+    FROM t_review_info x
+    WHERE x.project  = ri.project
+      AND x.root     = ri.root
+      AND x.group_1  = ri.group_1
+      AND x.relation = ri.relation
+      AND x.phase    = ri.phase
+  );
+
+
+SELECT
+  path,
+  SUBSTRING_INDEX(path, '/', 1) AS top_group_node
+FROM t_group_category_group
+WHERE project = 'hm'
+  AND deleted = 0;
