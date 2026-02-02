@@ -1,0 +1,47 @@
+WITH filtered_reviews AS (
+  SELECT 
+    id, project, root, `groups`, phase, group_1, relation, 
+    work_status, submitted_at_utc, modified_at_utc
+  FROM t_review_info
+  WHERE project = 'hm'
+    AND root = 'assets'
+    AND deleted = 0
+),
+ranked_reviews AS (
+  SELECT 
+    fr.*,
+    -- Extract the first element of the array cleanly
+    fr.`groups`->>'$[0]' AS first_group_name,
+    gcg.path AS group_leaf_path,
+    gc.path AS group_category_path,
+    COALESCE(SUBSTRING_INDEX(gc.path, '/', 1), 'uncategorized') AS top_group_node,
+    
+    -- Rank records within each partition
+    ROW_NUMBER() OVER (
+      PARTITION BY fr.root, fr.project, fr.group_1, fr.relation
+      ORDER BY 
+        (fr.phase IS NOT NULL AND fr.phase != '') DESC, -- Priorities filled phase
+        fr.modified_at_utc DESC
+    ) AS rn
+  FROM filtered_reviews fr
+  -- Using a simple join on the extracted JSON value
+  LEFT JOIN t_group_category_group gcg
+    ON gcg.project = fr.project
+    AND gcg.deleted = 0
+    AND gcg.path = fr.`groups`->>'$[0]'
+  LEFT JOIN t_group_category gc
+    ON gc.id = gcg.group_category_id
+    AND gc.deleted = 0
+    AND gc.root = 'assets'
+)
+SELECT 
+  root, project, group_1, relation, COALESCE(phase, '') AS phase,
+  work_status, submitted_at_utc, modified_at_utc,
+  top_group_node, group_leaf_path, group_category_path, first_group_name
+FROM ranked_reviews
+WHERE rn = 1
+ORDER BY 
+  (phase = '') ASC, 
+  group_1 ASC, 
+  relation ASC
+LIMIT 1000;
