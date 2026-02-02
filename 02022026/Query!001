@@ -43,3 +43,17 @@ SELECT *
 FROM ranked
 WHERE rn = 1
 LIMIT 20;
+
+
+
+SELECT
+    COUNT(*) AS total_assets
+FROM (
+    SELECT DISTINCT
+        group_1,
+        relation
+    FROM t_review_info
+    WHERE project = 'hm'
+      AND root = 'assets'
+      AND deleted = 0
+) x;
