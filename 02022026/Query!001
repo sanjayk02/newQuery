@@ -1,34 +1,44 @@
-SELECT
-    ri.group_1,
-    ri.relation,
+WITH ranked AS (
+    SELECT
+        ri.group_1,
+        ri.relation,
 
-    TRIM(BOTH '"' FROM SUBSTRING_INDEX(
-        SUBSTRING_INDEX(
-            REPLACE(REPLACE(ri.`groups`, '[', ''), ']', ''),
-            ',', 1
-        ),
-        ',', -1
-    )) AS leaf_group_name,
+        TRIM(BOTH '"' FROM SUBSTRING_INDEX(
+            SUBSTRING_INDEX(
+                REPLACE(REPLACE(ri.`groups`, '[', ''), ']', ''),
+                ',', 1
+            ),
+            ',', -1
+        )) AS leaf_group_name,
 
-    gc.path AS group_category_path,
-    SUBSTRING_INDEX(gc.path, '/', 1) AS top_group_node
+        gc.path AS group_category_path,
+        SUBSTRING_INDEX(gc.path, '/', 1) AS top_group_node,
 
-FROM t_review_info ri
-JOIN t_group_category gc
-  ON gc.project = ri.project
- AND gc.root = 'assets'
- AND gc.deleted = 0
- AND gc.path LIKE CONCAT('%/', 
-     TRIM(BOTH '"' FROM SUBSTRING_INDEX(
-         SUBSTRING_INDEX(
-             REPLACE(REPLACE(ri.`groups`, '[', ''), ']', ''),
-             ',', 1
-         ),
-         ',', -1
-     ))
- )
+        ROW_NUMBER() OVER (
+            PARTITION BY ri.group_1, ri.relation
+            ORDER BY ri.modified_at_utc DESC
+        ) AS rn
 
-WHERE ri.project = 'hm'
-  AND ri.root = 'assets'
-  AND ri.deleted = 0
-LIMIT 20;
+    FROM t_review_info ri
+    JOIN t_group_category gc
+      ON gc.project = ri.project
+     AND gc.root = 'assets'
+     AND gc.deleted = 0
+     AND gc.path LIKE CONCAT('%/',
+         TRIM(BOTH '"' FROM SUBSTRING_INDEX(
+             SUBSTRING_INDEX(
+                 REPLACE(REPLACE(ri.`groups`, '[', ''), ']', ''),
+                 ',', 1
+             ),
+             ',', -1
+         ))
+     )
+
+    WHERE ri.project = 'hm'
+      AND ri.root = 'assets'
+      AND ri.deleted = 0
+)
+
+SELECT *
+FROM ranked
+WHERE rn = 1;
