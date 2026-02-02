@@ -57,3 +57,28 @@ FROM (
       AND root = 'assets'
       AND deleted = 0
 ) x;
+
+
+SELECT COUNT(*) AS assets_with_category
+FROM (
+    SELECT DISTINCT
+        ri.group_1,
+        ri.relation
+    FROM t_review_info ri
+    JOIN t_group_category gc
+      ON gc.project = ri.project
+     AND gc.root = 'assets'
+     AND gc.deleted = 0
+     AND gc.path LIKE CONCAT('%/',
+         TRIM(BOTH '"' FROM SUBSTRING_INDEX(
+             SUBSTRING_INDEX(
+                 REPLACE(REPLACE(ri.`groups`, '[', ''), ']', ''),
+                 ',', 1
+             ),
+             ',', -1
+         ))
+     )
+    WHERE ri.project = 'hm'
+      AND ri.root = 'assets'
+      AND ri.deleted = 0
+) x;
