@@ -1,0 +1,36 @@
+package main
+
+import (
+	"database/sql"
+	"fmt"
+	"log"
+	_ "github.com/go-sql-driver/mysql"
+)
+
+func main() {
+	db, _ := sql.Open("mysql", "central30_pro_ro:gF4hrE36@tcp(10.33.10.101:3306)/central30?parseTime=true")
+	defer db.Close()
+	
+	// Get categories
+	cats := make(map[string]string)
+	rows, _ := db.Query(`SELECT path FROM t_group_category WHERE project='hm' AND root='assets' AND deleted=0`)
+	for rows.Next() { var p string; rows.Scan(&p); cats[p] = p }
+	rows.Close()
+	
+	// Get assets
+	rows, _ = db.Query(`
+		SELECT group_1, relation, TRIM(BOTH '"' FROM JSON_UNQUOTE(JSON_EXTRACT(groups, '$[0]'))) as leaf
+		FROM t_review_info WHERE project='hm' AND root='assets' AND deleted=0 AND groups IS NOT NULL
+	`)
+	
+	fmt.Println("Group1 | Relation | LeafGroup | Category")
+	fmt.Println("----------------------------------------")
+	for rows.Next() {
+		var g, r, l string
+		rows.Scan(&g, &r, &l)
+		cat := "Unassigned"
+		if _, ok := cats[l]; ok { cat = "Found" }
+		fmt.Printf("%s | %s | %s | %s\n", g, r, l, cat)
+	}
+	rows.Close()
+}
