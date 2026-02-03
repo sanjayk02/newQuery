@@ -9,47 +9,58 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-func mySQLConfigs() (string, string, string, string, string) {
-	dbUser := os.Getenv("PPI_MYSQL_USER")
-	dbPass := os.Getenv("PPI_MYSQL_PASSWORD")
-	dbHost := os.Getenv("PPI_MYSQL_HOST")
-	dbPort := os.Getenv("PPI_MYSQL_PORT")
-	dbName := "central30"
-
-	return dbUser, dbPass, dbHost, dbPort, dbName
-}
-
 func main() {
-	// --------------------------------------------------
-	// LOCAL TESTING ONLY: set env vars programmatically
-	// --------------------------------------------------
+	// ------------------------------------------------------------------
+	// LOCAL TESTING ONLY (comment these out if you use real env vars)
+	// ------------------------------------------------------------------
 	os.Setenv("PPI_MYSQL_USER", "central30_pro_ro")
 	os.Setenv("PPI_MYSQL_PASSWORD", "gF4hrE30")
-	os.Setenv("PPI_MYSQL_HOST", "10.33.10.101")
-	os.Setenv("PPI_MYSQL_PORT", "3306")
+	os.Setenv("PPI_MYSQL_HOST", "127.0.0.1") // SSH tunnel OR server itself
+	os.Setenv("PPI_MYSQL_PORT", "3307")      // 3306 if running on server
+	os.Setenv("PPI_MYSQL_DB", "central30")
+	// ------------------------------------------------------------------
 
-	user, pass, host, port, name := mySQLConfigs()
+	user := os.Getenv("PPI_MYSQL_USER")
+	pass := os.Getenv("PPI_MYSQL_PASSWORD")
+	host := os.Getenv("PPI_MYSQL_HOST")
+	port := os.Getenv("PPI_MYSQL_PORT")
+	dbname := os.Getenv("PPI_MYSQL_DB")
 
 	dsn := fmt.Sprintf(
 		"%s:%s@tcp(%s:%s)/%s?parseTime=true",
-		user, pass, host, port, name,
+		user, pass, host, port, dbname,
 	)
+
+	fmt.Println("Connecting with DSN:")
+	fmt.Println(dsn)
 
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("sql.Open error:", err)
 	}
 	defer db.Close()
 
-	// 🔍 Connection test
-	var one int
-	if err := db.QueryRow("SELECT 1").Scan(&one); err != nil {
-		log.Fatal("❌ DB connection failed:", err)
+	if err := db.Ping(); err != nil {
+		log.Fatal("DB ping failed:", err)
 	}
 
-	fmt.Println("✅ Connected to MySQL successfully")
+	fmt.Println("✅ Connected successfully")
 
-	// 🔍 Asset count test
+	// ------------------------------------------------------------------
+	// Verify MySQL sees correct host
+	// ------------------------------------------------------------------
+	var userStr, currentUser string
+	err = db.QueryRow("SELECT USER(), CURRENT_USER()").Scan(&userStr, &currentUser)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("USER():        ", userStr)
+	fmt.Println("CURRENT_USER():", currentUser)
+
+	// ------------------------------------------------------------------
+	// Simple test query
+	// ------------------------------------------------------------------
 	var total int
 	err = db.QueryRow(`
 		SELECT COUNT(*) 
@@ -66,5 +77,5 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fmt.Println("✅ Total assets:", total)
+	fmt.Println("Total assets:", total)
 }
