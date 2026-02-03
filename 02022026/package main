@@ -4,33 +4,67 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
+
 	_ "github.com/go-sql-driver/mysql"
 )
 
+func mySQLConfigs() (string, string, string, string, string) {
+	dbUser := os.Getenv("PPI_MYSQL_USER")
+	dbPass := os.Getenv("PPI_MYSQL_PASSWORD")
+	dbHost := os.Getenv("PPI_MYSQL_HOST")
+	dbPort := os.Getenv("PPI_MYSQL_PORT")
+	dbName := "central30"
+
+	return dbUser, dbPass, dbHost, dbPort, dbName
+}
+
 func main() {
-	db, _ := sql.Open("mysql", "central30_pro_ro:gF4hrE36@tcp(10.33.10.101:3306)/central30?parseTime=true")
-	defer db.Close()
-	
-	// Get categories
-	cats := make(map[string]string)
-	rows, _ := db.Query(`SELECT path FROM t_group_category WHERE project='hm' AND root='assets' AND deleted=0`)
-	for rows.Next() { var p string; rows.Scan(&p); cats[p] = p }
-	rows.Close()
-	
-	// Get assets
-	rows, _ = db.Query(`
-		SELECT group_1, relation, TRIM(BOTH '"' FROM JSON_UNQUOTE(JSON_EXTRACT(groups, '$[0]'))) as leaf
-		FROM t_review_info WHERE project='hm' AND root='assets' AND deleted=0 AND groups IS NOT NULL
-	`)
-	
-	fmt.Println("Group1 | Relation | LeafGroup | Category")
-	fmt.Println("----------------------------------------")
-	for rows.Next() {
-		var g, r, l string
-		rows.Scan(&g, &r, &l)
-		cat := "Unassigned"
-		if _, ok := cats[l]; ok { cat = "Found" }
-		fmt.Printf("%s | %s | %s | %s\n", g, r, l, cat)
+	// --------------------------------------------------
+	// LOCAL TESTING ONLY: set env vars programmatically
+	// --------------------------------------------------
+	os.Setenv("PPI_MYSQL_USER", "central30_pro_ro")
+	os.Setenv("PPI_MYSQL_PASSWORD", "gF4hrE30")
+	os.Setenv("PPI_MYSQL_HOST", "10.33.10.101")
+	os.Setenv("PPI_MYSQL_PORT", "3306")
+
+	user, pass, host, port, name := mySQLConfigs()
+
+	dsn := fmt.Sprintf(
+		"%s:%s@tcp(%s:%s)/%s?parseTime=true",
+		user, pass, host, port, name,
+	)
+
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		log.Fatal(err)
 	}
-	rows.Close()
+	defer db.Close()
+
+	// 🔍 Connection test
+	var one int
+	if err := db.QueryRow("SELECT 1").Scan(&one); err != nil {
+		log.Fatal("❌ DB connection failed:", err)
+	}
+
+	fmt.Println("✅ Connected to MySQL successfully")
+
+	// 🔍 Asset count test
+	var total int
+	err = db.QueryRow(`
+		SELECT COUNT(*) 
+		FROM (
+			SELECT DISTINCT group_1, relation
+			FROM t_review_info
+			WHERE project = 'hm'
+			  AND root = 'assets'
+			  AND deleted = 0
+		) x
+	`).Scan(&total)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("✅ Total assets:", total)
 }
