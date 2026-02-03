@@ -1,64 +1,94 @@
 func (r *ReviewInfo) ListAssetsPivot2(
 	ctx context.Context,
-	project, root string,
-	limit, offset int,
+	project string,
+	root string,
+	limit int,
+	offset int,
 ) ([]AssetPivot, int64, error) {
 
-	// 1. Load categories ONCE
-	categories, err := r.loadCategories(ctx, project)
+	// -------------------------------
+	// STEP 1: Fetch latest reviews
+	// -------------------------------
+
+	var assets []AssetPivot
+	var total int64
+
+	baseSQL := `
+	WITH base AS (
+		SELECT
+			project,
+			root,
+			group_1,
+			relation,
+			JSON_UNQUOTE(JSON_EXTRACT(groups,'$[0]')) AS leaf_group_name,
+			work_status,
+			approval_status,
+			submitted_at_utc,
+			modified_at_utc,
+			ROW_NUMBER() OVER (
+				PARTITION BY project, root, group_1, relation
+				ORDER BY modified_at_utc DESC
+			) AS rn
+		FROM t_review_info
+		WHERE project = ?
+		  AND root = ?
+		  AND deleted = 0
+	),
+	latest AS (
+		SELECT * FROM base WHERE rn = 1
+	)
+	SELECT *,
+	       COUNT(*) OVER() AS total_count
+	FROM latest
+	LIMIT ? OFFSET ?;
+	`
+
+	rows, err := r.db.WithContext(ctx).
+		Raw(baseSQL, project, root, limit, offset).
+		Rows()
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var a AssetPivot
+		var cnt int64
+
+		err := rows.Scan(
+			&a.Project,
+			&a.Root,
+			&a.Group1,
+			&a.Relation,
+			&a.LeafGroupName,
+			&a.WorkStatus,
+			&a.ApprovalStatus,
+			&a.SubmittedAtUTC,
+			&a.ModifiedAtUTC,
+			&cnt,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		total = cnt
+		assets = append(assets, a)
+	}
+
+	// -------------------------------
+	// STEP 2: Load categories ONCE
+	// -------------------------------
+
+	categories, err := r.loadCategories(ctx, project, root)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	// 2. Fetch assets WITHOUT category joins
-	var rows []struct {
-		AssetPivot
-		Total int64 `gorm:"column:total_count"`
-	}
+	// -------------------------------
+	// STEP 3: Apply category logic
+	// -------------------------------
 
-	sql := `
-WITH base AS (
-  SELECT
-    project,
-    root,
-    group_1,
-    relation,
-    JSON_UNQUOTE(JSON_EXTRACT(` + "`groups`" + `,'$[0]')) AS leaf_group_name,
-    ROW_NUMBER() OVER (
-      PARTITION BY project, root, group_1, relation
-      ORDER BY modified_at_utc DESC
-    ) rn
-  FROM t_review_info
-  WHERE project = ? AND root = ? AND deleted = 0
-),
-latest AS (
-  SELECT * FROM base WHERE rn = 1
-),
-counted AS (
-  SELECT *, COUNT(*) OVER() AS total_count
-  FROM latest
-)
-SELECT * FROM counted
-LIMIT ? OFFSET ?;
-`
-
-	if err := r.db.WithContext(ctx).
-		Raw(sql, project, root, limit, offset).
-		Scan(&rows).Error; err != nil {
-		return nil, 0, err
-	}
-
-	if len(rows) == 0 {
-		return []AssetPivot{}, 0, nil
-	}
-
-	assets := make([]AssetPivot, len(rows))
-	for i := range rows {
-		assets[i] = rows[i].AssetPivot
-	}
-
-	// 3. Apply categories in Go
 	applyCategoriesToAssets(assets, categories)
 
-	return assets, rows[0].Total, nil
+	return assets, total, nil
 }
