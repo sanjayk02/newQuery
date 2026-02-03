@@ -10,43 +10,46 @@ import (
 )
 
 func main() {
-	// ---- READ ENV VARS ----
+	// Read env vars
 	user := os.Getenv("PPI_MYSQL_USER")
 	pass := os.Getenv("PPI_MYSQL_PASSWORD")
 	host := os.Getenv("PPI_MYSQL_HOST")
 	port := os.Getenv("PPI_MYSQL_PORT")
+	db := "central30"
 
-	dbName := "central30"
+	// Debug print (IMPORTANT)
+	fmt.Println("MYSQL USER:", user)
+	fmt.Println("MYSQL HOST:", host)
+	fmt.Println("MYSQL PORT:", port)
 
 	if user == "" || pass == "" || host == "" || port == "" {
-		log.Fatal("Missing MySQL env vars")
+		log.Fatal("❌ Missing MySQL env vars")
 	}
 
-	// ---- DSN (IMPORTANT: tcp + parseTime) ----
 	dsn := fmt.Sprintf(
-		"%s:%s@tcp(%s:%s)/%s?parseTime=true",
-		user, pass, host, port, dbName,
+		"%s:%s@tcp(%s:%s)/%s?parseTime=true&charset=utf8mb4",
+		user, pass, host, port, db,
 	)
 
-	fmt.Println("Connecting to:", dsn)
+	fmt.Println("Connecting with DSN:")
+	fmt.Println(dsn)
 
-	// ---- OPEN DB ----
-	db, err := sql.Open("mysql", dsn)
+	conn, err := sql.Open("mysql", dsn)
 	if err != nil {
 		log.Fatal("sql.Open failed:", err)
 	}
-	defer db.Close()
+	defer conn.Close()
 
-	// ---- PING ----
-	if err := db.Ping(); err != nil {
-		log.Fatal("DB ping failed:", err)
+	if err := conn.Ping(); err != nil {
+		log.Fatal("❌ DB ping failed:", err)
 	}
 
 	fmt.Println("✅ MySQL connected successfully")
 
-	// ---- TEST QUERY (your 311 count) ----
-	query := `
-		SELECT COUNT(*) AS total_assets
+	// Test query (your expected result = 311)
+	var total int
+	err = conn.QueryRow(`
+		SELECT COUNT(*) 
 		FROM (
 			SELECT DISTINCT group_1, relation
 			FROM t_review_info
@@ -54,25 +57,11 @@ func main() {
 			  AND root = 'assets'
 			  AND deleted = 0
 		) x
-	`
+	`).Scan(&total)
 
-	var total int
-	err = db.QueryRow(query).Scan(&total)
 	if err != nil {
 		log.Fatal("Query failed:", err)
 	}
 
 	fmt.Println("✅ Total assets =", total)
 }
-
-
-
-setx PPI_MYSQL_USER "central30_pro_ro"
-setx PPI_MYSQL_PASSWORD "gF4hrE30"
-setx PPI_MYSQL_HOST "10.33.10.101"
-setx PPI_MYSQL_PORT "3306"
-
-go mod init mysql-test
-go get github.com/go-sql-driver/mysql
-go run main.go
-
