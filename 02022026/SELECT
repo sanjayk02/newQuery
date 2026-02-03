@@ -1,0 +1,117 @@
+SELECT
+  ri.project,
+  ri.root,
+  ri.group_1,
+  ri.relation,
+  JSON_UNQUOTE(JSON_EXTRACT(ri.`groups`, '$[0]')) AS leaf_group_name
+FROM t_review_info ri
+JOIN (
+  SELECT
+    group_1,
+    relation,
+    MAX(modified_at_utc) AS max_mod
+  FROM t_review_info
+  WHERE project = ?
+    AND root = ?
+    AND deleted = 0
+  GROUP BY group_1, relation
+) latest
+  ON latest.group_1 = ri.group_1
+ AND latest.relation = ri.relation
+ AND latest.max_mod = ri.modified_at_utc
+WHERE ri.project = ?
+  AND ri.root = ?
+  AND ri.deleted = 0;
+
+
+
+func (r *ReviewInfo) ListAssetsPivot2(
+	ctx context.Context,
+	project, root string,
+	limit, offset int,
+) ([]AssetPivot, int64, error) {
+
+	// 1) total count
+	var total int64
+	countSQL := `
+	SELECT COUNT(*) FROM (
+	  SELECT 1
+	  FROM t_review_info
+	  WHERE project = ? AND root = ? AND deleted = 0
+	  GROUP BY group_1, relation
+	) x;
+	`
+	if err := r.db.WithContext(ctx).
+		Raw(countSQL, project, root).
+		Scan(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 2) page asset keys
+	type key struct {
+		Group1   string `gorm:"column:group_1"`
+		Relation string `gorm:"column:relation"`
+	}
+
+	var keys []key
+	keySQL := `
+	SELECT group_1, relation
+	FROM t_review_info
+	WHERE project = ? AND root = ? AND deleted = 0
+	GROUP BY group_1, relation
+	LIMIT ? OFFSET ?;
+	`
+	if err := r.db.WithContext(ctx).
+		Raw(keySQL, project, root, limit, offset).
+		Scan(&keys).Error; err != nil {
+		return nil, 0, err
+	}
+
+	if len(keys) == 0 {
+		return []AssetPivot{}, total, nil
+	}
+
+	// 3) latest rows
+	var assets []AssetPivot
+	latestSQL := `
+	SELECT
+	  ri.project,
+	  ri.root,
+	  ri.group_1,
+	  ri.relation,
+	  JSON_UNQUOTE(JSON_EXTRACT(ri.\` + "`groups`" + `,'$[0]')) AS leaf_group_name
+	FROM t_review_info ri
+	JOIN (
+	  SELECT
+	    group_1,
+	    relation,
+	    MAX(modified_at_utc) AS max_mod
+	  FROM t_review_info
+	  WHERE project = ? AND root = ? AND deleted = 0
+	  GROUP BY group_1, relation
+	) latest
+	  ON latest.group_1 = ri.group_1
+	 AND latest.relation = ri.relation
+	 AND latest.max_mod = ri.modified_at_utc
+	WHERE ri.project = ?
+	  AND ri.root = ?
+	  AND ri.deleted = 0;
+	`
+
+	if err := r.db.WithContext(ctx).
+		Raw(latestSQL, project, root, project, root).
+		Scan(&assets).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 4) load categories once
+	categories, err := r.loadCategories(ctx, project)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// 5) apply categories in Go
+	applyCategoriesToAssets(assets, categories)
+
+	return assets, total, nil
+}
