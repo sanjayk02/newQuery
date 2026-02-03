@@ -6,89 +6,118 @@ func (r *ReviewInfo) ListAssetsPivot2(
 	offset int,
 ) ([]AssetPivot, int64, error) {
 
-	// -------------------------------
-	// STEP 1: Fetch latest reviews
-	// -------------------------------
+	if root == "" {
+		root = "assets"
+	}
 
-	var assets []AssetPivot
-	var total int64
+	sql := `
+SELECT
+  ri.project,
+  ri.root,
+  ri.group_1,
+  ri.relation,
+  JSON_UNQUOTE(JSON_EXTRACT(ri.\`groups\`, '$[0]')) AS leaf_group_name,
+  COUNT(*) OVER() AS total_count
+FROM t_review_info ri
+JOIN (
+  SELECT
+    group_1,
+    relation,
+    MAX(modified_at_utc) AS max_mod
+  FROM t_review_info
+  WHERE project = ?
+    AND root = ?
+    AND deleted = 0
+  GROUP BY group_1, relation
+) latest
+  ON latest.group_1 = ri.group_1
+ AND latest.relation = ri.relation
+ AND latest.max_mod = ri.modified_at_utc
+WHERE ri.project = ?
+  AND ri.root = ?
+  AND ri.deleted = 0
+LIMIT ? OFFSET ?;
+`
 
-	baseSQL := `
-	WITH base AS (
-		SELECT
-			project,
-			root,
-			group_1,
-			relation,
-			JSON_UNQUOTE(JSON_EXTRACT(groups,'$[0]')) AS leaf_group_name,
-			work_status,
-			approval_status,
-			submitted_at_utc,
-			modified_at_utc,
-			ROW_NUMBER() OVER (
-				PARTITION BY project, root, group_1, relation
-				ORDER BY modified_at_utc DESC
-			) AS rn
-		FROM t_review_info
-		WHERE project = ?
-		  AND root = ?
-		  AND deleted = 0
-	),
-	latest AS (
-		SELECT * FROM base WHERE rn = 1
-	)
-	SELECT *,
-	       COUNT(*) OVER() AS total_count
-	FROM latest
-	LIMIT ? OFFSET ?;
-	`
+	type row struct {
+		AssetPivot
+		Total int64 `gorm:"column:total_count"`
+	}
 
-	rows, err := r.db.WithContext(ctx).
-		Raw(baseSQL, project, root, limit, offset).
-		Rows()
+	var rows []row
+	err := r.db.WithContext(ctx).
+		Raw(sql, project, root, project, root, limit, offset).
+		Scan(&rows).Error
+
 	if err != nil {
 		return nil, 0, err
 	}
-	defer rows.Close()
 
-	for rows.Next() {
-		var a AssetPivot
-		var cnt int64
+	if len(rows) == 0 {
+		return []AssetPivot{}, 0, nil
+	}
 
-		err := rows.Scan(
-			&a.Project,
-			&a.Root,
-			&a.Group1,
-			&a.Relation,
-			&a.LeafGroupName,
-			&a.WorkStatus,
-			&a.ApprovalStatus,
-			&a.SubmittedAtUTC,
-			&a.ModifiedAtUTC,
-			&cnt,
-		)
-		if err != nil {
-			return nil, 0, err
+	assets := make([]AssetPivot, 0, len(rows))
+	for _, r := range rows {
+		assets = append(assets, r.AssetPivot)
+	}
+
+	return assets, rows[0].Total, nil
+}
+
+
+func loadCategoriesForAssets(
+	assets []AssetPivot,
+	categories []CategoryInfo,
+) {
+	for i := range assets {
+		leaf := assets[i].LeafGroupName
+		if leaf == "" {
+			continue
 		}
 
-		total = cnt
-		assets = append(assets, a)
+		for _, cat := range categories {
+			if strings.HasSuffix(cat.Path, "/"+leaf) {
+				assets[i].GroupCategoryPath = cat.Path
+				assets[i].TopGroupNode = cat.TopGroup
+				break
+			}
+		}
 	}
-
-	// -------------------------------
-	// STEP 2: Load categories ONCE
-	// -------------------------------
-
-	categories, err := r.loadCategories(ctx, project, root)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	// -------------------------------
-	// STEP 3: Apply category logic
-	// -------------------------------
-
-	applyCategoriesToAssets(assets, categories)
-
-	return assets, total, nil
 }
+
+
+
+router.GET("/api/projects/:project/reviews/assets/pivot2", func(c *gin.Context) {
+	project := c.Param("project")
+	root := c.DefaultQuery("root", "assets")
+
+	limit := mustAtoi(c.DefaultQuery("limit", "15"))
+	offset := mustAtoi(c.DefaultQuery("offset", "0"))
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	assets, total, err := reviewInfoRepository.ListAssetsPivot2(
+		ctx,
+		project,
+		root,
+		limit,
+		offset,
+	)
+	if err != nil {
+		log.Printf("pivot2 error: %v", err)
+		c.JSON(500, gin.H{"error": "database error"})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"assets": assets,
+		"total":  total,
+	})
+})
+
+
+GET /api/projects/hm/reviews/assets/pivot2
+GET /api/projects/hm/reviews/assets/pivot2?limit=20
+GET /api/projects/hm/reviews/assets/pivot2?offset=40
