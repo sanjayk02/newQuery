@@ -1,7 +1,10 @@
 const getComponentData = () => {
   // Check if component exists directly on the asset (from the API response)
   if (asset.component && !isEmptyValue(asset.component)) {
-    return formatForDisplay(asset.component);
+    const componentStr = String(asset.component).trim();
+    // Clean underscores first, then format
+    const cleanComponent = componentStr.replace(/^_+|_+$/g, '');
+    return formatForDisplay(cleanComponent);
   }
   
   // Fallback to latestComponents if needed (for backward compatibility)
@@ -12,6 +15,11 @@ const getComponentData = () => {
     return '—';
   }
 
-  const componentNames = component.map(comp => comp.component);
-  return componentNames.join(', ');
+  const componentNames = component.map(comp => {
+    const compStr = String(comp.component).trim();
+    const cleanComp = compStr.replace(/^_+|_+$/g, '');
+    return formatForDisplay(cleanComp);
+  }).filter(name => name !== '—'); // Remove empty display values
+  
+  return componentNames.join(', ') || '—';
 };
