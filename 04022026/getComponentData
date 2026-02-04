@@ -23,3 +23,26 @@ const getComponentData = () => {
   
   return componentNames.join(', ') || '—';
 };
+
+
+
+  if (col.id === "component") {
+    // Handle component display with underscore removal
+    const componentValue = asset.component;
+    let displayValue = '—';
+    
+    if (!isEmptyValue(componentValue)) {
+      const componentStr = String(componentValue).trim();
+      // Remove leading/trailing underscores
+      displayValue = componentStr.replace(/^_+|_+$/g, '');
+    }
+    
+    return (
+      <Typography style={{ 
+        fontSize: UI.FONT_SIZE_CONTENT, 
+        fontWeight: 500 
+      }}>
+        {displayValue}
+      </Typography>
+    );
+  }
