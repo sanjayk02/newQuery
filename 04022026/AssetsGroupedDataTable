@@ -43,7 +43,7 @@ const COLORS = {
 };
 
 /** ----------------------------------------------------------------
- *  UI controls - WITH MINIMUM WIDTHS
+ *  UI controls - OPTIMIZED FOR NO SCROLLBARS
  *  ---------------------------------------------------------------- */
 const UI = {
   ROW_HEIGHT: 54,
@@ -59,18 +59,14 @@ const UI = {
 
   RAIL_PX: 2,
 
-  // ✅ MINIMUM WIDTHS (will be expanded based on data)
-  MIN_THUMB_WIDTH: 85,
-  MIN_NAME_WIDTH: 120,
-  MIN_RELATION_WIDTH: 70,
-  MIN_COMPONENT_WIDTH: 90,
-  MIN_PHASE_WORK_WIDTH: 95,
-  MIN_PHASE_APPR_WIDTH: 95,
-  MIN_PHASE_SUBMITTED_WIDTH: 160,
-  
-  // ✅ FONT METRICS FOR CALCULATION (average pixel width per character)
-  CHAR_WIDTH: 8, // Average width of a character in pixels (12px font)
-  PADDING_WIDTH: 20, // Padding on both sides
+  // ✅ FIXED COLUMN WIDTHS (optimized for your data)
+  THUMB_WIDTH: 85,
+  NAME_WIDTH: 140,
+  RELATION_WIDTH: 70,
+  COMPONENT_WIDTH: 100,
+  PHASE_WORK_WIDTH: 105,    // Fits "cgsvApproved", "svApproved"
+  PHASE_APPR_WIDTH: 110,    // Fits "clientApproved"
+  PHASE_SUBMITTED_WIDTH: 175, // Fits "Mar 28, 2023, 6:38:50 PM"
   
   COL_EDGE_PX: 1,
 
@@ -158,157 +154,7 @@ const COLUMNS: Column[] = [
 ];
 
 /**
- * ✅ Calculate optimal column widths based on actual data
- */
-const calculateColumnWidths = (
-  groups: PivotGroup[],
-  dateTimeFormat: Intl.DateTimeFormat,
-  hiddenColumns?: Set<string>
-): Record<ColumnId, number> => {
-  // Initialize with minimum widths
-  const widths: Record<ColumnId, number> = {
-    "thumbnail": UI.MIN_THUMB_WIDTH,
-    "group_1_name": UI.MIN_NAME_WIDTH,
-    "mdl_work": UI.MIN_PHASE_WORK_WIDTH,
-    "mdl_appr": UI.MIN_PHASE_APPR_WIDTH,
-    "mdl_submitted": UI.MIN_PHASE_SUBMITTED_WIDTH,
-    "rig_work": UI.MIN_PHASE_WORK_WIDTH,
-    "rig_appr": UI.MIN_PHASE_APPR_WIDTH,
-    "rig_submitted": UI.MIN_PHASE_SUBMITTED_WIDTH,
-    "bld_work": UI.MIN_PHASE_WORK_WIDTH,
-    "bld_appr": UI.MIN_PHASE_APPR_WIDTH,
-    "bld_submitted": UI.MIN_PHASE_SUBMITTED_WIDTH,
-    "dsn_work": UI.MIN_PHASE_WORK_WIDTH,
-    "dsn_appr": UI.MIN_PHASE_APPR_WIDTH,
-    "dsn_submitted": UI.MIN_PHASE_SUBMITTED_WIDTH,
-    "ldv_work": UI.MIN_PHASE_WORK_WIDTH,
-    "ldv_appr": UI.MIN_PHASE_APPR_WIDTH,
-    "ldv_submitted": UI.MIN_PHASE_SUBMITTED_WIDTH,
-    "relation": UI.MIN_RELATION_WIDTH,
-    "component": UI.MIN_COMPONENT_WIDTH,
-  };
-
-  // If no data, return minimum widths
-  if (!groups || groups.length === 0) return widths;
-
-  // Also consider header labels for width calculation
-  COLUMNS.forEach(col => {
-    if (hiddenColumns?.has(col.id)) return;
-    
-    const headerWidth = col.label.length * UI.CHAR_WIDTH + UI.PADDING_WIDTH;
-    widths[col.id] = Math.max(widths[col.id], headerWidth);
-  });
-
-  // Analyze actual data content
-  groups.forEach(group => {
-    group.items?.forEach(asset => {
-      // Calculate NAME column width
-      const name = asset.group_1 || asset.group_1_name || '';
-      if (name) {
-        const nameWidth = name.length * UI.CHAR_WIDTH + UI.PADDING_WIDTH;
-        widths["group_1_name"] = Math.max(widths["group_1_name"], nameWidth);
-      }
-
-      // Calculate RELATION column width
-      const relation = asset.relation || '';
-      if (relation) {
-        const relationWidth = relation.length * UI.CHAR_WIDTH + UI.PADDING_WIDTH;
-        widths["relation"] = Math.max(widths["relation"], relationWidth);
-      }
-
-      // Calculate COMPONENT column width
-      const component = asset.component || '';
-      if (component) {
-        const cleanComponent = component.replace(/^_+|_+$/g, '');
-        const componentWidth = cleanComponent.length * UI.CHAR_WIDTH + UI.PADDING_WIDTH;
-        widths["component"] = Math.max(widths["component"], componentWidth);
-      }
-
-      // Calculate phase column widths
-      ['mdl', 'rig', 'bld', 'dsn', 'ldv'].forEach(phase => {
-        // Work status
-        const workStatus = asset[`${phase}_work_status`] || '';
-        if (workStatus && workStatus !== '—') {
-          const workWidth = workStatus.length * UI.CHAR_WIDTH + UI.PADDING_WIDTH;
-          widths[`${phase}_work` as ColumnId] = Math.max(
-            widths[`${phase}_work` as ColumnId], 
-            workWidth
-          );
-        }
-
-        // Approval status
-        const apprStatus = asset[`${phase}_approval_status`] || '';
-        if (apprStatus && apprStatus !== '—') {
-          const apprWidth = apprStatus.length * UI.CHAR_WIDTH + UI.PADDING_WIDTH;
-          widths[`${phase}_appr` as ColumnId] = Math.max(
-            widths[`${phase}_appr` as ColumnId], 
-            apprWidth
-          );
-        }
-
-        // Submitted date
-        const submittedAt = asset[`${phase}_submitted_at_utc`] || '';
-        if (submittedAt) {
-          try {
-            const date = new Date(submittedAt);
-            if (!isNaN(date.getTime())) {
-              const formattedDate = dateTimeFormat.format(date);
-              const dateWidth = formattedDate.length * UI.CHAR_WIDTH + UI.PADDING_WIDTH;
-              widths[`${phase}_submitted` as ColumnId] = Math.max(
-                widths[`${phase}_submitted` as ColumnId], 
-                dateWidth
-              );
-            }
-          } catch {
-            // If date parsing fails, use string length
-            const dateWidth = submittedAt.length * UI.CHAR_WIDTH + UI.PADDING_WIDTH;
-            widths[`${phase}_submitted` as ColumnId] = Math.max(
-              widths[`${phase}_submitted` as ColumnId], 
-              dateWidth
-            );
-          }
-        }
-      });
-    });
-  });
-
-  // Apply maximum limits to prevent overly wide columns
-  const MAX_WIDTHS: Record<ColumnId, number> = {
-    "thumbnail": 100,
-    "group_1_name": 250,
-    "mdl_work": 150,
-    "mdl_appr": 150,
-    "mdl_submitted": 220,
-    "rig_work": 150,
-    "rig_appr": 150,
-    "rig_submitted": 220,
-    "bld_work": 150,
-    "bld_appr": 150,
-    "bld_submitted": 220,
-    "dsn_work": 150,
-    "dsn_appr": 150,
-    "dsn_submitted": 220,
-    "ldv_work": 150,
-    "ldv_appr": 150,
-    "ldv_submitted": 220,
-    "relation": 100,
-    "component": 150,
-  };
-
-  // Apply maximum limits
-  Object.keys(widths).forEach(key => {
-    const columnId = key as ColumnId;
-    widths[columnId] = Math.min(widths[columnId], MAX_WIDTHS[columnId]);
-  });
-
-  return widths;
-};
-
-/**
- * ✅ Single scroll container:
- * - ONE vertical scrollbar
- * - horizontal scroll works on data
- * - sticky header + sticky footer stay visible
+ * ✅ Optimized CSS to prevent scrollbars
  */
 const useStyles = makeStyles(() => ({
   root: {
@@ -316,20 +162,37 @@ const useStyles = makeStyles(() => ({
     display: "flex",
     flexDirection: "column",
     background: COLORS.PAGE_BG,
+    height: "100%",
+    overflow: "hidden",
+    position: "relative",
   },
 
   scroller: {
     width: "100%",
     overflow: "visible",
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+  },
+
+  tableWrapper: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
   },
 
   table: {
     background: COLORS.TABLE_BG,
-    width: "max-content",
-    minWidth: "100%",
+    width: "100%",
     tableLayout: "fixed",
     borderCollapse: "separate",
     borderSpacing: 0,
+    flex: 1,
+  },
+
+  tableBody: {
+    overflow: "hidden",
   },
 
   groupHeader: {
@@ -371,6 +234,9 @@ function getPhaseMetadata(visibleCols: Column[]) {
   return map;
 }
 
+/**
+ * ✅ OPTIMIZED DATE FORMAT - No line breaks, compact display
+ */
 function formatSubmitted(val: any, dateTimeFormat: Intl.DateTimeFormat) {
   if (isEmptyValue(val)) return '—';
 
@@ -378,8 +244,22 @@ function formatSubmitted(val: any, dateTimeFormat: Intl.DateTimeFormat) {
     const d = new Date(val);
     if (isNaN(d.getTime())) return '—';
 
-    const formatted = dateTimeFormat.format(d);
-    return formatted.replace('AM', '\nAM').replace('PM', '\nPM');
+    // ✅ Use a more compact format without line breaks
+    // Format: "MMM DD, YYYY, HH:MM:SS AM/PM"
+    const options: Intl.DateTimeFormatOptions = {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    };
+    
+    return d.toLocaleString(undefined, options);
+    
+    // Alternative: Use provided dateTimeFormat but remove any forced line breaks
+    // return dateTimeFormat.format(d).replace(/\n/g, ' ');
   } catch {
     return '—';
   }
@@ -427,6 +307,9 @@ function renderThumbnail(asset: any) {
   );
 }
 
+/**
+ * ✅ Optimized cell rendering - no wrapping, ellipsis for overflow
+ */
 function renderAssetField(asset: any, col: Column, dateTimeFormat: Intl.DateTimeFormat) {
   if (col.id === "thumbnail") return renderThumbnail(asset);
 
@@ -434,7 +317,10 @@ function renderAssetField(asset: any, col: Column, dateTimeFormat: Intl.DateTime
     return (
       <Typography noWrap style={{ 
         fontSize: UI.FONT_SIZE_CONTENT, 
-        fontWeight: 500 
+        fontWeight: 500,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
       }}>
         {formatForDisplay(asset.group_1 || asset.group_1_name)}
       </Typography>
@@ -445,7 +331,10 @@ function renderAssetField(asset: any, col: Column, dateTimeFormat: Intl.DateTime
     return (
       <Typography style={{ 
         fontSize: UI.FONT_SIZE_CONTENT, 
-        fontWeight: 500 
+        fontWeight: 500,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
       }}>
         {formatForDisplay(asset.relation)}
       </Typography>
@@ -466,7 +355,10 @@ function renderAssetField(asset: any, col: Column, dateTimeFormat: Intl.DateTime
     return (
       <Typography style={{ 
         fontSize: UI.FONT_SIZE_CONTENT, 
-        fontWeight: 500 
+        fontWeight: 500,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
       }}>
         {displayValue}
       </Typography>
@@ -482,7 +374,10 @@ function renderAssetField(asset: any, col: Column, dateTimeFormat: Intl.DateTime
     return (
       <Typography style={{ 
         fontSize: UI.FONT_SIZE_CONTENT, 
-        fontWeight: 500 
+        fontWeight: 500,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
       }}>
         {formatted}
       </Typography>
@@ -497,7 +392,10 @@ function renderAssetField(asset: any, col: Column, dateTimeFormat: Intl.DateTime
     <Typography style={{ 
       fontSize: UI.FONT_SIZE_CONTENT, 
       fontWeight: 500, 
-      color: statusColor(text === '—' ? '' : text) 
+      color: statusColor(text === '—' ? '' : text),
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
     }}>
       {text}
     </Typography>
@@ -505,10 +403,7 @@ function renderAssetField(asset: any, col: Column, dateTimeFormat: Intl.DateTime
 }
 
 /**
- * ✅ Header top line + bottom line (per column)
- * ✅ Remove middle line between THUMB and NAME
- * ✅ Phase rails + phase gap
- * ✅ REDUCED PADDING FOR COMPACTNESS
+ * ✅ Optimized cell styling - prevents text wrapping
  */
 function buildCellStyle(
   col: Column,
@@ -532,7 +427,7 @@ function buildCellStyle(
   const style: React.CSSProperties = {
     backgroundColor: header ? headerBg : COLORS.ROW_BG,
     color: header ? "#fff" : COLORS.TEXT,
-    whiteSpace: "pre",
+    whiteSpace: "nowrap", // ✅ Prevent text wrapping
     overflow: "hidden",
     textOverflow: "ellipsis",
     height: UI.ROW_HEIGHT,
@@ -567,6 +462,31 @@ function buildCellStyle(
 
   return style;
 }
+
+/**
+ * ✅ Fixed column widths - optimized for your data
+ */
+const COLUMN_WIDTHS: Record<ColumnId, number> = {
+  "thumbnail": UI.THUMB_WIDTH,
+  "group_1_name": UI.NAME_WIDTH,
+  "mdl_work": UI.PHASE_WORK_WIDTH,
+  "mdl_appr": UI.PHASE_APPR_WIDTH,
+  "mdl_submitted": UI.PHASE_SUBMITTED_WIDTH,
+  "rig_work": UI.PHASE_WORK_WIDTH,
+  "rig_appr": UI.PHASE_APPR_WIDTH,
+  "rig_submitted": UI.PHASE_SUBMITTED_WIDTH,
+  "bld_work": UI.PHASE_WORK_WIDTH,
+  "bld_appr": UI.PHASE_APPR_WIDTH,
+  "bld_submitted": UI.PHASE_SUBMITTED_WIDTH,
+  "dsn_work": UI.PHASE_WORK_WIDTH,
+  "dsn_appr": UI.PHASE_APPR_WIDTH,
+  "dsn_submitted": UI.PHASE_SUBMITTED_WIDTH,
+  "ldv_work": UI.PHASE_WORK_WIDTH,
+  "ldv_appr": UI.PHASE_APPR_WIDTH,
+  "ldv_submitted": UI.PHASE_SUBMITTED_WIDTH,
+  "relation": UI.RELATION_WIDTH,
+  "component": UI.COMPONENT_WIDTH,
+};
 
 const AssetsGroupedDataTable: React.FC<Props> = ({
   groups = [],
@@ -613,11 +533,6 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
 
   const phaseMeta = useMemo(() => getPhaseMetadata(visibleColumns), [visibleColumns]);
 
-  // ✅ Calculate dynamic column widths based on actual data
-  const columnWidths = useMemo(() => {
-    return calculateColumnWidths(groups, dateTimeFormat, hiddenColumns);
-  }, [groups, dateTimeFormat, hiddenColumns]);
-
   const renderSortIndicator = (colId: string) => {
     if (sortKey !== colId) return null;
     
@@ -639,131 +554,149 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
   return (
     <Box className={classes.root}>
       <Box className={classes.scroller}>
-        <Table size="small" stickyHeader className={classes.table}>
-          {/* ✅ Dynamic column widths based on actual data */}
-          <colgroup>
-            {visibleColumns.map((col) => (
-              <col key={col.id} style={{ width: columnWidths[col.id] }} />
-            ))}
-          </colgroup>
-
-          <TableHead>
-            <TableRow>
+        <Box className={classes.tableWrapper}>
+          <Table size="small" stickyHeader className={classes.table}>
+            {/* ✅ Fixed column widths - optimized for your data */}
+            <colgroup>
               {visibleColumns.map((col) => (
-                <TableCell
-                  key={col.id}
-                  align={col.id === "group_1_name" || col.id === "thumbnail" || col.id === "component" ? "left" : "center"}
-                  onClick={() => col.sortable && onSortChange(col.id)}
-                  style={{
-                    ...buildCellStyle(col, phaseMeta, { header: true }),
-                    cursor: col.sortable ? "pointer" : "default",
-                    zIndex: 5,
-                  }}
-                >
-                  <Box
-                    display="flex"
-                    alignItems="center"
-                    justifyContent={col.id === "group_1_name" || col.id === "thumbnail" || col.id === "component" ? "flex-start" : "center"}
-                  >
-                    <Typography style={{ 
-                      fontSize: UI.FONT_SIZE_HEADER, 
-                      fontWeight: 500 
-                    }}>
-                      {col.label}
-                    </Typography>
-
-                    {renderSortIndicator(col.id)}
-                  </Box>
-                </TableCell>
+                <col key={col.id} style={{ width: COLUMN_WIDTHS[col.id] }} />
               ))}
-            </TableRow>
-          </TableHead>
+            </colgroup>
 
-          <TableBody>
-            {groups.map((group) => {
-              const groupName = group.top_group_node || "UNASSIGNED";
-              const isCollapsed = !!collapsed[groupName];
-              const visibleCount = (group.items || []).length;
-              const totalCount = (group as any).totalCount || visibleCount;
-
-              return (
-                <React.Fragment key={groupName}>
-                  <TableRow
-                    className={classes.groupHeader}
-                    onClick={() => toggle(groupName)}
-                    style={{ cursor: "pointer" }}
+            <TableHead>
+              <TableRow>
+                {visibleColumns.map((col) => (
+                  <TableCell
+                    key={col.id}
+                    align={col.id === "group_1_name" || col.id === "thumbnail" || col.id === "component" ? "left" : "center"}
+                    onClick={() => col.sortable && onSortChange(col.id)}
+                    style={{
+                      ...buildCellStyle(col, phaseMeta, { header: true }),
+                      cursor: col.sortable ? "pointer" : "default",
+                      zIndex: 5,
+                    }}
                   >
-                    <TableCell
-                      colSpan={visibleColumns.length}
-                      style={{
-                        backgroundColor: COLORS.GROUP_BG,
-                        color: COLORS.GROUP_TEXT,
-                        borderBottom: UI.GROUP_ROW_GAP_PX + "px solid " + COLORS.TABLE_BG,
-                        padding: "6px 10px",
-                        fontWeight: 900,
-                        position: "relative",
-                      }}
+                    <Box
+                      display="flex"
+                      alignItems="center"
+                      justifyContent={col.id === "group_1_name" || col.id === "thumbnail" || col.id === "component" ? "flex-start" : "center"}
                     >
-                      <Box display="flex" alignItems="center" justifyContent="space-between">
-                        <Box display="flex" alignItems="center">
-                          <IconButton
-                            size="small"
-                            style={{ color: COLORS.GROUP_TEXT, padding: 0 }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggle(groupName);
-                            }}
-                          >
-                            {isCollapsed ? (
-                              <ChevronRightIcon fontSize="small" />
-                            ) : (
-                              <ExpandMoreIcon fontSize="small" />
-                            )}
-                          </IconButton>
+                      <Typography style={{ 
+                        fontSize: UI.FONT_SIZE_HEADER, 
+                        fontWeight: 500,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}>
+                        {col.label}
+                      </Typography>
 
-                          <Typography
-                            style={{
-                              color: COLORS.GROUP_TEXT,
-                              fontSize: UI.FONT_SIZE_GROUP,
-                              fontWeight: 900,
-                            }}
-                          >
-                            {groupName.toUpperCase()}
-                          </Typography>
-                          <Typography
-                            style={{
-                              fontSize: UI.FONT_SIZE_GROUP - 1,
-                              fontWeight: 800,
-                              marginLeft: 1,
-                            }}>
-                             ({visibleCount} of {totalCount})
-                          </Typography>
+                      {renderSortIndicator(col.id)}
+                    </Box>
+                  </TableCell>
+                ))}
+              </TableRow>
+            </TableHead>
+
+            <TableBody className={classes.tableBody}>
+              {groups.map((group) => {
+                const groupName = group.top_group_node || "UNASSIGNED";
+                const isCollapsed = !!collapsed[groupName];
+                const visibleCount = (group.items || []).length;
+                const totalCount = (group as any).totalCount || visibleCount;
+
+                return (
+                  <React.Fragment key={groupName}>
+                    <TableRow
+                      className={classes.groupHeader}
+                      onClick={() => toggle(groupName)}
+                      style={{ cursor: "pointer" }}
+                    >
+                      <TableCell
+                        colSpan={visibleColumns.length}
+                        style={{
+                          backgroundColor: COLORS.GROUP_BG,
+                          color: COLORS.GROUP_TEXT,
+                          borderBottom: UI.GROUP_ROW_GAP_PX + "px solid " + COLORS.TABLE_BG,
+                          padding: "6px 10px",
+                          fontWeight: 900,
+                          position: "relative",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        <Box display="flex" alignItems="center" justifyContent="space-between">
+                          <Box display="flex" alignItems="center">
+                            <IconButton
+                              size="small"
+                              style={{ color: COLORS.GROUP_TEXT, padding: 0 }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggle(groupName);
+                              }}
+                            >
+                              {isCollapsed ? (
+                                <ChevronRightIcon fontSize="small" />
+                              ) : (
+                                <ExpandMoreIcon fontSize="small" />
+                              )}
+                            </IconButton>
+
+                            <Typography
+                              style={{
+                                color: COLORS.GROUP_TEXT,
+                                fontSize: UI.FONT_SIZE_GROUP,
+                                fontWeight: 900,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {groupName.toUpperCase()}
+                            </Typography>
+                            <Typography
+                              style={{
+                                fontSize: UI.FONT_SIZE_GROUP - 1,
+                                fontWeight: 800,
+                                marginLeft: 4,
+                                flexShrink: 0,
+                              }}>
+                              ({visibleCount} of {totalCount})
+                            </Typography>
+                          </Box>
                         </Box>
-                      </Box>
-                    </TableCell>
-                  </TableRow>
+                      </TableCell>
+                    </TableRow>
 
-                  {!isCollapsed &&
-                    (group.items || []).map((asset: any, idx: number) => (
-                      <TableRow key={groupName + "-" + idx} hover>
-                        {visibleColumns.map((col) => (
-                          <TableCell
-                            key={col.id}
-                            align={col.id === "group_1_name" || col.id === "thumbnail" || col.id === "component" ? "left" : "center"}
-                            style={buildCellStyle(col, phaseMeta)}
-                          >
-                            {renderAssetField(asset, col, dateTimeFormat)}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                    ))}
-                </React.Fragment>
-              );
-            })}
-          </TableBody>
+                    {!isCollapsed &&
+                      (group.items || []).map((asset: any, idx: number) => (
+                        <TableRow key={groupName + "-" + idx} hover>
+                          {visibleColumns.map((col) => (
+                            <TableCell
+                              key={col.id}
+                              align={col.id === "group_1_name" || col.id === "thumbnail" || col.id === "component" ? "left" : "center"}
+                              style={buildCellStyle(col, phaseMeta)}
+                            >
+                              {renderAssetField(asset, col, dateTimeFormat)}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))}
+                  </React.Fragment>
+                );
+              })}
+            </TableBody>
 
-          {tableFooter ? tableFooter : null}
-        </Table>
+            {tableFooter ? (
+              <tfoot>
+                <tr>
+                  <td colSpan={visibleColumns.length} style={{ padding: 0 }}>
+                    {tableFooter}
+                  </td>
+                </tr>
+              </tfoot>
+            ) : null}
+          </Table>
+        </Box>
       </Box>
     </Box>
   );
