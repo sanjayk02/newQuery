@@ -1,0 +1,17 @@
+const getComponentData = () => {
+  // Check if component exists directly on the asset (from the API response)
+  if (asset.component && !isEmptyValue(asset.component)) {
+    return formatForDisplay(asset.component);
+  }
+  
+  // Fallback to latestComponents if needed (for backward compatibility)
+  const assetKey = `${asset.root}-${asset.relation}`;
+  const component = latestComponents[assetKey];
+
+  if (!component || component.length === 0) {
+    return '—';
+  }
+
+  const componentNames = component.map(comp => comp.component);
+  return componentNames.join(', ');
+};
