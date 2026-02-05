@@ -15,7 +15,7 @@
 	* - 22-11-2025 - SanjayK PSI - Fixed bugs related to phase-specific filtering and sorting.
 	* - 16-01-2026 - SanjayK PSI - Added asset pivot listing with grouped view  and sorting.
 	* - 02-02-2026 - SanjayK PSI - Added component field to AssetPivot and related functions for better component tracking.
-	* - 05-02-2026 - SanjayK PSI - Added take count fields for each phase in AssetPivot.
+	* - 05-02-2026 - Added take fields for each phase (MDL, RIG, BLD, DSN, LDV)
 
 	Functions:
 	* - List: Lists review information based on provided parameters.
@@ -497,7 +497,6 @@ type AssetPivot struct {
 	Project  string `json:"project"`
 	Group1   string `json:"group_1"`
 	Relation string `json:"relation"`
-
 	Component string `json:"component"`
 
 	// Grouping info
@@ -510,33 +509,37 @@ type AssetPivot struct {
 	ApprovalStatus *string    `json:"approval_status"`
 	SubmittedAtUTC *time.Time `json:"submitted_at_utc"`
 	ModifiedAtUTC  *time.Time `json:"modified_at_utc"`
+	Take           *string    `json:"take"` // Added take field for generic phase
 
+	// MDL Phase
 	MDLWorkStatus     *string    `json:"mdl_work_status"`
 	MDLApprovalStatus *string    `json:"mdl_approval_status"`
 	MDLSubmittedAtUTC *time.Time `json:"mdl_submitted_at_utc"`
+	MDLTake           *string    `json:"mdl_take"` // Added take for MDL
 
+	// RIG Phase
 	RIGWorkStatus     *string    `json:"rig_work_status"`
 	RIGApprovalStatus *string    `json:"rig_approval_status"`
 	RIGSubmittedAtUTC *time.Time `json:"rig_submitted_at_utc"`
+	RIGTake           *string    `json:"rig_take"` // Added take for RIG
 
+	// BLD Phase
 	BLDWorkStatus     *string    `json:"bld_work_status"`
 	BLDApprovalStatus *string    `json:"bld_approval_status"`
 	BLDSubmittedAtUTC *time.Time `json:"bld_submitted_at_utc"`
+	BLDTake           *string    `json:"bld_take"` // Added take for BLD
 
+	// DSN Phase
 	DSNWorkStatus     *string    `json:"dsn_work_status"`
 	DSNApprovalStatus *string    `json:"dsn_approval_status"`
 	DSNSubmittedAtUTC *time.Time `json:"dsn_submitted_at_utc"`
+	DSNTake           *string    `json:"dsn_take"` // Added take for DSN
 
+	// LDV Phase
 	LDVWorkStatus     *string    `json:"ldv_work_status"`
 	LDVApprovalStatus *string    `json:"ldv_approval_status"`
 	LDVSubmittedAtUTC *time.Time `json:"ldv_submitted_at_utc"`
-
-	// NEW: Take count fields for each phase
-	MDLTakeCount *int `json:"mdl_take_count"`
-	RIGTakeCount *int `json:"rig_take_count"`
-	BLDTakeCount *int `json:"bld_take_count"`
-	DSNTakeCount *int `json:"dsn_take_count"`
-	LDVTakeCount *int `json:"ldv_take_count"`
+	LDVTake           *string    `json:"ldv_take"` // Added take for LDV
 }
 
 // ---- phaseRow for intermediate query ----
@@ -550,8 +553,8 @@ type phaseRow struct {
 	ApprovalStatus *string    `gorm:"column:approval_status"`
 	SubmittedAtUTC *time.Time `gorm:"column:submitted_at_utc"`
 	Component      *string    `gorm:"column:component"`
-	TakeCount      *int       `gorm:"column:take_count"` // NEW FIELD
-	
+	Take           *string    `gorm:"column:take"` // Added take field
+
 	LeafGroupName     string `gorm:"column:leaf_group_name"`
 	GroupCategoryPath string `gorm:"column:group_category_path"`
 	TopGroupNode      string `gorm:"column:top_group_node"`
@@ -834,14 +837,21 @@ func buildOrderClause(alias, key, dir string) string {
 			col("group_1"),
 		)
 
-	// take count columns
-	case "mdl_take_count", "rig_take_count", "bld_take_count", 
-		 "dsn_take_count", "ldv_take_count":
+	// take columns (alphabetical, NULL last)
+	case "mdl_take", "rig_take", "bld_take", "dsn_take", "ldv_take":
 		phase := strings.ToUpper(strings.Split(key, "_")[0])
 		return fmt.Sprintf(
-			"(CASE WHEN %s = '%s' THEN 0 ELSE 1 END) ASC, %s %s, LOWER(%s) ASC",
+			"(CASE WHEN %s = '%s' THEN 0 ELSE 1 END) ASC, (%s IS NULL) ASC, LOWER(%s) %s, LOWER(%s) ASC",
 			col("phase"), phase,
-			col("take_count"), dir,
+			col("take"),
+			col("take"), dir,
+			col("group_1"),
+		)
+	case "take":
+		return fmt.Sprintf(
+			"(%s IS NULL) ASC, LOWER(%s) %s, LOWER(%s) ASC",
+			col("take"),
+			col("take"), dir,
 			col("group_1"),
 		)
 
@@ -1076,6 +1086,11 @@ LIMIT ? OFFSET ?;
 		return nil, fmt.Errorf("ListLatestSubmissionsDynamic: %w", err)
 	}
 
+	// print the resulting rows for debugging
+	// for _, row := range rows {
+	// 	fmt.Printf("%+v\n", row)
+	// }
+	// Return results
 	return rows, nil
 }
 
@@ -1166,68 +1181,38 @@ func (r *ReviewInfo) ListAssetsPivot(
 		return []AssetPivot{}, total, nil
 	}
 
-	// 3) Build the main query with take counts
+	// 3) Phase fetch (optimized with tuple IN instead of OR)
 	var sb strings.Builder
 	var params []any
 
-	// Build take identifiers CTE - optimized for counting distinct take values
 	sb.WriteString(`
-WITH take_counts AS (
-  -- Extract and count distinct take identifiers (e.g., s0010001, s0010002)
-  -- Format: timestamp.take_identifier like 20220302055020926036.s0010001
-  SELECT
-    project,
-    root,
-    group_1,
-    relation,
-    phase,
-    COUNT(DISTINCT 
-      CASE 
-        -- Extract everything after the last dot
-        WHEN INSTR(take, '.') > 0 THEN SUBSTRING(take, INSTR(take, '.') + 1)
-        -- If no dot, use the whole value
-        ELSE take
-      END
-    ) as take_count
-  FROM t_review_info
-  WHERE project = ? AND root = ? AND deleted = 0
-    AND take IS NOT NULL 
-    AND take != ''
-  GROUP BY project, root, group_1, relation, phase
-),
-ranked_assets AS (
+WITH ranked AS (
   SELECT
     ri.project,
     ri.root,
     ri.group_1,
     ri.relation,
-    ri.component,
+	ri.component AS component,
     ri.phase,
     ri.work_status,
     ri.approval_status,
     ri.submitted_at_utc,
     ri.modified_at_utc,
-    COALESCE(tc.take_count, 0) as take_count,
-    JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]')) as leaf_group_name,
+    ri.take,  -- Added take column
+    JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]')) AS leaf_group_name,
     ROW_NUMBER() OVER (
-      PARTITION BY ri.project, ri.root, ri.group_1, ri.relation, ri.phase
+      PARTITION BY ri.project, ri.root, ri.group_1, ri.relation, ri.component, ri.phase
       ORDER BY ri.modified_at_utc DESC
-    ) as rn
+    ) AS rn
   FROM t_review_info ri
-  LEFT JOIN take_counts tc ON 
-    tc.project = ri.project AND 
-    tc.root = ri.root AND 
-    tc.group_1 = ri.group_1 AND 
-    tc.relation = ri.relation AND 
-    tc.phase = ri.phase
-  WHERE ri.project = ? AND ri.root = ? AND ri.deleted = 0
+  WHERE ri.project = ?
+    AND ri.root = ?
+    AND ri.deleted = 0
     AND (ri.group_1, ri.relation) IN (
 `)
 
-	// Add project/root parameters for both CTEs
-	params = append(params, project, root, project, root)
+	params = append(params, project, root)
 
-	// Add tuple conditions for paginated keys
 	for i, k := range keys {
 		if i > 0 {
 			sb.WriteString(",")
@@ -1239,40 +1224,35 @@ ranked_assets AS (
 	sb.WriteString(`
     )
 ),
-latest_assets AS (
-  SELECT * FROM ranked_assets WHERE rn = 1
+latest_only AS (
+  SELECT *
+  FROM ranked
+  WHERE rn = 1
 )
 SELECT
-  la.project,
-  la.root,
-  la.group_1,
-  la.relation,
-  la.component,
-  la.phase,
-  la.work_status,
-  la.approval_status,
-  la.submitted_at_utc,
-  la.take_count,
-  la.leaf_group_name,
+  lo.project,
+  lo.root,
+  lo.group_1,
+  lo.relation,
+  lo.component,
+  lo.phase,
+  lo.work_status,
+  lo.approval_status,
+  lo.submitted_at_utc,
+  lo.take,  -- Added here
+  lo.leaf_group_name,
   gc.path AS group_category_path,
-  COALESCE(SUBSTRING_INDEX(gc.path, '/', 1), 'Unassigned') AS top_group_node
-FROM latest_assets la
-LEFT JOIN t_group_category_group gcg ON 
-  gcg.project = la.project AND
-  gcg.deleted = 0 AND
-  gcg.path = la.leaf_group_name
-LEFT JOIN t_group_category gc ON 
-  gc.id = gcg.group_category_id AND
-  gc.deleted = 0 AND
-  gc.root = 'assets'
-ORDER BY 
-  CASE WHEN ? = 'none' OR ? = '' THEN 1 ELSE 0 END,
-  la.phase = ? DESC,
-  la.group_1, la.relation, la.phase;
+  SUBSTRING_INDEX(gc.path, '/', 1) AS top_group_node
+FROM latest_only lo
+LEFT JOIN t_group_category_group gcg
+  ON gcg.project = lo.project
+ AND gcg.deleted = 0
+ AND gcg.path = lo.leaf_group_name
+LEFT JOIN t_group_category gc
+  ON gc.id = gcg.group_category_id
+ AND gc.deleted = 0
+ AND gc.root = 'assets';
 `)
-
-	// Add ordering parameters
-	params = append(params, preferredPhase, preferredPhase, preferredPhase)
 
 	var phases []phaseRow
 	if err := r.db.WithContext(ctx).
@@ -1289,21 +1269,19 @@ ORDER BY
 	index := make(map[keyStruct]*AssetPivot, len(keys))
 	orderedPtrs := make([]*AssetPivot, 0, len(keys))
 
-	// Initialize pivot rows from keys
 	for _, k := range keys {
 		id := keyStruct{k.Project, k.Root, k.Group1, k.Relation}
 		ap := &AssetPivot{
-			Project:   k.Project,
-			Root:      k.Root,
-			Group1:    k.Group1,
-			Relation:  k.Relation,
-			Component: k.Component,
+			Project:  k.Project,
+			Root:     k.Root,
+			Group1:   k.Group1,
+			Relation: k.Relation,
 		}
 		index[id] = ap
 		orderedPtrs = append(orderedPtrs, ap)
 	}
 
-	// Process phase rows and assign to appropriate pivot fields
+	// Stitch phase rows into pivot rows
 	for _, pr := range phases {
 		id := keyStruct{pr.Project, pr.Root, pr.Group1, pr.Relation}
 		ap, ok := index[id]
@@ -1311,86 +1289,72 @@ ORDER BY
 			continue
 		}
 
-		// Set component if not already set
-		if pr.Component != nil && *pr.Component != "" && ap.Component == "" {
+		// Set component if present
+		if pr.Component != nil && *pr.Component != "" {
 			ap.Component = *pr.Component
 		}
 
-		// Set grouping info once
-		if ap.LeafGroupName == "" && pr.LeafGroupName != "" {
+		// Grouping info (set once)
+		if ap.LeafGroupName == "" {
 			ap.LeafGroupName = pr.LeafGroupName
 			ap.GroupCategoryPath = pr.GroupCategoryPath
 			ap.TopGroupNode = pr.TopGroupNode
 		}
 
 		// Set phase-specific fields
-		phase := strings.ToLower(strings.TrimSpace(pr.Phase))
-		switch phase {
+		switch strings.ToLower(pr.Phase) {
 		case "mdl":
 			ap.MDLWorkStatus = pr.WorkStatus
 			ap.MDLApprovalStatus = pr.ApprovalStatus
 			ap.MDLSubmittedAtUTC = pr.SubmittedAtUTC
-			ap.MDLTakeCount = pr.TakeCount
+			ap.MDLTake = pr.Take  // Added take for MDL
 		case "rig":
 			ap.RIGWorkStatus = pr.WorkStatus
 			ap.RIGApprovalStatus = pr.ApprovalStatus
 			ap.RIGSubmittedAtUTC = pr.SubmittedAtUTC
-			ap.RIGTakeCount = pr.TakeCount
+			ap.RIGTake = pr.Take  // Added take for RIG
 		case "bld":
 			ap.BLDWorkStatus = pr.WorkStatus
 			ap.BLDApprovalStatus = pr.ApprovalStatus
 			ap.BLDSubmittedAtUTC = pr.SubmittedAtUTC
-			ap.BLDTakeCount = pr.TakeCount
+			ap.BLDTake = pr.Take  // Added take for BLD
 		case "dsn":
 			ap.DSNWorkStatus = pr.WorkStatus
 			ap.DSNApprovalStatus = pr.ApprovalStatus
 			ap.DSNSubmittedAtUTC = pr.SubmittedAtUTC
-			ap.DSNTakeCount = pr.TakeCount
+			ap.DSNTake = pr.Take  // Added take for DSN
 		case "ldv":
 			ap.LDVWorkStatus = pr.WorkStatus
 			ap.LDVApprovalStatus = pr.ApprovalStatus
 			ap.LDVSubmittedAtUTC = pr.SubmittedAtUTC
-			ap.LDVTakeCount = pr.TakeCount
+			ap.LDVTake = pr.Take  // Added take for LDV
 		default:
-			// For any other phase or if phase is empty
-			if ap.WorkStatus == nil {
-				ap.WorkStatus = pr.WorkStatus
-			}
-			if ap.ApprovalStatus == nil {
-				ap.ApprovalStatus = pr.ApprovalStatus
-			}
-			if ap.SubmittedAtUTC == nil {
-				ap.SubmittedAtUTC = pr.SubmittedAtUTC
-			}
-		}
-
-		// Set generic fields from the latest phase if not set
-		if ap.WorkStatus == nil && pr.WorkStatus != nil {
+			// For generic fields when no specific phase
 			ap.WorkStatus = pr.WorkStatus
-		}
-		if ap.ApprovalStatus == nil && pr.ApprovalStatus != nil {
 			ap.ApprovalStatus = pr.ApprovalStatus
-		}
-		if ap.SubmittedAtUTC == nil && pr.SubmittedAtUTC != nil {
 			ap.SubmittedAtUTC = pr.SubmittedAtUTC
-		}
-		if ap.ModifiedAtUTC == nil && pr.SubmittedAtUTC != nil {
-			ap.ModifiedAtUTC = pr.SubmittedAtUTC
+			ap.Take = pr.Take  // Added take for generic phase
 		}
 	}
 
-	// Ensure all assets have a TopGroupNode
+	// Set default TopGroupNode for unassigned assets
 	for _, ap := range orderedPtrs {
 		if strings.TrimSpace(ap.TopGroupNode) == "" {
 			ap.TopGroupNode = "Unassigned"
 		}
 	}
 
-	// 5) Materialize result
+	// 5) Materialize result (stable order)
 	result := make([]AssetPivot, len(orderedPtrs))
 	for i, ap := range orderedPtrs {
 		result[i] = *ap
 	}
 
+	// print the resulting rows for debugging
+	// for _, row := range result {
+	// 	fmt.Printf("%+v\n", row)
+	// }
+
+	// Return result
 	return result, total, nil
 }
