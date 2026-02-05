@@ -1076,11 +1076,6 @@ LIMIT ? OFFSET ?;
 		return nil, fmt.Errorf("ListLatestSubmissionsDynamic: %w", err)
 	}
 
-	// print the resulting rows for debugging
-	// for _, row := range rows {
-	// 	fmt.Printf("%+v\n", row)
-	// }
-	// Return results
 	return rows, nil
 }
 
@@ -1171,65 +1166,68 @@ func (r *ReviewInfo) ListAssetsPivot(
 		return []AssetPivot{}, total, nil
 	}
 
-	// 3) Phase fetch (optimized with tuple IN instead of OR)
+	// 3) Build the main query with take counts
 	var sb strings.Builder
 	var params []any
 
+	// Build take identifiers CTE - optimized for counting distinct take values
 	sb.WriteString(`
-WITH ranked AS (
+WITH take_counts AS (
+  -- Extract and count distinct take identifiers (e.g., s0010001, s0010002)
+  -- Format: timestamp.take_identifier like 20220302055020926036.s0010001
+  SELECT
+    project,
+    root,
+    group_1,
+    relation,
+    phase,
+    COUNT(DISTINCT 
+      CASE 
+        -- Extract everything after the last dot
+        WHEN INSTR(take, '.') > 0 THEN SUBSTRING(take, INSTR(take, '.') + 1)
+        -- If no dot, use the whole value
+        ELSE take
+      END
+    ) as take_count
+  FROM t_review_info
+  WHERE project = ? AND root = ? AND deleted = 0
+    AND take IS NOT NULL 
+    AND take != ''
+  GROUP BY project, root, group_1, relation, phase
+),
+ranked_assets AS (
   SELECT
     ri.project,
     ri.root,
     ri.group_1,
     ri.relation,
-	ri.component AS component,
+    ri.component,
     ri.phase,
     ri.work_status,
     ri.approval_status,
     ri.submitted_at_utc,
     ri.modified_at_utc,
-    -- NEW: Count distinct takes per asset/phase
-    (
-      SELECT COUNT(DISTINCT take) 
-      FROM t_review_info ri2 
-      WHERE ri2.project = ri.project 
-        AND ri2.root = ri.root 
-        AND ri2.group_1 = ri.group_1 
-        AND ri2.relation = ri.relation
-        AND ri2.phase = ri.phase
-        AND ri2.deleted = 0
-    ) AS take_count,
-    
-    JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]')) AS leaf_group_name,
+    COALESCE(tc.take_count, 0) as take_count,
+    JSON_UNQUOTE(JSON_EXTRACT(ri.groups, '$[0]')) as leaf_group_name,
     ROW_NUMBER() OVER (
-      PARTITION BY ri.project, ri.root, ri.group_1, ri.relation, ri.component, ri.phase
+      PARTITION BY ri.project, ri.root, ri.group_1, ri.relation, ri.phase
       ORDER BY ri.modified_at_utc DESC
-    ) AS rn
+    ) as rn
   FROM t_review_info ri
-  WHERE ri.project = ?
-    AND ri.root = ?
-    AND ri.deleted = 0`)
-
-	params = append(params, project, root)
-
-	// Add name condition if provided
-	if strings.TrimSpace(assetNameKey) != "" {
-		sb.WriteString(" AND LOWER(ri.group_1) LIKE ?")
-		params = append(params, strings.ToLower(strings.TrimSpace(assetNameKey))+"%")
-	}
-
-	// Add status conditions
-	statusWhere, statusArgs := buildPhaseAwareStatusWhere(preferredPhase, approvalStatuses, workStatuses)
-	if statusWhere != "" {
-		sb.WriteString(statusWhere)
-		params = append(params, statusArgs...)
-	}
-
-	sb.WriteString(`
+  LEFT JOIN take_counts tc ON 
+    tc.project = ri.project AND 
+    tc.root = ri.root AND 
+    tc.group_1 = ri.group_1 AND 
+    tc.relation = ri.relation AND 
+    tc.phase = ri.phase
+  WHERE ri.project = ? AND ri.root = ? AND ri.deleted = 0
     AND (ri.group_1, ri.relation) IN (
 `)
 
-	// Add tuple conditions for keys
+	// Add project/root parameters for both CTEs
+	params = append(params, project, root, project, root)
+
+	// Add tuple conditions for paginated keys
 	for i, k := range keys {
 		if i > 0 {
 			sb.WriteString(",")
@@ -1241,35 +1239,40 @@ WITH ranked AS (
 	sb.WriteString(`
     )
 ),
-latest_only AS (
-  SELECT *
-  FROM ranked
-  WHERE rn = 1
+latest_assets AS (
+  SELECT * FROM ranked_assets WHERE rn = 1
 )
 SELECT
-  lo.project,
-  lo.root,
-  lo.group_1,
-  lo.relation,
-  lo.component,
-  lo.phase,
-  lo.work_status,
-  lo.approval_status,
-  lo.submitted_at_utc,
-  lo.take_count,
-  lo.leaf_group_name,
+  la.project,
+  la.root,
+  la.group_1,
+  la.relation,
+  la.component,
+  la.phase,
+  la.work_status,
+  la.approval_status,
+  la.submitted_at_utc,
+  la.take_count,
+  la.leaf_group_name,
   gc.path AS group_category_path,
-  SUBSTRING_INDEX(gc.path, '/', 1) AS top_group_node
-FROM latest_only lo
-LEFT JOIN t_group_category_group gcg
-  ON gcg.project = lo.project
- AND gcg.deleted = 0
- AND gcg.path = lo.leaf_group_name
-LEFT JOIN t_group_category gc
-  ON gc.id = gcg.group_category_id
- AND gc.deleted = 0
- AND gc.root = 'assets';
+  COALESCE(SUBSTRING_INDEX(gc.path, '/', 1), 'Unassigned') AS top_group_node
+FROM latest_assets la
+LEFT JOIN t_group_category_group gcg ON 
+  gcg.project = la.project AND
+  gcg.deleted = 0 AND
+  gcg.path = la.leaf_group_name
+LEFT JOIN t_group_category gc ON 
+  gc.id = gcg.group_category_id AND
+  gc.deleted = 0 AND
+  gc.root = 'assets'
+ORDER BY 
+  CASE WHEN ? = 'none' OR ? = '' THEN 1 ELSE 0 END,
+  la.phase = ? DESC,
+  la.group_1, la.relation, la.phase;
 `)
+
+	// Add ordering parameters
+	params = append(params, preferredPhase, preferredPhase, preferredPhase)
 
 	var phases []phaseRow
 	if err := r.db.WithContext(ctx).
@@ -1286,19 +1289,21 @@ LEFT JOIN t_group_category gc
 	index := make(map[keyStruct]*AssetPivot, len(keys))
 	orderedPtrs := make([]*AssetPivot, 0, len(keys))
 
+	// Initialize pivot rows from keys
 	for _, k := range keys {
 		id := keyStruct{k.Project, k.Root, k.Group1, k.Relation}
 		ap := &AssetPivot{
-			Project:  k.Project,
-			Root:     k.Root,
-			Group1:   k.Group1,
-			Relation: k.Relation,
+			Project:   k.Project,
+			Root:      k.Root,
+			Group1:    k.Group1,
+			Relation:  k.Relation,
+			Component: k.Component,
 		}
 		index[id] = ap
 		orderedPtrs = append(orderedPtrs, ap)
 	}
 
-	// Stitch phase rows into pivot rows
+	// Process phase rows and assign to appropriate pivot fields
 	for _, pr := range phases {
 		id := keyStruct{pr.Project, pr.Root, pr.Group1, pr.Relation}
 		ap, ok := index[id]
@@ -1306,71 +1311,86 @@ LEFT JOIN t_group_category gc
 			continue
 		}
 
-		// Set component if present
-		if pr.Component != nil && *pr.Component != "" {
+		// Set component if not already set
+		if pr.Component != nil && *pr.Component != "" && ap.Component == "" {
 			ap.Component = *pr.Component
 		}
 
-		// Grouping info (set once)
-		if ap.LeafGroupName == "" {
+		// Set grouping info once
+		if ap.LeafGroupName == "" && pr.LeafGroupName != "" {
 			ap.LeafGroupName = pr.LeafGroupName
 			ap.GroupCategoryPath = pr.GroupCategoryPath
 			ap.TopGroupNode = pr.TopGroupNode
 		}
 
-		// Set phase-specific fields INCLUDING TAKE COUNTS
-		switch strings.ToLower(pr.Phase) {
+		// Set phase-specific fields
+		phase := strings.ToLower(strings.TrimSpace(pr.Phase))
+		switch phase {
 		case "mdl":
 			ap.MDLWorkStatus = pr.WorkStatus
 			ap.MDLApprovalStatus = pr.ApprovalStatus
 			ap.MDLSubmittedAtUTC = pr.SubmittedAtUTC
-			ap.MDLTakeCount = pr.TakeCount  // NEW
+			ap.MDLTakeCount = pr.TakeCount
 		case "rig":
 			ap.RIGWorkStatus = pr.WorkStatus
 			ap.RIGApprovalStatus = pr.ApprovalStatus
 			ap.RIGSubmittedAtUTC = pr.SubmittedAtUTC
-			ap.RIGTakeCount = pr.TakeCount  // NEW
+			ap.RIGTakeCount = pr.TakeCount
 		case "bld":
 			ap.BLDWorkStatus = pr.WorkStatus
 			ap.BLDApprovalStatus = pr.ApprovalStatus
 			ap.BLDSubmittedAtUTC = pr.SubmittedAtUTC
-			ap.BLDTakeCount = pr.TakeCount  // NEW
+			ap.BLDTakeCount = pr.TakeCount
 		case "dsn":
 			ap.DSNWorkStatus = pr.WorkStatus
 			ap.DSNApprovalStatus = pr.ApprovalStatus
 			ap.DSNSubmittedAtUTC = pr.SubmittedAtUTC
-			ap.DSNTakeCount = pr.TakeCount  // NEW
+			ap.DSNTakeCount = pr.TakeCount
 		case "ldv":
 			ap.LDVWorkStatus = pr.WorkStatus
 			ap.LDVApprovalStatus = pr.ApprovalStatus
 			ap.LDVSubmittedAtUTC = pr.SubmittedAtUTC
-			ap.LDVTakeCount = pr.TakeCount  // NEW
+			ap.LDVTakeCount = pr.TakeCount
 		default:
-			// For generic fields when no specific phase
+			// For any other phase or if phase is empty
+			if ap.WorkStatus == nil {
+				ap.WorkStatus = pr.WorkStatus
+			}
+			if ap.ApprovalStatus == nil {
+				ap.ApprovalStatus = pr.ApprovalStatus
+			}
+			if ap.SubmittedAtUTC == nil {
+				ap.SubmittedAtUTC = pr.SubmittedAtUTC
+			}
+		}
+
+		// Set generic fields from the latest phase if not set
+		if ap.WorkStatus == nil && pr.WorkStatus != nil {
 			ap.WorkStatus = pr.WorkStatus
+		}
+		if ap.ApprovalStatus == nil && pr.ApprovalStatus != nil {
 			ap.ApprovalStatus = pr.ApprovalStatus
+		}
+		if ap.SubmittedAtUTC == nil && pr.SubmittedAtUTC != nil {
 			ap.SubmittedAtUTC = pr.SubmittedAtUTC
+		}
+		if ap.ModifiedAtUTC == nil && pr.SubmittedAtUTC != nil {
+			ap.ModifiedAtUTC = pr.SubmittedAtUTC
 		}
 	}
 
-	// Set default TopGroupNode for unassigned assets
+	// Ensure all assets have a TopGroupNode
 	for _, ap := range orderedPtrs {
 		if strings.TrimSpace(ap.TopGroupNode) == "" {
 			ap.TopGroupNode = "Unassigned"
 		}
 	}
 
-	// 5) Materialize result (stable order)
+	// 5) Materialize result
 	result := make([]AssetPivot, len(orderedPtrs))
 	for i, ap := range orderedPtrs {
 		result[i] = *ap
 	}
 
-	// print the resulting rows for debugging
-	for _, row := range result {
-		fmt.Printf("%+v\n", row)
-	}
-
-	// Return result
 	return result, total, nil
 }
