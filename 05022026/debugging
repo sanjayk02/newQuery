@@ -1,0 +1,20 @@
+// Use this for better debugging:
+for _, row := range result {
+    fmt.Printf("Asset: %s/%s, Component: %s\n", row.Group1, row.Relation, row.Component)
+    if row.MDLTake != nil {
+        fmt.Printf("  MDL Take: %s (Submitted: %v)\n", *row.MDLTake, row.MDLSubmittedAtUTC)
+    }
+    if row.RIGTake != nil {
+        fmt.Printf("  RIG Take: %s (Submitted: %v)\n", *row.RIGTake, row.RIGSubmittedAtUTC)
+    }
+    if row.BLDTake != nil {
+        fmt.Printf("  BLD Take: %s (Submitted: %v)\n", *row.BLDTake, row.BLDSubmittedAtUTC)
+    }
+    if row.DSNTake != nil {
+        fmt.Printf("  DSN Take: %s (Submitted: %v)\n", *row.DSNTake, row.DSNSubmittedAtUTC)
+    }
+    if row.LDVTake != nil {
+        fmt.Printf("  LDV Take: %s (Submitted: %v)\n", *row.LDVTake, row.LDVSubmittedAtUTC)
+    }
+    fmt.Println("---")
+}
