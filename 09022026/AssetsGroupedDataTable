@@ -14,20 +14,20 @@ import ExpandMoreIcon from "@material-ui/icons/ExpandMore";
 import ChevronRightIcon from "@material-ui/icons/ChevronRight";
 import { PivotGroup, SortDir } from "./types";
 
-/* ============================================================
-   COLORS
-============================================================ */
+/* ----------------------------------------------------------------
+ * COLORS
+ * ---------------------------------------------------------------- */
 const COLORS = {
-  PAGE_BG: "#3d3d3d",
-  TABLE_BG: "#3d3d3d",
-  HEADER_BG: "#3d3d3d",
-  HEADER_BORDER: "#555",
-  GRID_LINE: "#555",
-  ROW_BG: "#3d3d3d",
-  GROUP_BG: "#3a3838",
+  PAGE_BG: "#3d3d3dff",
+  TABLE_BG: "#3d3d3dff",
+  HEADER_BG: "#3d3d3dff",
+  HEADER_BORDER: "#3d3d3dff",
+  GRID_LINE: "#555555",
+  ROW_BG: "#3d3d3dff",
+  GROUP_BG: "#3a3838ff",
   GROUP_TEXT: "#00b7ff",
   TEXT: "#e0e0e0",
-  MUTED: "#9e9e9e",
+  MUTED: "#bdbdbd",
   COL_EDGE: "#6b6b6b",
   PHASE: {
     mdl: { lineColor: "#3295fd", backgroundColor: "#354d68" },
@@ -38,29 +38,50 @@ const COLORS = {
   },
 };
 
-/* ============================================================
-   UI CONSTANTS
-============================================================ */
+/* ----------------------------------------------------------------
+ * UI CONSTANTS
+ * ---------------------------------------------------------------- */
 const UI = {
   ROW_HEIGHT: 54,
-  FONT_HEADER: 12,
-  FONT_BODY: 12,
-  FONT_GROUP: 12,
+  ROW_PAD_Y: 2,
+  ROW_PAD_X: 1,
+  FONT_SIZE_HEADER: 12,
+  FONT_SIZE_CONTENT: 12,
+  FONT_SIZE_GROUP: 12,
   PHASE_COL_WIDTH: 85,
   THUMB_WIDTH: 90,
-  NAME_WIDTH: 140,
-  REL_WIDTH: 80,
-  COMP_WIDTH: 90,
+  NAME_WIDTH: 120,
+  RELATION_WIDTH: 75,
+  COMPONENT_WIDTH: 75,
   RAIL_PX: 2,
 };
 
-/* ============================================================
-   TYPES
-============================================================ */
+/* ----------------------------------------------------------------
+ * TYPES
+ * ---------------------------------------------------------------- */
 type ColumnId =
   | "thumbnail"
   | "group_1_name"
-  | `${"mdl" | "rig" | "bld" | "dsn" | "ldv"}_${"work" | "appr" | "submitted" | "take"}`
+  | "mdl_work"
+  | "mdl_appr"
+  | "mdl_submitted"
+  | "mdl_take"
+  | "rig_work"
+  | "rig_appr"
+  | "rig_submitted"
+  | "rig_take"
+  | "bld_work"
+  | "bld_appr"
+  | "bld_submitted"
+  | "bld_take"
+  | "dsn_work"
+  | "dsn_appr"
+  | "dsn_submitted"
+  | "dsn_take"
+  | "ldv_work"
+  | "ldv_appr"
+  | "ldv_submitted"
+  | "ldv_take"
   | "relation"
   | "component";
 
@@ -72,19 +93,9 @@ type Column = {
   kind?: "work" | "appr" | "submitted" | "take";
 };
 
-type Props = {
-  groups: PivotGroup[];
-  sortKey: string;
-  sortDir: SortDir;
-  onSortChange: (key: string) => void;
-  dateTimeFormat: Intl.DateTimeFormat;
-  hiddenColumns?: Set<string>;
-  tableFooter?: React.ReactNode;
-};
-
-/* ============================================================
-   COLUMNS
-============================================================ */
+/* ----------------------------------------------------------------
+ * COLUMNS
+ * ---------------------------------------------------------------- */
 const COLUMNS: Column[] = [
   { id: "thumbnail", label: "THUMB" },
   { id: "group_1_name", label: "NAME", sortable: true },
@@ -118,9 +129,9 @@ const COLUMNS: Column[] = [
   { id: "component", label: "COMP" },
 ];
 
-/* ============================================================
-   STYLES
-============================================================ */
+/* ----------------------------------------------------------------
+ * STYLES
+ * ---------------------------------------------------------------- */
 const useStyles = makeStyles(() => ({
   root: {
     background: COLORS.PAGE_BG,
@@ -132,41 +143,94 @@ const useStyles = makeStyles(() => ({
     width: "max-content",
     minWidth: "100%",
   },
-  groupRow: {
-    background: COLORS.GROUP_BG,
+  groupHeader: {
     cursor: "pointer",
-    "&:hover": { background: "#444" },
+    "&:hover": {
+      backgroundColor: `${COLORS.GROUP_BG}dd`,
+    },
   },
 }));
 
-/* ============================================================
-   UTILITIES
-============================================================ */
-const isEmpty = (v: any) =>
+/* ----------------------------------------------------------------
+ * UTILS
+ * ---------------------------------------------------------------- */
+const isEmptyValue = (v: any) =>
   v === null || v === undefined || String(v).trim() === "";
 
-const statusColor = (s?: string) => {
-  if (!s) return COLORS.MUTED;
-  const t = s.toLowerCase();
-  if (t.includes("approved")) return "#32cd32";
-  if (t.includes("review")) return "#ffa500";
-  if (t.includes("retake")) return "#ff4f4f";
-  if (t.includes("hold")) return "#ffdd55";
-  if (t === "check") return "#ca25ed";
+function statusColor(status?: string) {
+  if (!status) return COLORS.MUTED;
+  const s = status.toLowerCase();
+  if (s.includes("approved")) return "#32cd32";
+  if (s.includes("review")) return "#ffa500";
+  if (s.includes("retake")) return "#ff4f4f";
+  if (s.includes("hold")) return "#ffdd55";
+  if (s === "check") return "#ca25ed";
   return COLORS.MUTED;
-};
+}
 
-/* ============================================================
-   COMPONENT
-============================================================ */
-const AssetsGroupedDataTable: React.FC<Props> = ({
+/* ----------------------------------------------------------------
+ * CELL RENDER
+ * ---------------------------------------------------------------- */
+function renderAssetField(
+  asset: any,
+  col: Column,
+  dateTimeFormat: Intl.DateTimeFormat
+) {
+  if (col.id === "group_1_name") {
+    return <Typography>{asset.group_1}</Typography>;
+  }
+
+  const phase = col.phase;
+
+  if (col.kind === "submitted") {
+    const v = asset[phase + "_submitted_at_utc"];
+    return v ? dateTimeFormat.format(new Date(v)) : "—";
+  }
+
+  /* ============================================================
+   * ✅ FIX: TAKE → LAST 4 DIGITS ONLY
+   * ============================================================ */
+  if (col.kind === "take") {
+    const raw = asset[phase + "_take"];
+    let take = "—";
+
+    if (!isEmptyValue(raw)) {
+      const match = String(raw).match(/(\d{4})\s*$/);
+      if (match) take = match[1];
+    }
+
+    return <Typography>{take}</Typography>;
+  }
+
+  if (col.kind) {
+    const v = asset[phase + "_" + (col.kind === "work" ? "work_status" : "approval_status")];
+    return (
+      <Typography style={{ color: statusColor(v) }}>
+        {v || "—"}
+      </Typography>
+    );
+  }
+
+  return asset[col.id] || "—";
+}
+
+/* ----------------------------------------------------------------
+ * MAIN COMPONENT
+ * ---------------------------------------------------------------- */
+const AssetsGroupedDataTable: React.FC<{
+  groups: PivotGroup[];
+  sortKey: string;
+  sortDir: SortDir;
+  onSortChange: (key: string) => void;
+  dateTimeFormat: Intl.DateTimeFormat;
+  hiddenColumns?: Set<string>;
+}> = ({
   groups,
   sortKey,
   sortDir,
   onSortChange,
   dateTimeFormat,
   hiddenColumns = new Set(),
-  tableFooter,
 }) => {
   const classes = useStyles();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -184,118 +248,50 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
   return (
     <Box className={classes.root}>
       <Table stickyHeader size="small" className={classes.table}>
-        {/* ================= HEADER ================= */}
         <TableHead>
           <TableRow>
             {visibleColumns.map(col => (
               <TableCell
                 key={col.id}
                 onClick={() => col.sortable && onSortChange(col.id)}
-                style={{
-                  position: "sticky",
-                  top: 0,
-                  zIndex: 20,
-                  background: col.phase
-                    ? COLORS.PHASE[col.phase].backgroundColor
-                    : COLORS.HEADER_BG,
-                  color: "#fff",
-                  fontSize: UI.FONT_HEADER,
-                  fontWeight: 600,
-                  borderBottom: `2px solid ${COLORS.GRID_LINE}`,
-                  cursor: col.sortable ? "pointer" : "default",
-                }}
-                align={
-                  col.id === "thumbnail" || col.id === "group_1_name"
-                    ? "left"
-                    : "center"
-                }
+                style={{ cursor: col.sortable ? "pointer" : "default" }}
               >
-                <Box display="flex" justifyContent="center">
-                  {col.label}
-                  {sortKey === col.id && (
-                    <Box ml={0.5}>
-                      {sortDir === "asc" ? "▲" : "▼"}
-                    </Box>
-                  )}
-                </Box>
+                {col.label}
+                {sortKey === col.id && (sortDir === "asc" ? " ▲" : " ▼")}
               </TableCell>
             ))}
           </TableRow>
         </TableHead>
 
-        {/* ================= BODY ================= */}
         <TableBody>
           {groups.map(group => {
             const name = group.top_group_node || "UNASSIGNED";
-            const isClosed = collapsed[name];
+            const closed = collapsed[name];
 
             return (
               <React.Fragment key={name}>
-                {/* GROUP HEADER */}
                 <TableRow
-                  className={classes.groupRow}
+                  className={classes.groupHeader}
                   onClick={() => toggle(name)}
                 >
                   <TableCell colSpan={visibleColumns.length}>
                     <Box display="flex" alignItems="center">
                       <IconButton size="small">
-                        {isClosed ? (
-                          <ChevronRightIcon />
-                        ) : (
-                          <ExpandMoreIcon />
-                        )}
+                        {closed ? <ChevronRightIcon /> : <ExpandMoreIcon />}
                       </IconButton>
-                      <Typography
-                        style={{
-                          color: COLORS.GROUP_TEXT,
-                          fontWeight: 800,
-                          fontSize: UI.FONT_GROUP,
-                        }}
-                      >
+                      <Typography style={{ color: COLORS.GROUP_TEXT }}>
                         {name.toUpperCase()} ({group.items.length})
                       </Typography>
                     </Box>
                   </TableCell>
                 </TableRow>
 
-                {/* DATA ROWS */}
-                {!isClosed &&
-                  group.items.map((asset: any, i: number) => (
+                {!closed &&
+                  group.items.map((asset, i) => (
                     <TableRow key={name + i} hover>
                       {visibleColumns.map(col => (
-                        <TableCell
-                          key={col.id}
-                          style={{
-                            height: UI.ROW_HEIGHT,
-                            fontSize: UI.FONT_BODY,
-                            color: COLORS.TEXT,
-                          }}
-                          align={
-                            col.id === "thumbnail" ||
-                            col.id === "group_1_name"
-                              ? "left"
-                              : "center"
-                          }
-                        >
-                          {col.id === "group_1_name"
-                            ? asset.group_1
-                            : col.kind === "submitted"
-                            ? dateTimeFormat.format(
-                                new Date(asset[col.phase + "_submitted_at_utc"])
-                              )
-                            : col.kind
-                            ? (
-                                <span
-                                  style={{
-                                    color: statusColor(
-                                      asset[col.phase + "_" + col.kind]
-                                    ),
-                                  }}
-                                >
-                                  {asset[col.phase + "_" + col.kind] || "—"}
-                                </span>
-                              )
-                            : asset[col.id] || "—"}
+                        <TableCell key={col.id}>
+                          {renderAssetField(asset, col, dateTimeFormat)}
                         </TableCell>
                       ))}
                     </TableRow>
@@ -304,9 +300,6 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
             );
           })}
         </TableBody>
-
-        {/* ================= FOOTER ================= */}
-        {tableFooter}
       </Table>
     </Box>
   );
