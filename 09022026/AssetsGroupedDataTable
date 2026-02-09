@@ -14,78 +14,64 @@ import ExpandMoreIcon from "@material-ui/icons/ExpandMore";
 import ChevronRightIcon from "@material-ui/icons/ChevronRight";
 import { PivotGroup, SortDir } from "./types";
 
-/* ============================================================
-   COLORS
-============================================================ */
+/* =====================================================
+   COLORS – SAME AS LIST VIEW
+===================================================== */
 const COLORS = {
-  PAGE_BG: "#3d3d3d",
-  TABLE_BG: "#3d3d3d",
-  HEADER_BG: "#3d3d3d",
-  GRID_LINE: "#555",
-  GROUP_BG: "#3a3838",
-  GROUP_TEXT: "#00b7ff",
+  BG: "#3d3d3d",
+  HEADER: "#3d3d3d",
+  ROW: "#3d3d3d",
+  GROUP: "#3a3838",
   TEXT: "#e0e0e0",
   MUTED: "#9e9e9e",
-  PHASE: {
-    mdl: { lineColor: "#3295fd", backgroundColor: "#354d68" },
-    rig: { lineColor: "#c061fd", backgroundColor: "#5e3568" },
-    bld: { lineColor: "#fc2f8c", backgroundColor: "#5a0028" },
-    dsn: { lineColor: "#98f2bf", backgroundColor: "#045660" },
-    ldv: { lineColor: "#fe5cff", backgroundColor: "#683566" },
-  },
+  GROUP_TEXT: "#00b7ff",
+  GRID: "#555",
 };
 
-/* ============================================================
-   STYLES
-============================================================ */
+/* =====================================================
+   STYLES – LIST VIEW RULES APPLIED
+===================================================== */
 const useStyles = makeStyles(() => ({
   root: {
     width: "100%",
-    background: COLORS.PAGE_BG,
-    overflowX: "hidden", // ✅ no horizontal scroll
+    background: COLORS.BG,
+    overflowX: "hidden", // ✅ critical
   },
   table: {
-    width: "100%",       // ✅ fit UI
+    width: "100%",       // ✅ critical
     tableLayout: "fixed",
-    background: COLORS.TABLE_BG,
-  },
-  cell: {
-    whiteSpace: "normal",          // ✅ allow wrapping
-    wordBreak: "break-word",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    color: COLORS.TEXT,
-    fontSize: 12,
+    background: COLORS.BG,
   },
   headerCell: {
     position: "sticky",
     top: 0,
     zIndex: 10,
-    background: COLORS.HEADER_BG,
+    background: COLORS.HEADER,
     color: "#fff",
-    fontWeight: 600,
     fontSize: 12,
+    fontWeight: 600,
     whiteSpace: "nowrap",
+    borderBottom: `1px solid ${COLORS.GRID}`,
+  },
+  cell: {
+    fontSize: 12,
+    color: COLORS.TEXT,
+    whiteSpace: "normal",        // ✅ wrapping like list view
+    wordBreak: "break-word",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
   groupRow: {
-    background: COLORS.GROUP_BG,
+    background: COLORS.GROUP,
     cursor: "pointer",
     "&:hover": { background: "#444" },
   },
 }));
 
-/* ============================================================
-   TYPES
-============================================================ */
-type Column = {
-  id: string;
-  label: string;
-  sortable?: boolean;
-  phase?: keyof typeof COLORS.PHASE;
-  kind?: "work" | "appr" | "submitted" | "take";
-};
-
-const COLUMNS: Column[] = [
+/* =====================================================
+   COLUMNS – SHORT LABELS (LIST VIEW STYLE)
+===================================================== */
+const COLUMNS = [
   { id: "thumbnail", label: "THUMB" },
   { id: "group_1_name", label: "NAME", sortable: true },
 
@@ -118,9 +104,9 @@ const COLUMNS: Column[] = [
   { id: "component", label: "COMP" },
 ];
 
-/* ============================================================
+/* =====================================================
    HELPERS
-============================================================ */
+===================================================== */
 const statusColor = (s?: string) => {
   if (!s) return COLORS.MUTED;
   const t = s.toLowerCase();
@@ -132,9 +118,14 @@ const statusColor = (s?: string) => {
   return COLORS.MUTED;
 };
 
-/* ============================================================
-   MAIN
-============================================================ */
+const last4 = (v: any) => {
+  const m = String(v || "").match(/(\d{4})$/);
+  return m ? m[1] : "—";
+};
+
+/* =====================================================
+   MAIN COMPONENT
+===================================================== */
 const AssetsGroupedDataTable: React.FC<{
   groups: PivotGroup[];
   sortKey: string;
@@ -179,7 +170,10 @@ const AssetsGroupedDataTable: React.FC<{
             return (
               <React.Fragment key={name}>
                 {/* GROUP HEADER */}
-                <TableRow className={classes.groupRow} onClick={() => toggle(name)}>
+                <TableRow
+                  className={classes.groupRow}
+                  onClick={() => toggle(name)}
+                >
                   <TableCell colSpan={COLUMNS.length}>
                     <Box display="flex" alignItems="center">
                       <IconButton size="small">
@@ -197,26 +191,23 @@ const AssetsGroupedDataTable: React.FC<{
                   group.items.map((asset, i) => (
                     <TableRow key={name + i}>
                       {COLUMNS.map(col => {
-                        let value: any = "—";
+                        let v: any = "—";
 
-                        if (col.id === "group_1_name") value = asset.group_1;
+                        if (col.id === "group_1_name") v = asset.group_1;
                         else if (col.kind === "submitted")
-                          value = asset[col.phase + "_submitted_at_utc"]
+                          v = asset[col.phase + "_submitted_at_utc"]
                             ? dateTimeFormat.format(
                                 new Date(asset[col.phase + "_submitted_at_utc"])
                               )
                             : "—";
-                        else if (col.kind === "take") {
-                          const m = String(asset[col.phase + "_take"] || "").match(/(\d{4})$/);
-                          value = m ? m[1] : "—";
-                        } else if (col.kind) {
-                          value = asset[col.phase + "_" + (col.kind === "work" ? "work_status" : "approval_status")] || "—";
-                        }
+                        else if (col.kind === "take") v = last4(asset[col.phase + "_take"]);
+                        else if (col.kind)
+                          v = asset[col.phase + "_" + (col.kind === "work" ? "work_status" : "approval_status")];
 
                         return (
                           <TableCell key={col.id} className={classes.cell}>
-                            <Typography style={{ color: statusColor(value) }}>
-                              {value}
+                            <Typography style={{ color: statusColor(v) }}>
+                              {v || "—"}
                             </Typography>
                           </TableCell>
                         );
