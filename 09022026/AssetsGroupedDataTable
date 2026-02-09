@@ -14,21 +14,18 @@ import ExpandMoreIcon from "@material-ui/icons/ExpandMore";
 import ChevronRightIcon from "@material-ui/icons/ChevronRight";
 import { PivotGroup, SortDir } from "./types";
 
-/* ----------------------------------------------------------------
- * COLORS
- * ---------------------------------------------------------------- */
+/* ============================================================
+   COLORS
+============================================================ */
 const COLORS = {
-  PAGE_BG: "#3d3d3dff",
-  TABLE_BG: "#3d3d3dff",
-  HEADER_BG: "#3d3d3dff",
-  HEADER_BORDER: "#3d3d3dff",
-  GRID_LINE: "#555555",
-  ROW_BG: "#3d3d3dff",
-  GROUP_BG: "#3a3838ff",
+  PAGE_BG: "#3d3d3d",
+  TABLE_BG: "#3d3d3d",
+  HEADER_BG: "#3d3d3d",
+  GRID_LINE: "#555",
+  GROUP_BG: "#3a3838",
   GROUP_TEXT: "#00b7ff",
   TEXT: "#e0e0e0",
-  MUTED: "#bdbdbd",
-  COL_EDGE: "#6b6b6b",
+  MUTED: "#9e9e9e",
   PHASE: {
     mdl: { lineColor: "#3295fd", backgroundColor: "#354d68" },
     rig: { lineColor: "#c061fd", backgroundColor: "#5e3568" },
@@ -38,64 +35,56 @@ const COLORS = {
   },
 };
 
-/* ----------------------------------------------------------------
- * UI CONSTANTS
- * ---------------------------------------------------------------- */
-const UI = {
-  ROW_HEIGHT: 54,
-  ROW_PAD_Y: 2,
-  ROW_PAD_X: 1,
-  FONT_SIZE_HEADER: 12,
-  FONT_SIZE_CONTENT: 12,
-  FONT_SIZE_GROUP: 12,
-  PHASE_COL_WIDTH: 85,
-  THUMB_WIDTH: 90,
-  NAME_WIDTH: 120,
-  RELATION_WIDTH: 75,
-  COMPONENT_WIDTH: 75,
-  RAIL_PX: 2,
-};
+/* ============================================================
+   STYLES
+============================================================ */
+const useStyles = makeStyles(() => ({
+  root: {
+    width: "100%",
+    background: COLORS.PAGE_BG,
+    overflowX: "hidden", // ✅ no horizontal scroll
+  },
+  table: {
+    width: "100%",       // ✅ fit UI
+    tableLayout: "fixed",
+    background: COLORS.TABLE_BG,
+  },
+  cell: {
+    whiteSpace: "normal",          // ✅ allow wrapping
+    wordBreak: "break-word",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    color: COLORS.TEXT,
+    fontSize: 12,
+  },
+  headerCell: {
+    position: "sticky",
+    top: 0,
+    zIndex: 10,
+    background: COLORS.HEADER_BG,
+    color: "#fff",
+    fontWeight: 600,
+    fontSize: 12,
+    whiteSpace: "nowrap",
+  },
+  groupRow: {
+    background: COLORS.GROUP_BG,
+    cursor: "pointer",
+    "&:hover": { background: "#444" },
+  },
+}));
 
-/* ----------------------------------------------------------------
- * TYPES
- * ---------------------------------------------------------------- */
-type ColumnId =
-  | "thumbnail"
-  | "group_1_name"
-  | "mdl_work"
-  | "mdl_appr"
-  | "mdl_submitted"
-  | "mdl_take"
-  | "rig_work"
-  | "rig_appr"
-  | "rig_submitted"
-  | "rig_take"
-  | "bld_work"
-  | "bld_appr"
-  | "bld_submitted"
-  | "bld_take"
-  | "dsn_work"
-  | "dsn_appr"
-  | "dsn_submitted"
-  | "dsn_take"
-  | "ldv_work"
-  | "ldv_appr"
-  | "ldv_submitted"
-  | "ldv_take"
-  | "relation"
-  | "component";
-
+/* ============================================================
+   TYPES
+============================================================ */
 type Column = {
-  id: ColumnId;
+  id: string;
   label: string;
   sortable?: boolean;
   phase?: keyof typeof COLORS.PHASE;
   kind?: "work" | "appr" | "submitted" | "take";
 };
 
-/* ----------------------------------------------------------------
- * COLUMNS
- * ---------------------------------------------------------------- */
 const COLUMNS: Column[] = [
   { id: "thumbnail", label: "THUMB" },
   { id: "group_1_name", label: "NAME", sortable: true },
@@ -129,109 +118,30 @@ const COLUMNS: Column[] = [
   { id: "component", label: "COMP" },
 ];
 
-/* ----------------------------------------------------------------
- * STYLES
- * ---------------------------------------------------------------- */
-const useStyles = makeStyles(() => ({
-  root: {
-    background: COLORS.PAGE_BG,
-    width: "100%",
-  },
-  table: {
-    background: COLORS.TABLE_BG,
-    tableLayout: "fixed",
-    width: "max-content",
-    minWidth: "100%",
-  },
-  groupHeader: {
-    cursor: "pointer",
-    "&:hover": {
-      backgroundColor: `${COLORS.GROUP_BG}dd`,
-    },
-  },
-}));
-
-/* ----------------------------------------------------------------
- * UTILS
- * ---------------------------------------------------------------- */
-const isEmptyValue = (v: any) =>
-  v === null || v === undefined || String(v).trim() === "";
-
-function statusColor(status?: string) {
-  if (!status) return COLORS.MUTED;
-  const s = status.toLowerCase();
-  if (s.includes("approved")) return "#32cd32";
-  if (s.includes("review")) return "#ffa500";
-  if (s.includes("retake")) return "#ff4f4f";
-  if (s.includes("hold")) return "#ffdd55";
-  if (s === "check") return "#ca25ed";
+/* ============================================================
+   HELPERS
+============================================================ */
+const statusColor = (s?: string) => {
+  if (!s) return COLORS.MUTED;
+  const t = s.toLowerCase();
+  if (t.includes("approved")) return "#32cd32";
+  if (t.includes("review")) return "#ffa500";
+  if (t.includes("retake")) return "#ff4f4f";
+  if (t.includes("hold")) return "#ffdd55";
+  if (t === "check") return "#ca25ed";
   return COLORS.MUTED;
-}
+};
 
-/* ----------------------------------------------------------------
- * CELL RENDER
- * ---------------------------------------------------------------- */
-function renderAssetField(
-  asset: any,
-  col: Column,
-  dateTimeFormat: Intl.DateTimeFormat
-) {
-  if (col.id === "group_1_name") {
-    return <Typography>{asset.group_1}</Typography>;
-  }
-
-  const phase = col.phase;
-
-  if (col.kind === "submitted") {
-    const v = asset[phase + "_submitted_at_utc"];
-    return v ? dateTimeFormat.format(new Date(v)) : "—";
-  }
-
-  /* ============================================================
-   * ✅ FIX: TAKE → LAST 4 DIGITS ONLY
-   * ============================================================ */
-  if (col.kind === "take") {
-    const raw = asset[phase + "_take"];
-    let take = "—";
-
-    if (!isEmptyValue(raw)) {
-      const match = String(raw).match(/(\d{4})\s*$/);
-      if (match) take = match[1];
-    }
-
-    return <Typography>{take}</Typography>;
-  }
-
-  if (col.kind) {
-    const v = asset[phase + "_" + (col.kind === "work" ? "work_status" : "approval_status")];
-    return (
-      <Typography style={{ color: statusColor(v) }}>
-        {v || "—"}
-      </Typography>
-    );
-  }
-
-  return asset[col.id] || "—";
-}
-
-/* ----------------------------------------------------------------
- * MAIN COMPONENT
- * ---------------------------------------------------------------- */
+/* ============================================================
+   MAIN
+============================================================ */
 const AssetsGroupedDataTable: React.FC<{
   groups: PivotGroup[];
   sortKey: string;
   sortDir: SortDir;
-  onSortChange: (key: string) => void;
+  onSortChange: (k: string) => void;
   dateTimeFormat: Intl.DateTimeFormat;
-  hiddenColumns?: Set<string>;
-}> = ({
-  groups,
-  sortKey,
-  sortDir,
-  onSortChange,
-  dateTimeFormat,
-  hiddenColumns = new Set(),
-}) => {
+}> = ({ groups, sortKey, sortDir, onSortChange, dateTimeFormat }) => {
   const classes = useStyles();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -240,21 +150,18 @@ const AssetsGroupedDataTable: React.FC<{
     []
   );
 
-  const visibleColumns = useMemo(
-    () => COLUMNS.filter(c => !hiddenColumns.has(c.id)),
-    [hiddenColumns]
-  );
-
   return (
     <Box className={classes.root}>
       <Table stickyHeader size="small" className={classes.table}>
+        {/* HEADER */}
         <TableHead>
           <TableRow>
-            {visibleColumns.map(col => (
+            {COLUMNS.map(col => (
               <TableCell
                 key={col.id}
+                className={classes.headerCell}
                 onClick={() => col.sortable && onSortChange(col.id)}
-                style={{ cursor: col.sortable ? "pointer" : "default" }}
+                align={col.id === "group_1_name" ? "left" : "center"}
               >
                 {col.label}
                 {sortKey === col.id && (sortDir === "asc" ? " ▲" : " ▼")}
@@ -263,6 +170,7 @@ const AssetsGroupedDataTable: React.FC<{
           </TableRow>
         </TableHead>
 
+        {/* BODY */}
         <TableBody>
           {groups.map(group => {
             const name = group.top_group_node || "UNASSIGNED";
@@ -270,30 +178,49 @@ const AssetsGroupedDataTable: React.FC<{
 
             return (
               <React.Fragment key={name}>
-                <TableRow
-                  className={classes.groupHeader}
-                  onClick={() => toggle(name)}
-                >
-                  <TableCell colSpan={visibleColumns.length}>
+                {/* GROUP HEADER */}
+                <TableRow className={classes.groupRow} onClick={() => toggle(name)}>
+                  <TableCell colSpan={COLUMNS.length}>
                     <Box display="flex" alignItems="center">
                       <IconButton size="small">
                         {closed ? <ChevronRightIcon /> : <ExpandMoreIcon />}
                       </IconButton>
-                      <Typography style={{ color: COLORS.GROUP_TEXT }}>
+                      <Typography style={{ color: COLORS.GROUP_TEXT, fontWeight: 700 }}>
                         {name.toUpperCase()} ({group.items.length})
                       </Typography>
                     </Box>
                   </TableCell>
                 </TableRow>
 
+                {/* ROWS */}
                 {!closed &&
                   group.items.map((asset, i) => (
-                    <TableRow key={name + i} hover>
-                      {visibleColumns.map(col => (
-                        <TableCell key={col.id}>
-                          {renderAssetField(asset, col, dateTimeFormat)}
-                        </TableCell>
-                      ))}
+                    <TableRow key={name + i}>
+                      {COLUMNS.map(col => {
+                        let value: any = "—";
+
+                        if (col.id === "group_1_name") value = asset.group_1;
+                        else if (col.kind === "submitted")
+                          value = asset[col.phase + "_submitted_at_utc"]
+                            ? dateTimeFormat.format(
+                                new Date(asset[col.phase + "_submitted_at_utc"])
+                              )
+                            : "—";
+                        else if (col.kind === "take") {
+                          const m = String(asset[col.phase + "_take"] || "").match(/(\d{4})$/);
+                          value = m ? m[1] : "—";
+                        } else if (col.kind) {
+                          value = asset[col.phase + "_" + (col.kind === "work" ? "work_status" : "approval_status")] || "—";
+                        }
+
+                        return (
+                          <TableCell key={col.id} className={classes.cell}>
+                            <Typography style={{ color: statusColor(value) }}>
+                              {value}
+                            </Typography>
+                          </TableCell>
+                        );
+                      })}
                     </TableRow>
                   ))}
               </React.Fragment>
