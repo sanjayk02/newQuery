@@ -1,0 +1,174 @@
+const AssetsTableHeader: React.FC<{
+  hiddenColumns: Set<string>;
+  onSortChange: (sortKey: string) => void;
+  currentSortKey: string;
+  currentSortDir: SortDir;
+}> = ({ hiddenColumns, onSortChange, currentSortKey, currentSortDir }) => {
+  const phases = ["mdl", "rig", "bld", "dsn", "ldv"] as const;
+
+  const getWidth = (id: string) => {
+    if (id === "thumbnail") return 140;
+    if (id === "group_1_name") return 220;
+    if (id === "relation") return 120;
+    if (id === "component") return 150;
+    if (id.includes("submitted_at")) return 160;
+    if (id.includes("take")) return 90;
+    return 100;
+  };
+
+  return (
+    <TableHead>
+      {/* ===================== PHASE ROW ===================== */}
+      <TableRow>
+        {/* LEFT FIXED */}
+        {!hiddenColumns.has("thumbnail") && (
+          <TableCell
+            rowSpan={2}
+            style={{
+              width: getWidth("thumbnail"),
+              background: "#2a2a2a",
+              color: "#fff",
+              fontWeight: 700,
+              textAlign: "center",
+              whiteSpace: "nowrap",
+            }}
+          >
+            THUMBNAIL
+          </TableCell>
+        )}
+
+        {!hiddenColumns.has("group_1_name") && (
+          <TableCell
+            rowSpan={2}
+            style={{
+              width: getWidth("group_1_name"),
+              background: "#2a2a2a",
+              color: "#fff",
+              fontWeight: 700,
+              textAlign: "center",
+              whiteSpace: "nowrap",
+            }}
+          >
+            NAME
+          </TableCell>
+        )}
+
+        {/* PHASE HEADERS */}
+        {phases.map(phase => {
+          const visibleCols = PHASE_COLUMN_ORDER[phase]
+            .filter(id => !hiddenColumns.has(id));
+
+          if (!visibleCols.length) return null;
+
+          return (
+            <TableCell
+              key={phase}
+              colSpan={visibleCols.length}
+              style={{
+                background: ASSET_PHASES[phase].backgroundColor,
+                color: "#fff",
+                fontWeight: 700,
+                textAlign: "center",
+                borderLeft: `3px solid ${ASSET_PHASES[phase].lineColor}`,
+                borderRight: `3px solid ${ASSET_PHASES[phase].lineColor}`,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {phase.toUpperCase()}
+            </TableCell>
+          );
+        })}
+
+        {/* RIGHT FIXED */}
+        {!hiddenColumns.has("relation") && (
+          <TableCell
+            rowSpan={2}
+            style={{
+              width: getWidth("relation"),
+              background: "#2a2a2a",
+              color: "#fff",
+              fontWeight: 700,
+              textAlign: "center",
+              whiteSpace: "nowrap",
+            }}
+          >
+            RELATION
+          </TableCell>
+        )}
+
+        {!hiddenColumns.has("component") && (
+          <TableCell
+            rowSpan={2}
+            style={{
+              width: getWidth("component"),
+              background: "#2a2a2a",
+              color: "#fff",
+              fontWeight: 700,
+              textAlign: "center",
+              whiteSpace: "nowrap",
+            }}
+          >
+            COMPONENT
+          </TableCell>
+        )}
+      </TableRow>
+
+      {/* ===================== COLUMN ROW ===================== */}
+      <TableRow>
+        {phases.flatMap(phase => {
+          const phaseColor = ASSET_PHASES[phase];
+
+          return PHASE_COLUMN_ORDER[phase]
+            .filter(id => !hiddenColumns.has(id))
+            .map((colId, index, arr) => {
+              const col = columns.find(c => c.id === colId)!;
+              const sortKey = col.sortKey || col.id;
+              const isActive = currentSortKey === sortKey;
+
+              return (
+                <TableCell
+                  key={colId}
+                  style={{
+                    width: getWidth(colId),
+                    background: phaseColor.backgroundColor,
+                    color: "#fff",
+                    fontWeight: 600,
+                    textAlign: "center",
+                    borderLeft:
+                      index === 0
+                        ? `3px solid ${phaseColor.lineColor}`
+                        : "1px solid rgba(255,255,255,0.3)",
+                    borderRight:
+                      index === arr.length - 1
+                        ? `3px solid ${phaseColor.lineColor}`
+                        : "1px solid rgba(255,255,255,0.3)",
+                    whiteSpace: "nowrap",
+                    cursor: col.sortable ? "pointer" : "default",
+                  }}
+                  onClick={
+                    col.sortable ? () => onSortChange(sortKey) : undefined
+                  }
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 4,
+                    }}
+                  >
+                    {col.label}
+                    {isActive && (
+                      <span style={{ fontSize: "0.7rem" }}>
+                        {currentSortDir === "desc" ? "▼" : "▲"}
+                      </span>
+                    )}
+                  </div>
+                </TableCell>
+              );
+            });
+        })}
+      </TableRow>
+    </TableHead>
+  );
+};
