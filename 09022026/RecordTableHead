@@ -1,44 +1,58 @@
+const PHASE_COLUMN_ORDER: Record<string, string[]> = {
+  mdl: ["mdl_work_status", "mdl_approval_status", "mdl_submitted_at", "mdl_take"],
+  rig: ["rig_work_status", "rig_approval_status", "rig_submitted_at", "rig_take"],
+  bld: ["bld_work_status", "bld_approval_status", "bld_submitted_at", "bld_take"],
+  dsn: ["dsn_work_status", "dsn_approval_status", "dsn_submitted_at", "dsn_take"],
+  ldv: ["ldv_work_status", "ldv_approval_status", "ldv_submitted_at", "ldv_take"],
+};
+
+const BASE_CELL_STYLE: React.CSSProperties = {
+  padding: "4px 8px",      // 🔥 gap reduced
+  lineHeight: "18px",
+  fontSize: "0.8rem",
+  whiteSpace: "nowrap",
+  textAlign: "center",
+};
+
+const getColWidth = (id: string) => {
+  if (id === "thumbnail") return 120;
+  if (id === "group_1_name") return 200;
+  if (id === "relation") return 120;
+  if (id === "component") return 150;
+  if (id.includes("submitted")) return 160;
+  if (id.includes("take")) return 80;
+  return 90; // WORK / APPR
+};
+
+
+
+
+
+
 const RecordTableHead: React.FC<RecordTableHeadProps & {
   onSortChange: (sortKey: string) => void;
   currentSortKey: string;
   currentSortDir: SortDir;
-  headerCellStylesById?: Record<string, React.CSSProperties>;
-}> = ({
-  columns,
-  onSortChange,
-  currentSortKey,
-  currentSortDir,
-  headerCellStylesById = {},
-}) => {
+}> = ({ columns, onSortChange, currentSortKey, currentSortDir }) => {
 
   const PHASES = ["mdl", "rig", "bld", "dsn", "ldv"] as const;
-
-  const PHASE_COLUMN_ORDER: Record<string, string[]> = {
-    mdl: ["mdl_work_status", "mdl_approval_status", "mdl_submitted_at", "mdl_take"],
-    rig: ["rig_work_status", "rig_approval_status", "rig_submitted_at", "rig_take"],
-    bld: ["bld_work_status", "bld_approval_status", "bld_submitted_at", "bld_take"],
-    dsn: ["dsn_work_status", "dsn_approval_status", "dsn_submitted_at", "dsn_take"],
-    ldv: ["ldv_work_status", "ldv_approval_status", "ldv_submitted_at", "ldv_take"],
-  };
 
   const getSortDir = (key: string): SortDir =>
     currentSortKey === key ? currentSortDir : "none";
 
-  const createSortHandler = (key: string) => () => onSortChange(key);
-
   return (
     <TableHead>
-      <TableRow>
-        {columns.map((column) => {
-          // Detect phase
+      <TableRow style={{ height: 34 }}>
+        {columns.map(column => {
           const phase = PHASES.find(p => column.id.startsWith(p));
-          const phaseOrder = phase ? PHASE_COLUMN_ORDER[phase] : [];
+          const order = phase ? PHASE_COLUMN_ORDER[phase] : [];
 
-          const isFirstInPhase = phase && phaseOrder[0] === column.id;
-          const isLastInPhase  = phase && phaseOrder[phaseOrder.length - 1] === column.id;
+          const isFirst = phase && order[0] === column.id;
+          const isLast  = phase && order[order.length - 1] === column.id;
 
-          const hasPhase = Boolean(phase && column.colors);
-          const rail = hasPhase ? `3px solid ${column.colors!.lineColor}` : "none";
+          const rail = phase && column.colors
+            ? `3px solid ${column.colors.lineColor}`
+            : "none";
 
           const sortKey = column.sortKey || column.id;
           const sortDir = getSortDir(sortKey);
@@ -47,16 +61,20 @@ const RecordTableHead: React.FC<RecordTableHeadProps & {
             <TableCell
               key={column.id}
               style={{
-                backgroundColor: column.colors
+                ...BASE_CELL_STYLE,
+                width: getColWidth(column.id),
+                minWidth: getColWidth(column.id),
+                maxWidth: getColWidth(column.id),
+
+                background: column.colors
                   ? column.colors.backgroundColor
                   : "#2a2a2a",
                 color: "#fff",
                 fontWeight: 600,
-                whiteSpace: "nowrap",
-                borderTop: hasPhase ? rail : "none",
-                borderLeft: hasPhase && isFirstInPhase ? rail : "none",
-                borderRight: hasPhase && isLastInPhase ? rail : "none",
-                ...(headerCellStylesById[column.id] || {}),
+
+                borderTop: rail,
+                borderLeft: isFirst ? rail : "1px solid #444",
+                borderRight: isLast ? rail : "1px solid #444",
               }}
             >
               {column.sortable ? (
@@ -64,16 +82,9 @@ const RecordTableHead: React.FC<RecordTableHeadProps & {
                   active={sortDir !== "none"}
                   hideSortIcon
                   direction={sortDir === "desc" ? "desc" : "asc"}
-                  onClick={createSortHandler(sortKey)}
+                  onClick={() => onSortChange(sortKey)}
                   IconComponent={() => (
-                    <span
-                      style={{
-                        fontSize: 12,
-                        fontWeight: 700,
-                        marginLeft: 8,
-                        userSelect: "none",
-                      }}
-                    >
+                    <span style={{ fontSize: 11, marginLeft: 6 }}>
                       {sortDir === "desc" ? "▼" : "▲"}
                     </span>
                   )}
