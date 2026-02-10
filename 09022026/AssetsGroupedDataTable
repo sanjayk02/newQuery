@@ -1,7 +1,7 @@
 /* _________________________________________________________________________________
   
   Module Name:
-  AssetsGroupedDataTable.tsx
+  AssetsDataTable.tsx
   
   Module Description:
   React component that renders a data table displaying asset information for a project.
@@ -20,14 +20,14 @@
     * - [Current Date] - Added proper empty value handling in sorting
     * - 02-02-2026 - SanjayK PSI - Added component field to Asset type for better component tracking.
     * - 06-02-2026 - SanjayK PSI - Added take field to ReviewInfo type for enhanced review tracking.
-    * - [Current Date] - Added performance optimizations, error boundaries, and accessibility improvements.
+    * - [Current Date] - Implemented new header structure with phase blocks
     
   Function:
     * - AssetsDataTable: Main component rendering the assets data table.
     * - RecordTableHead: Renders the table header with sortable columns.
     * - AssetRow: Renders individual rows for each asset.
     * - Styled components for consistent theming.
-    * - MultiLineTooltipTableCell: Table cell with multi-line tooltip support.
+    * - MultIineTooltipTableCell: Table cell with multi-line tooltip support.
     * - Constants for asset phases, approval statuses, and work statuses.
     * - Column definitions for the data table.
     * - NON_FIXED_IDS: Array of column IDs excluding fixed columns.
@@ -50,9 +50,7 @@ import {
   TableRow,
   Tooltip,
   TableSortLabel,
-  Chip,
-  Skeleton,
-  TableContainer,
+  Box,
 } from "@material-ui/core";
 import {
   AssetRowProps,
@@ -65,17 +63,7 @@ import {
 } from "./types";
 import { useFetchAssetThumbnails } from "./hooks";
 
-// Types for better type safety
-type AssetPhase = 'mdl' | 'rig' | 'bld' | 'dsn' | 'ldv';
-type PhaseData = {
-  workStatus: Status | undefined;
-  approvalStatus: Status | undefined;
-  localTimeText: string;
-  takeText: string;
-  tooltipText: string;
-};
-
-const ASSET_PHASES: Record<AssetPhase, Colors> = {
+const ASSET_PHASES: { [key: string]: Colors } = {
   mdl: {
     lineColor: '#3295fd',
     backgroundColor: '#354d68',
@@ -103,7 +91,7 @@ type Status = Readonly<{
   color: string,
 }>;
 
-const APPROVAL_STATUS: Record<string, Status> = {
+const APPROVAL_STATUS: { [key: string]: Status } = {
   check: {
     displayName: 'Check',
     color: '#ca25ed',
@@ -178,7 +166,7 @@ const APPROVAL_STATUS: Record<string, Status> = {
   },
 };
 
-const WORK_STATUS: Record<string, Status> = {
+const WORK_STATUS: { [key: string]: Status } = {
   check: { displayName: "Check", color: "#e287f5" },
   cgsvOnHold: { displayName: "CGSV On Hold", color: "#ffdd55" },
   svOnHold: { displayName: "SV On Hold", color: "#ffe373" },
@@ -201,33 +189,32 @@ const columns: Column[] = [
   { id: "thumbnail", label: "Thumbnail" },
   { id: "group_1_name", label: "Name", sortable: true, sortKey: "group_1" },
 
-  { id: "mdl_work_status", label: "MDL WORK", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_work" },
-  { id: "mdl_approval_status", label: "MDL APPR", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_appr" },
-  { id: "mdl_submitted_at", label: "MDL Submitted At", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_submitted" },
-  { id: "mdl_take", label: "MDL Take", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_take" },
+  { id: "mdl_work_status", label: "WORK", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_work" },
+  { id: "mdl_approval_status", label: "APPR", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_appr" },
+  { id: "mdl_submitted_at", label: "SUBMITTED", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_submitted" },
+  { id: "mdl_take", label: "TAKE", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_take" },
 
-  { id: "rig_work_status", label: "RIG WORK", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_work" },
-  { id: "rig_approval_status", label: "RIG APPR", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_appr" },
-  { id: "rig_submitted_at", label: "RIG Submitted At", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_submitted" },
-  { id: "rig_take", label: "RIG Take", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_take" },
+  { id: "rig_work_status", label: "WORK", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_work" },
+  { id: "rig_approval_status", label: "APPR", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_appr" },
+  { id: "rig_submitted_at", label: "SUBMITTED", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_submitted" },
+  { id: "rig_take", label: "TAKE", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_take" },
 
-  { id: "bld_work_status", label: "BLD WORK", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_work" },
-  { id: "bld_approval_status", label: "BLD APPR", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_appr" },
-  { id: "bld_submitted_at", label: "BLD Submitted At", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_submitted" },
-  { id: "bld_take", label: "BLD Take", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_take" },
+  { id: "bld_work_status", label: "WORK", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_work" },
+  { id: "bld_approval_status", label: "APPR", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_appr" },
+  { id: "bld_submitted_at", label: "SUBMITTED", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_submitted" },
+  { id: "bld_take", label: "TAKE", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_take" },
 
-  { id: "dsn_work_status", label: "DSN WORK", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_work" },
-  { id: "dsn_approval_status", label: "DSN APPR", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_appr" },
-  { id: "dsn_submitted_at", label: "DSN Submitted At", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_submitted" },
-  { id: "dsn_take", label: "DSN Take", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_take" },
+  { id: "dsn_work_status", label: "WORK", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_work" },
+  { id: "dsn_approval_status", label: "APPR", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_appr" },
+  { id: "dsn_submitted_at", label: "SUBMITTED", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_submitted" },
+  { id: "dsn_take", label: "TAKE", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_take" },
 
-  { id: "ldv_work_status", label: "LDV WORK", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_work" },
-  { id: "ldv_approval_status", label: "LDV APPR", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_appr" },
-  { id: "ldv_submitted_at", label: "LDV Submitted At", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_submitted" },
-  { id: "ldv_take", label: "LDV Take", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_take" },
+  { id: "ldv_work_status", label: "WORK", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_work" },
+  { id: "ldv_approval_status", label: "APPR", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_appr" },
+  { id: "ldv_submitted_at", label: "SUBMITTED", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_submitted" },
+  { id: "ldv_take", label: "TAKE", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_take" },
 
   { id: "relation", label: "Relation", sortable: true, sortKey: "relation" },
-
   { id: "component", label: "Component", sortable: true, sortKey: "component" },
 ];
 
@@ -255,42 +242,6 @@ const formatForDisplay = (value: any): string => {
   if (isEmptyValue(value)) return '—';
   return String(value).trim();
 };
-
-// Simple Error Boundary Component
-const ErrorBoundary: React.FC<{ children: React.ReactNode; fallback?: React.ReactNode }> = ({ 
-  children, 
-  fallback = <div>Something went wrong. Please try again.</div> 
-}) => {
-  const [hasError, setHasError] = React.useState(false);
-
-  React.useEffect(() => {
-    const errorHandler = () => setHasError(true);
-    window.addEventListener('error', errorHandler);
-    return () => window.removeEventListener('error', errorHandler);
-  }, []);
-
-  if (hasError) {
-    return <>{fallback}</>;
-  }
-
-  return <>{children}</>;
-};
-
-// Component for displaying component chips
-const ComponentDisplay: React.FC<{ components: string[] }> = React.memo(({ components }) => (
-  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-    {components.map((comp, index) => (
-      <Chip
-        key={index}
-        label={comp}
-        size="small"
-        style={{ fontSize: '0.8rem', backgroundColor: '#e0e0e0' }}
-      />
-    ))}
-  </div>
-));
-
-ComponentDisplay.displayName = 'ComponentDisplay';
 
 const MultiLineTooltipTableCell: React.FC<TooltipTableCellProps> = ({
   tooltipText, status, leftBorderStyle, rightBorderStyle, bottomBorderStyle = "none",
@@ -325,188 +276,264 @@ const MultiLineTooltipTableCell: React.FC<TooltipTableCellProps> = ({
     </TableCell>
   );
 };
-           
-const RecordTableHead: React.FC<RecordTableHeadProps & {
+
+/**
+ * New Header Structure Component
+ */
+const PhaseHeader: React.FC<{
+  hiddenColumns: Set<string>;
   onSortChange: (sortKey: string) => void;
   currentSortKey: string;
   currentSortDir: SortDir;
-  headerCellStylesById?: Record<string, React.CSSProperties>;
-}> = React.memo(({
-  columns, onSortChange, currentSortKey, currentSortDir, headerCellStylesById = {},
-}) => {
-  const getSortDir = (id: string, activeKey: string, activeDir: SortDir): SortDir =>
-    activeKey === id ? activeDir : "none";
+}> = ({ hiddenColumns, onSortChange, currentSortKey, currentSortDir }) => {
+  const phases = ['mdl', 'rig', 'bld', 'dsn', 'ldv'] as const;
 
-  const createSortHandler = React.useCallback((id: string) => () => onSortChange(id), [onSortChange]);
-
-  const TableSortLabelWithAria: React.FC<{ column: Column; sortKey: string }> = ({ column, sortKey }) => {
-    const sortDir = getSortDir(sortKey, currentSortKey, currentSortDir);
-    
-    return (
-      <TableSortLabel
-        active={sortDir !== "none"}
-        hideSortIcon
-        direction={sortDir === "desc" ? "desc" : "asc"}
-        onClick={createSortHandler(sortKey)}
-        aria-label={`Sort by ${column.label}`}
-        role="button"
-        tabIndex={0}
-        onKeyPress={(e) => e.key === 'Enter' && createSortHandler(sortKey)()}
-        IconComponent={() => (
-          <span style={{ 
-            fontSize: 12, 
-            fontWeight: 750, 
-            lineHeight: "24px",
-            marginLeft: 10, 
-            userSelect: "none" 
-          }}>
-            {sortDir === "desc" ? "▼" : "▲"}
-          </span>
-        )}
-      >
-        {column.label}
-      </TableSortLabel>
+  // Get phase columns that are visible
+  const getVisiblePhaseColumns = (phase: string) => {
+    return columns.filter(col => 
+      col.id.startsWith(phase) && !hiddenColumns.has(col.id)
     );
   };
 
-  return (
-    <TableHead>
-      <TableRow>
-        {columns.map((column) => {
-          // Determine "first/last visible" within a phase to draw borders
-          const phase = ["mdl", "rig", "bld", "dsn", "ldv"].find(p => column.id.startsWith(p));
-          const inPhaseIds = phase
-            ? [`${phase}_work_status`, `${phase}_approval_status`, `${phase}_submitted_at`, `${phase}_take`]
-                .filter(id => columns.some(c => c.id === id))
-            : [];
-          const firstId = inPhaseIds[0];
-          const lastId  = inPhaseIds[inPhaseIds.length - 1];
-
-          const hasPhase = Boolean(phase && column.colors);
-          const rail = hasPhase ? `solid 3px ${column.colors!.lineColor}` : "none";
-
-          const sortKey = column.sortKey || column.id;
-
-          return (
-            <TableCell
-              key={column.id}
-              style={{
-                backgroundColor: column.colors ? column.colors.backgroundColor : "none",
-                borderTop: hasPhase ? rail : "none",
-                borderLeft: hasPhase && firstId === column.id ? rail : "none",
-                borderRight: hasPhase && lastId  === column.id ? rail : "none",
-                ...(headerCellStylesById[column.id] || {}),
-              }}
-            >
-              {column.sortable ? (
-                <TableSortLabelWithAria column={column} sortKey={sortKey} />
-              ) : (
-                column.label
-              )}
-            </TableCell>
-          );
-        })}
-      </TableRow>
-    </TableHead>
-  );
-});
-
-RecordTableHead.displayName = 'RecordTableHead';
-
-// Separate component for phase columns rendering
-const PhaseColumns: React.FC<{
-  phase: AssetPhase;
-  phaseData: PhaseData;
-  isHidden: (id: string) => boolean;
-  isLastRow: boolean;
-  lineColor: string;
-}> = React.memo(({ phase, phaseData, isHidden, isLastRow, lineColor }) => {
-  const ids = {
-    work: `${phase}_work_status`,
-    appr: `${phase}_approval_status`,
-    subm: `${phase}_submitted_at`,
-    take: `${phase}_take`,
+  // Get column width based on type
+  const getColumnWidth = (columnId: string): string => {
+    if (columnId.includes('submitted_at')) return '140px';
+    if (columnId.includes('work_status') || columnId.includes('approval_status')) return '80px';
+    if (columnId.includes('take')) return '90px';
+    if (columnId === 'thumbnail') return '140px';
+    if (columnId === 'group_1_name') return '220px';
+    if (columnId === 'relation') return '120px';
+    if (columnId === 'component') return '150px';
+    return '100px';
   };
 
-  const visibleIds = [
-    !isHidden(ids.work) ? ids.work : null,
-    !isHidden(ids.appr) ? ids.appr : null,
-    !isHidden(ids.subm) ? ids.subm : null,
-    !isHidden(ids.take) ? ids.take : null,
-  ].filter(Boolean) as string[];
-
-  if (visibleIds.length === 0) return null;
-
-  const firstId = visibleIds[0];
-  const lastId  = visibleIds[visibleIds.length - 1];
-  const rail = `solid 3px ${lineColor}`;
-
-  const { workStatus, approvalStatus, localTimeText, takeText, tooltipText } = phaseData;
-
   return (
-    <React.Fragment key={phase}>
-      {/* WORK */}
-      {!isHidden(ids.work) && (
-        <MultiLineTooltipTableCell
-          tooltipText={tooltipText || ""}
-          status={workStatus}
-          leftBorderStyle={firstId === ids.work ? rail : "none"}
-          rightBorderStyle={lastId  === ids.work ? rail : "none"}
-          bottomBorderStyle={isLastRow ? rail : "none"}
-        />
-      )}
+    <div style={{ 
+      display: 'flex', 
+      width: '100%',
+      borderBottom: '2px solid #444'
+    }}>
+      {/* Left Fixed Columns */}
+      <div style={{ display: 'flex' }}>
+        {/* Thumbnail */}
+        {!hiddenColumns.has('thumbnail') && (
+          <div style={{
+            width: getColumnWidth('thumbnail'),
+            backgroundColor: '#2a2a2a',
+            border: '1px solid #444',
+            borderRight: 'none',
+            textAlign: 'center',
+            fontWeight: 'bold',
+            color: '#fff',
+            padding: '12px 8px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '0.9rem',
+          }}>
+            THUMBNAIL
+          </div>
+        )}
+        
+        {/* Name */}
+        {!hiddenColumns.has('group_1_name') && (
+          <div style={{
+            width: getColumnWidth('group_1_name'),
+            backgroundColor: '#2a2a2a',
+            border: '1px solid #444',
+            textAlign: 'center',
+            fontWeight: 'bold',
+            color: '#fff',
+            padding: '12px 8px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '0.9rem',
+          }}>
+            NAME
+          </div>
+        )}
+      </div>
 
-      {/* APPR */}
-      {!isHidden(ids.appr) && (
-        <MultiLineTooltipTableCell
-          tooltipText={tooltipText || ""}
-          status={approvalStatus}
-          leftBorderStyle={firstId === ids.appr ? rail : "none"}
-          rightBorderStyle={lastId  === ids.appr ? rail : "none"}
-          bottomBorderStyle={isLastRow ? rail : "none"}
-        />
-      )}
+      {/* Phase Columns */}
+      {phases.map(phase => {
+        const phaseColumns = getVisiblePhaseColumns(phase);
+        if (phaseColumns.length === 0) return null;
 
-      {/* SUBMITTED */}
-      {!isHidden(ids.subm) && (
-        <TableCell
-          style={{
-            borderLeft: firstId === ids.subm ? rail : "none",
-            borderRight: lastId === ids.subm ? rail : "none",
-            borderBottom: isLastRow ? rail : "none",
-          }}
-        >
-          {localTimeText}
-        </TableCell>
-      )}
-      {/* TAKE */}
-      {!isHidden(ids.take) && (
-        <TableCell
-          style={{
-            borderLeft: firstId === ids.take ? rail : "none",
-            borderRight: lastId === ids.take ? rail : "none",
-            borderBottom: isLastRow ? rail : "none",
-          }}
-        >
-          {takeText}
-        </TableCell>
-      )}
-    </React.Fragment>
+        return (
+          <div 
+            key={phase} 
+            style={{ 
+              display: 'flex', 
+              flexDirection: 'column',
+              borderLeft: `solid 3px ${ASSET_PHASES[phase].lineColor}`,
+              borderRight: `solid 3px ${ASSET_PHASES[phase].lineColor}`,
+            }}
+          >
+            {/* Phase Header */}
+            <div style={{
+              backgroundColor: ASSET_PHASES[phase].backgroundColor,
+              borderTop: `solid 3px ${ASSET_PHASES[phase].lineColor}`,
+              textAlign: 'center',
+              fontWeight: 'bold',
+              color: '#fff',
+              textTransform: 'uppercase',
+              padding: '8px 4px',
+              fontSize: '0.9rem',
+              height: '36px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              {phase.toUpperCase()}
+            </div>
+
+            {/* Column Headers */}
+            <div style={{ display: 'flex' }}>
+              {phaseColumns.map((column, index) => {
+                const isFirst = index === 0;
+                const isLast = index === phaseColumns.length - 1;
+                const isSubmitted = column.id.includes('submitted_at');
+                const sortKey = column.sortKey || column.id;
+                const sortDir = currentSortKey === sortKey ? currentSortDir : 'none';
+
+                return (
+                  <div 
+                    key={column.id} 
+                    style={{ 
+                      display: 'flex', 
+                      flexDirection: 'column',
+                      width: getColumnWidth(column.id),
+                      borderLeft: isFirst ? 'none' : '1px solid #555',
+                      borderRight: isLast ? 'none' : '1px solid #555',
+                    }}
+                  >
+                    {/* Main Column Label */}
+                    <div
+                      style={{
+                        backgroundColor: ASSET_PHASES[phase].backgroundColor,
+                        textAlign: 'center',
+                        fontWeight: 600,
+                        color: '#fff',
+                        padding: '6px 2px',
+                        cursor: column.sortable ? 'pointer' : 'default',
+                        fontSize: '0.85rem',
+                        height: '32px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        '&:hover': column.sortable ? {
+                          backgroundColor: `${ASSET_PHASES[phase].backgroundColor}CC`,
+                        } : {},
+                      }}
+                      onClick={column.sortable ? () => onSortChange(sortKey) : undefined}
+                    >
+                      {column.sortable ? (
+                        <div style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center',
+                          gap: '4px'
+                        }}>
+                          <span>{column.label}</span>
+                          {sortDir !== 'none' && (
+                            <span style={{ fontSize: '0.7rem' }}>
+                              {sortDir === 'desc' ? '▼' : '▲'}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        column.label
+                      )}
+                    </div>
+
+                    {/* "AT" Label for Submitted Columns */}
+                    {isSubmitted && (
+                      <div style={{
+                        backgroundColor: ASSET_PHASES[phase].backgroundColor,
+                        textAlign: 'center',
+                        fontWeight: 500,
+                        color: '#ddd',
+                        fontSize: '0.75rem',
+                        padding: '2px',
+                        borderBottom: `solid 3px ${ASSET_PHASES[phase].lineColor}`,
+                        height: '20px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}>
+                        AT
+                      </div>
+                    )}
+
+                    {/* Bottom border for non-submitted columns */}
+                    {!isSubmitted && (
+                      <div style={{
+                        backgroundColor: ASSET_PHASES[phase].backgroundColor,
+                        borderBottom: `solid 3px ${ASSET_PHASES[phase].lineColor}`,
+                        height: '20px',
+                      }} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Right Fixed Columns */}
+      <div style={{ display: 'flex' }}>
+        {/* Relation */}
+        {!hiddenColumns.has('relation') && (
+          <div style={{
+            width: getColumnWidth('relation'),
+            backgroundColor: '#2a2a2a',
+            border: '1px solid #444',
+            borderLeft: 'none',
+            textAlign: 'center',
+            fontWeight: 'bold',
+            color: '#fff',
+            padding: '12px 8px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '0.9rem',
+          }}>
+            RELATION
+          </div>
+        )}
+        
+        {/* Component */}
+        {!hiddenColumns.has('component') && (
+          <div style={{
+            width: getColumnWidth('component'),
+            backgroundColor: '#2a2a2a',
+            border: '1px solid #444',
+            borderLeft: 'none',
+            textAlign: 'center',
+            fontWeight: 'bold',
+            color: '#fff',
+            padding: '12px 8px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '0.9rem',
+          }}>
+            COMPONENT
+          </div>
+        )}
+      </div>
+    </div>
   );
-});
+};
 
-PhaseColumns.displayName = 'PhaseColumns';
-
-const AssetRow: React.FC<AssetRowProps & { 
-  hiddenColumns: Set<string>; 
-  compact: boolean;
-  isLoading?: boolean;
-}> = React.memo(({
-  asset, thumbnails, dateTimeFormat, isLastRow, hiddenColumns, compact, phaseComponents, latestComponents, isLoading = false,
+const AssetRow: React.FC<AssetRowProps & { hiddenColumns: Set<string>; compact: boolean }> = ({
+  asset, thumbnails, dateTimeFormat, isLastRow, hiddenColumns, compact, phaseComponents, latestComponents,
 }) => {
-  const isHidden = React.useCallback((id: string) => hiddenColumns.has(id), [hiddenColumns]);
+  const isHidden = (id: string) => hiddenColumns.has(id);
 
-  const getPhaseData = React.useCallback((phase: AssetPhase): PhaseData => {
+  const getPhaseData = (phase: string) => {
     const workStatusKey     = `${phase}_work_status` as keyof Asset;
     const approvalStatusKey = `${phase}_approval_status` as keyof Asset;
     const submittedAtKey    = `${phase}_submitted_at_utc` as keyof Asset;
@@ -546,16 +573,10 @@ const AssetRow: React.FC<AssetRowProps & {
 
     const submittedAt = !isEmptyValue(submittedAtValue) ? new Date(submittedAtValue as string) : null;
     const localTimeText = submittedAt ? dateTimeFormat.format(submittedAt) : '—';
-    
     let takeText = '—';
     if (!isEmptyValue(takeValue)) {
       const rawTake = String(takeValue).trim();
       takeText = rawTake.slice(-4); // Last 4 characters as fallback
-
-      // Debug logging only in development
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Computed takeText:', takeText);
-      }
     }
 
     return { 
@@ -565,19 +586,10 @@ const AssetRow: React.FC<AssetRowProps & {
       takeText,
       tooltipText: '',
     };
-  }, [asset, dateTimeFormat]);
-
-  // Memoize all phase data
-  const phaseData = React.useMemo(() => ({
-    mdl: getPhaseData('mdl'),
-    rig: getPhaseData('rig'),
-    bld: getPhaseData('bld'),
-    dsn: getPhaseData('dsn'),
-    ldv: getPhaseData('ldv'),
-  }), [getPhaseData]);
+  };
 
   // function to get component display value
-  const getComponentData = React.useCallback((): string | string[] => {
+  const getComponentData = () => {
     // Check if component exists directly on the asset (from the API response)
     if (asset.component && !isEmptyValue(asset.component)) {
       const componentStr = String(asset.component).trim();
@@ -600,152 +612,281 @@ const AssetRow: React.FC<AssetRowProps & {
       return formatForDisplay(cleanComp);
     }).filter(name => name !== '—'); // Remove empty display values
     
-    return componentNames.length > 0 ? componentNames : '—';
-  }, [asset, latestComponents]);
+    return componentNames.join(', ') || '—';
+  };
   
   const componentData = getComponentData();
-  const componentArray = React.useMemo(() => 
-    typeof componentData === 'string' ? (componentData !== '—' ? [componentData] : []) : componentData,
-    [componentData]
-  );
+
+  // Get column width helper
+  const getColumnWidth = (columnId: string): string => {
+    if (columnId.includes('submitted_at')) return '140px';
+    if (columnId.includes('work_status') || columnId.includes('approval_status')) return '80px';
+    if (columnId.includes('take')) return '90px';
+    if (columnId === 'thumbnail') return '140px';
+    if (columnId === 'group_1_name') return '220px';
+    if (columnId === 'relation') return '120px';
+    if (columnId === 'component') return '150px';
+    return '100px';
+  };
 
   return (
-    <TableRow>
-      {/* THUMBNAIL */}
+    <div style={{ 
+      display: 'flex', 
+      width: '100%',
+      borderBottom: isLastRow ? '2px solid #444' : '1px solid #555',
+      backgroundColor: isLastRow ? '#f9f9f9' : 'transparent',
+    }}>
+      {/* Thumbnail */}
       {!isHidden("thumbnail") && (
-        <TableCell style={compact ? { width: 140, minWidth: 140, maxWidth: 140 } : undefined}>
-          {isLoading ? (
-            <Skeleton variant="rectangular" width={100} height={60} />
-          ) : thumbnails[`${asset.group_1}-${asset.relation}`] ? (
+        <div style={{
+          width: getColumnWidth('thumbnail'),
+          minWidth: getColumnWidth('thumbnail'),
+          maxWidth: getColumnWidth('thumbnail'),
+          borderRight: '1px solid #555',
+          padding: '8px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          {thumbnails[`${asset.group_1}-${asset.relation}`] ? (
             <img
               src={thumbnails[`${asset.group_1}-${asset.relation}`]}
               alt={`${asset.group_1} thumbnail`}
-              style={{ width: "100px", height: "auto" }}
-              loading="lazy"
+              style={{ width: "100px", height: "auto", maxHeight: "60px", objectFit: "contain" }}
             />
           ) : (
-            <span>No Thumbnail</span>
+            <span style={{ color: '#999', fontSize: '0.8rem' }}>No Thumbnail</span>
           )}
-        </TableCell>
+        </div>
       )}
 
-      {/* NAME */}
+      {/* Name */}
       {!isHidden("group_1_name") && (
-        <TableCell style={compact ? { minWidth: 220 } : undefined}>
-          {isLoading ? (
-            <Skeleton variant="text" width={120} />
-          ) : (
-            formatForDisplay(asset.group_1)
-          )}
-        </TableCell>
+        <div style={{
+          width: getColumnWidth('group_1_name'),
+          minWidth: getColumnWidth('group_1_name'),
+          borderRight: '1px solid #555',
+          padding: '8px',
+          display: 'flex',
+          alignItems: 'center',
+          fontWeight: 500,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}>
+          {formatForDisplay(asset.group_1)}
+        </div>
       )}
 
-      {/* PHASE COLUMNS */}
-      {(Object.entries(ASSET_PHASES) as Array<[AssetPhase, { lineColor: string }]>).map(
-          ([phase, { lineColor }]) => (
-            <PhaseColumns
-              key={phase}
-              phase={phase}
-              phaseData={phaseData[phase]}
-              isHidden={isHidden}
-              isLastRow={isLastRow}
-              lineColor={lineColor}
-            />
-          )
-        )}
+      {/* Phase Columns */}
+      {(Object.entries(ASSET_PHASES) as Array<[string, { lineColor: string }]>).map(
+        ([phase, { lineColor }]) => {
+          const ids = {
+            work: `${phase}_work_status`,
+            appr: `${phase}_approval_status`,
+            subm: `${phase}_submitted_at`,
+            take: `${phase}_take`,
+          };
+
+          const visibleIds = [
+            !isHidden(ids.work) ? ids.work : null,
+            !isHidden(ids.appr) ? ids.appr : null,
+            !isHidden(ids.subm) ? ids.subm : null,
+            !isHidden(ids.take) ? ids.take : null,
+          ].filter(Boolean) as string[];
+
+          if (visibleIds.length === 0) return null;
+
+          const firstId = visibleIds[0];
+          const lastId = visibleIds[visibleIds.length - 1];
+          
+          const { workStatus, approvalStatus, localTimeText, takeText } = getPhaseData(phase);
+
+          return (
+            <React.Fragment key={`${asset.group_1}-${asset.relation}-${phase}`}>
+              {/* WORK */}
+              {!isHidden(ids.work) && (
+                <div style={{
+                  width: getColumnWidth(ids.work),
+                  minWidth: getColumnWidth(ids.work),
+                  borderLeft: firstId === ids.work ? `solid 3px ${lineColor}` : '1px solid #555',
+                  borderRight: lastId === ids.work ? `solid 3px ${lineColor}` : '1px solid #555',
+                  padding: '8px 4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  textAlign: 'center',
+                  color: workStatus ? workStatus.color : '#666',
+                  fontWeight: workStatus ? 500 : 400,
+                  fontSize: '0.85rem',
+                }}>
+                  {workStatus ? workStatus.displayName : '—'}
+                </div>
+              )}
+
+              {/* APPR */}
+              {!isHidden(ids.appr) && (
+                <div style={{
+                  width: getColumnWidth(ids.appr),
+                  minWidth: getColumnWidth(ids.appr),
+                  borderLeft: firstId === ids.appr ? 'none' : '1px solid #555',
+                  borderRight: lastId === ids.appr ? `solid 3px ${lineColor}` : '1px solid #555',
+                  padding: '8px 4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  textAlign: 'center',
+                  color: approvalStatus ? approvalStatus.color : '#666',
+                  fontWeight: approvalStatus ? 500 : 400,
+                  fontSize: '0.85rem',
+                }}>
+                  {approvalStatus ? approvalStatus.displayName : '—'}
+                </div>
+              )}
+
+              {/* SUBMITTED */}
+              {!isHidden(ids.subm) && (
+                <div style={{
+                  width: getColumnWidth(ids.subm),
+                  minWidth: getColumnWidth(ids.subm),
+                  borderLeft: firstId === ids.subm ? 'none' : '1px solid #555',
+                  borderRight: lastId === ids.subm ? `solid 3px ${lineColor}` : '1px solid #555',
+                  padding: '8px 4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  textAlign: 'center',
+                  fontSize: '0.85rem',
+                }}>
+                  {localTimeText}
+                </div>
+              )}
+
+              {/* TAKE */}
+              {!isHidden(ids.take) && (
+                <div style={{
+                  width: getColumnWidth(ids.take),
+                  minWidth: getColumnWidth(ids.take),
+                  borderLeft: firstId === ids.take ? 'none' : '1px solid #555',
+                  borderRight: lastId === ids.take ? `solid 3px ${lineColor}` : '1px solid #555',
+                  padding: '8px 4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  textAlign: 'center',
+                  fontSize: '0.85rem',
+                  fontWeight: 500,
+                }}>
+                  {takeText}
+                </div>
+              )}
+            </React.Fragment>
+          );
+        }
+      )}
 
       {/* RELATION */}
       {!isHidden("relation") && !compact && (
-        <TableCell>
-          {isLoading ? (
-            <Skeleton variant="text" width={80} />
-          ) : (
-            formatForDisplay(asset.relation)
-          )}
-        </TableCell>
+        <div style={{
+          width: getColumnWidth('relation'),
+          minWidth: getColumnWidth('relation'),
+          borderLeft: '1px solid #555',
+          padding: '8px',
+          display: 'flex',
+          alignItems: 'center',
+          fontSize: '0.85rem',
+        }}>
+          {formatForDisplay(asset.relation)}
+        </div>
       )}
-      
+
       {/* COMPONENT */}
       {!isHidden("component") && !compact && (
-        <TableCell>
-          {isLoading ? (
-            <Skeleton variant="text" width={100} />
-          ) : componentArray.length > 0 ? (
-            <ComponentDisplay components={componentArray} />
-          ) : (
-            '—'
-          )}
-        </TableCell>
+        <div style={{
+          width: getColumnWidth('component'),
+          minWidth: getColumnWidth('component'),
+          borderLeft: '1px solid #555',
+          padding: '8px',
+          display: 'flex',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '4px',
+        }}>
+          {componentData ? (
+            componentData.split(', ').map((comp: string, index: number) => (
+              <span
+                key={index}
+                style={{
+                  padding: '2px 6px',
+                  backgroundColor: '#e0e0e0',
+                  borderRadius: '12px',
+                  fontSize: '0.75rem',
+                }}
+              >
+                {comp}
+              </span>
+            ))
+          ) : '—'}
+        </div>
       )}
-    </TableRow>
-  );
-}, (prevProps, nextProps) => {
-  // Custom comparison function for React.memo
-  return (
-    prevProps.asset.id === nextProps.asset.id &&
-    prevProps.isLastRow === nextProps.isLastRow &&
-    prevProps.hiddenColumns === nextProps.hiddenColumns &&
-    prevProps.compact === nextProps.compact &&
-    prevProps.isLoading === nextProps.isLoading &&
-    prevProps.thumbnails === nextProps.thumbnails
-  );
-});
-
-AssetRow.displayName = 'AssetRow';
-
-// Main AssetsGroupedDataTable Component
-const AssetsGroupedDataTable: React.FC<AssetsDataTableProps> = (props) => {
-  const {
-    assets,
-    dateTimeFormat,
-    onSortChange,
-    currentSortKey,
-    currentSortDir,
-    hiddenColumns = new Set(),
-    compact = false,
-    phaseComponents,
-    latestComponents,
-    isLoading = false,
-  } = props;
-
-  const { thumbnails, loading: thumbnailsLoading } = useFetchAssetThumbnails(assets);
-
-  const filteredColumns = React.useMemo(() => 
-    columns.filter(col => !hiddenColumns.has(col.id)),
-    [hiddenColumns]
-  );
-
-  return (
-    <ErrorBoundary>
-      <TableContainer>
-        <Table>
-          <RecordTableHead
-            columns={filteredColumns}
-            onSortChange={onSortChange}
-            currentSortKey={currentSortKey}
-            currentSortDir={currentSortDir}
-          />
-          <TableBody>
-            {assets.map((asset, index) => (
-              <AssetRow
-                key={asset.id || `${asset.group_1}-${asset.relation}-${index}`}
-                asset={asset}
-                thumbnails={thumbnails}
-                dateTimeFormat={dateTimeFormat}
-                isLastRow={index === assets.length - 1}
-                hiddenColumns={hiddenColumns}
-                compact={compact}
-                phaseComponents={phaseComponents}
-                latestComponents={latestComponents}
-                isLoading={isLoading || thumbnailsLoading}
-              />
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
-    </ErrorBoundary>
+    </div>
   );
 };
 
+const AssetsGroupedDataTable: React.FC<AssetsDataTableProps> = ({
+  project,
+  assets,
+  tableFooter,
+  dateTimeFormat,
+  onSortChange,
+  currentSortKey,
+  currentSortDir,
+  hiddenColumns = new Set(),
+  latestComponents,
+  phaseComponents,
+}) => {
+  if (!project) return null;
+
+  const { thumbnails } = useFetchAssetThumbnails(project, assets);
+
+  // Compact mode: only Thumbnail + Name visible
+  const compact = isOnlyFixedVisible(hiddenColumns);
+
+  return (
+    <div style={{ width: '100%', overflowX: 'auto' }}>
+      {/* Header */}
+      <PhaseHeader
+        hiddenColumns={hiddenColumns}
+        onSortChange={onSortChange}
+        currentSortKey={currentSortKey}
+        currentSortDir={currentSortDir}
+      />
+
+      {/* Body */}
+      <div style={{ width: '100%' }}>
+        {assets.map((asset, index) => (
+          <AssetRow
+            key={`${asset.group_1}-${asset.relation}`}
+            asset={asset}
+            thumbnails={thumbnails}
+            dateTimeFormat={dateTimeFormat}
+            isLastRow={index === assets.length - 1}
+            hiddenColumns={hiddenColumns}
+            compact={compact}
+            phaseComponents={phaseComponents}
+            latestComponents={latestComponents}
+          />
+        ))}
+      </div>
+
+      {/* Footer */}
+      {tableFooter && (
+        <div style={{ marginTop: '16px' }}>
+          {tableFooter}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export default AssetsGroupedDataTable;
