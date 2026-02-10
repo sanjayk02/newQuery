@@ -1,0 +1,169 @@
+const AssetRow: React.FC<
+  AssetRowProps & { hiddenColumns: Set<string>; compact: boolean }
+> = ({
+  asset,
+  thumbnails,
+  dateTimeFormat,
+  isLastRow,
+  hiddenColumns,
+  compact,
+  phaseComponents,
+  latestComponents,
+}) => {
+  const isHidden = (id: string) => hiddenColumns.has(id);
+
+  const PHASE_COLUMN_ORDER: Record<string, string[]> = {
+    mdl: ["mdl_work_status", "mdl_approval_status", "mdl_submitted_at", "mdl_take"],
+    rig: ["rig_work_status", "rig_approval_status", "rig_submitted_at", "rig_take"],
+    bld: ["bld_work_status", "bld_approval_status", "bld_submitted_at", "bld_take"],
+    dsn: ["dsn_work_status", "dsn_approval_status", "dsn_submitted_at", "dsn_take"],
+    ldv: ["ldv_work_status", "ldv_approval_status", "ldv_submitted_at", "ldv_take"],
+  };
+
+  const getPhaseData = (phase: string) => {
+    const workKey = `${phase}_work_status` as keyof Asset;
+    const apprKey = `${phase}_approval_status` as keyof Asset;
+    const subKey  = `${phase}_submitted_at_utc` as keyof Asset;
+    const takeKey = `${phase}_take` as keyof Asset;
+
+    const workRaw = asset[workKey];
+    const apprRaw = asset[apprKey];
+    const subRaw  = asset[subKey];
+    const takeRaw = asset[takeKey];
+
+    let workStatus: Status | undefined;
+    if (!isEmptyValue(workRaw)) {
+      const raw = String(workRaw);
+      workStatus =
+        WORK_STATUS[raw] ||
+        WORK_STATUS[raw.toLowerCase()] ||
+        WORK_STATUS.svOther;
+    }
+
+    let approvalStatus: Status | undefined;
+    if (!isEmptyValue(apprRaw)) {
+      const raw = String(apprRaw);
+      approvalStatus =
+        APPROVAL_STATUS[raw] ||
+        APPROVAL_STATUS[raw.toLowerCase()] ||
+        APPROVAL_STATUS.other;
+    }
+
+    const submittedAt = !isEmptyValue(subRaw)
+      ? dateTimeFormat.format(new Date(subRaw as string))
+      : "—";
+
+    const takeText = !isEmptyValue(takeRaw)
+      ? String(takeRaw).slice(-4)
+      : "—";
+
+    return { workStatus, approvalStatus, submittedAt, takeText };
+  };
+
+  const getComponentData = () => {
+    if (asset.component && !isEmptyValue(asset.component)) {
+      return formatForDisplay(
+        String(asset.component).replace(/^_+|_+$/g, "")
+      );
+    }
+
+    const key = `${asset.root}-${asset.relation}`;
+    const comps = latestComponents[key] || [];
+    const names = comps
+      .map(c =>
+        formatForDisplay(String(c.component).replace(/^_+|_+$/g, ""))
+      )
+      .filter(v => v !== "—");
+
+    return names.join(", ") || "—";
+  };
+
+  const componentData = getComponentData();
+
+  return (
+    <TableRow>
+      {/* THUMBNAIL */}
+      {!isHidden("thumbnail") && (
+        <TableCell style={compact ? { width: 140 } : undefined}>
+          {thumbnails[`${asset.group_1}-${asset.relation}`] ? (
+            <img
+              src={thumbnails[`${asset.group_1}-${asset.relation}`]}
+              alt={`${asset.group_1} thumbnail`}
+              style={{ width: 100 }}
+            />
+          ) : (
+            <span>No Thumbnail</span>
+          )}
+        </TableCell>
+      )}
+
+      {/* NAME */}
+      {!isHidden("group_1_name") && (
+        <TableCell>{formatForDisplay(asset.group_1)}</TableCell>
+      )}
+
+      {/* PHASE COLUMNS — EXACT HEADER MATCH */}
+      {Object.entries(PHASE_COLUMN_ORDER).map(([phase, colIds]) => {
+        const phaseColor = ASSET_PHASES[phase];
+        const visible = colIds.filter(id => !isHidden(id));
+        if (!visible.length) return null;
+
+        const rail = `3px solid ${phaseColor.lineColor}`;
+        const first = visible[0];
+        const last  = visible[visible.length - 1];
+
+        const { workStatus, approvalStatus, submittedAt, takeText } =
+          getPhaseData(phase);
+
+        return visible.map(colId => {
+          let content: React.ReactNode = "—";
+          let color = "";
+
+          if (colId.includes("work_status")) {
+            content = workStatus?.displayName || "—";
+            color = workStatus?.color || "";
+          } else if (colId.includes("approval_status")) {
+            content = approvalStatus?.displayName || "—";
+            color = approvalStatus?.color || "";
+          } else if (colId.includes("submitted_at")) {
+            content = submittedAt;
+          } else if (colId.includes("take")) {
+            content = takeText;
+          }
+
+          return (
+            <TableCell
+              key={`${asset.group_1}-${asset.relation}-${colId}`}
+              style={{
+                color,
+                textAlign: "center",
+                whiteSpace: "nowrap",
+                borderLeft: colId === first ? rail : "1px solid #444",
+                borderRight: colId === last ? rail : "1px solid #444",
+                borderBottom: isLastRow ? rail : "1px solid #444",
+              }}
+            >
+              {content}
+            </TableCell>
+          );
+        });
+      })}
+
+      {/* RELATION */}
+      {!isHidden("relation") && !compact && (
+        <TableCell>{formatForDisplay(asset.relation)}</TableCell>
+      )}
+
+      {/* COMPONENT */}
+      {!isHidden("component") && !compact && (
+        <TableCell>
+          {componentData.split(", ").map((c, i) => (
+            <span key={i} style={{ marginRight: 6 }}>
+              {c}
+            </span>
+          ))}
+        </TableCell>
+      )}
+    </TableRow>
+  );
+};
