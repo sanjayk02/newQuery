@@ -1,0 +1,327 @@
+/* _________________________________________________________________________________
+  Module Name:
+  AssetsGroupedViewTable.tsx
+
+  Description:
+  Grouped / Phase-based view for assets.
+  Reuses constants & helpers from AssetsDataTable (list view),
+  but has its own header & row rendering.
+__________________________________________________________________________________ */
+
+import React from "react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TableSortLabel,
+} from "@material-ui/core";
+
+import {
+  Asset,
+  AssetsDataTableProps,
+  Column,
+  SortDir,
+} from "./types";
+
+import {
+  ASSET_PHASES,
+  WORK_STATUS,
+  APPROVAL_STATUS,
+  isEmptyValue,
+  formatForDisplay,
+} from "./AssetsDataTable"; // 👈 reuse safely
+
+import { useFetchAssetThumbnails } from "./hooks";
+
+/* -----------------------------------------------------------------------------
+ * SHARED PHASE ORDER (single source of truth)
+ * --------------------------------------------------------------------------- */
+const PHASE_COLUMN_ORDER: Record<string, string[]> = {
+  mdl: ["mdl_work_status", "mdl_approval_status", "mdl_submitted_at", "mdl_take"],
+  rig: ["rig_work_status", "rig_approval_status", "rig_submitted_at", "rig_take"],
+  bld: ["bld_work_status", "bld_approval_status", "bld_submitted_at", "bld_take"],
+  dsn: ["dsn_work_status", "dsn_approval_status", "dsn_submitted_at", "dsn_take"],
+  ldv: ["ldv_work_status", "ldv_approval_status", "ldv_submitted_at", "ldv_take"],
+};
+
+const PHASES = ["mdl", "rig", "bld", "dsn", "ldv"] as const;
+
+/* -----------------------------------------------------------------------------
+ * VISUAL CONSTANTS (match list view)
+ * --------------------------------------------------------------------------- */
+const BASE_CELL_STYLE: React.CSSProperties = {
+  padding: "4px 8px",
+  fontSize: "0.8rem",
+  lineHeight: "18px",
+  whiteSpace: "nowrap",
+  textAlign: "center",
+};
+
+const getColWidth = (id: string) => {
+  if (id === "thumbnail") return 120;
+  if (id === "group_1_name") return 200;
+  if (id === "relation") return 120;
+  if (id === "component") return 150;
+  if (id.includes("submitted")) return 160;
+  if (id.includes("take")) return 80;
+  return 90;
+};
+
+/* -----------------------------------------------------------------------------
+ * HEADER
+ * --------------------------------------------------------------------------- */
+const GroupedTableHead: React.FC<{
+  columns: Column[];
+  onSortChange: (key: string) => void;
+  currentSortKey: string;
+  currentSortDir: SortDir;
+}> = ({ columns, onSortChange, currentSortKey, currentSortDir }) => {
+
+  const getSortDir = (key: string): SortDir =>
+    currentSortKey === key ? currentSortDir : "none";
+
+  return (
+    <TableHead>
+      <TableRow style={{ height: 34 }}>
+        {columns.map(col => {
+          const phase = PHASES.find(p => col.id.startsWith(p));
+          const order = phase ? PHASE_COLUMN_ORDER[phase] : [];
+
+          const isFirst = phase && order[0] === col.id;
+          const isLast  = phase && order[order.length - 1] === col.id;
+
+          const rail =
+            phase && col.colors
+              ? `3px solid ${col.colors.lineColor}`
+              : "none";
+
+          const sortKey = col.sortKey || col.id;
+          const sortDir = getSortDir(sortKey);
+
+          return (
+            <TableCell
+              key={col.id}
+              style={{
+                ...BASE_CELL_STYLE,
+                width: getColWidth(col.id),
+                minWidth: getColWidth(col.id),
+                maxWidth: getColWidth(col.id),
+
+                background: col.colors
+                  ? col.colors.backgroundColor
+                  : "#2a2a2a",
+                color: "#fff",
+                fontWeight: 600,
+
+                borderTop: rail,
+                borderLeft: isFirst ? rail : "1px solid #444",
+                borderRight: isLast ? rail : "1px solid #444",
+              }}
+            >
+              {col.sortable ? (
+                <TableSortLabel
+                  active={sortDir !== "none"}
+                  hideSortIcon
+                  direction={sortDir === "desc" ? "desc" : "asc"}
+                  onClick={() => onSortChange(sortKey)}
+                  IconComponent={() => (
+                    <span style={{ fontSize: 11, marginLeft: 6 }}>
+                      {sortDir === "desc" ? "▼" : "▲"}
+                    </span>
+                  )}
+                >
+                  {col.label}
+                </TableSortLabel>
+              ) : (
+                col.label
+              )}
+            </TableCell>
+          );
+        })}
+      </TableRow>
+    </TableHead>
+  );
+};
+
+/* -----------------------------------------------------------------------------
+ * ROW
+ * --------------------------------------------------------------------------- */
+const GroupedAssetRow: React.FC<{
+  asset: Asset;
+  thumbnails: Record<string, string>;
+  dateTimeFormat: Intl.DateTimeFormat;
+  isLastRow: boolean;
+  hiddenColumns: Set<string>;
+}> = ({ asset, thumbnails, dateTimeFormat, isLastRow, hiddenColumns }) => {
+
+  const isHidden = (id: string) => hiddenColumns.has(id);
+
+  const getPhaseData = (phase: string) => {
+    const work = asset[`${phase}_work_status` as keyof Asset];
+    const appr = asset[`${phase}_approval_status` as keyof Asset];
+    const sub  = asset[`${phase}_submitted_at_utc` as keyof Asset];
+    const take = asset[`${phase}_take` as keyof Asset];
+
+    return {
+      work: !isEmptyValue(work)
+        ? WORK_STATUS[String(work)] || WORK_STATUS.svOther
+        : undefined,
+      appr: !isEmptyValue(appr)
+        ? APPROVAL_STATUS[String(appr)] || APPROVAL_STATUS.other
+        : undefined,
+      sub: !isEmptyValue(sub)
+        ? dateTimeFormat.format(new Date(sub as string))
+        : "—",
+      take: !isEmptyValue(take)
+        ? String(take).slice(-4)
+        : "—",
+    };
+  };
+
+  return (
+    <TableRow style={{ height: 32 }}>
+      {/* THUMBNAIL */}
+      {!isHidden("thumbnail") && (
+        <TableCell style={{ ...BASE_CELL_STYLE, textAlign: "left" }}>
+          {thumbnails[`${asset.group_1}-${asset.relation}`]
+            ? <img src={thumbnails[`${asset.group_1}-${asset.relation}`]} width={80} />
+            : "No Thumbnail"}
+        </TableCell>
+      )}
+
+      {/* NAME */}
+      {!isHidden("group_1_name") && (
+        <TableCell style={{ ...BASE_CELL_STYLE, textAlign: "left" }}>
+          {formatForDisplay(asset.group_1)}
+        </TableCell>
+      )}
+
+      {/* PHASE COLUMNS */}
+      {Object.entries(PHASE_COLUMN_ORDER).map(([phase, ids]) => {
+        const phaseColor = ASSET_PHASES[phase];
+        const visible = ids.filter(id => !isHidden(id));
+        if (!visible.length) return null;
+
+        const rail = `3px solid ${phaseColor.lineColor}`;
+        const first = visible[0];
+        const last  = visible[visible.length - 1];
+
+        const data = getPhaseData(phase);
+
+        return visible.map(id => {
+          let text = "—";
+          let color = "";
+
+          if (id.includes("work")) {
+            text = data.work?.displayName || "—";
+            color = data.work?.color || "";
+          } else if (id.includes("approval")) {
+            text = data.appr?.displayName || "—";
+            color = data.appr?.color || "";
+          } else if (id.includes("submitted")) {
+            text = data.sub;
+          } else if (id.includes("take")) {
+            text = data.take;
+          }
+
+          return (
+            <TableCell
+              key={`${asset.group_1}-${phase}-${id}`}
+              style={{
+                ...BASE_CELL_STYLE,
+                color,
+                borderLeft: id === first ? rail : "1px solid #444",
+                borderRight: id === last ? rail : "1px solid #444",
+                borderBottom: isLastRow ? rail : "1px solid #444",
+              }}
+            >
+              {text}
+            </TableCell>
+          );
+        });
+      })}
+
+      {/* RELATION */}
+      {!isHidden("relation") && (
+        <TableCell style={BASE_CELL_STYLE}>
+          {formatForDisplay(asset.relation)}
+        </TableCell>
+      )}
+
+      {/* COMPONENT */}
+      {!isHidden("component") && (
+        <TableCell style={BASE_CELL_STYLE}>
+          {formatForDisplay(asset.component)}
+        </TableCell>
+      )}
+    </TableRow>
+  );
+};
+
+/* -----------------------------------------------------------------------------
+ * MAIN COMPONENT
+ * --------------------------------------------------------------------------- */
+const AssetsGroupedViewTable: React.FC<AssetsDataTableProps> = ({
+  project,
+  assets,
+  tableFooter,
+  dateTimeFormat,
+  onSortChange,
+  currentSortKey,
+  currentSortDir,
+  hiddenColumns = new Set(),
+}) => {
+  if (!project) return null;
+
+  const { thumbnails } = useFetchAssetThumbnails(project, assets);
+
+  const columnsWithTake: Column[] = [
+    { id: "thumbnail", label: "Thumbnail" },
+    { id: "group_1_name", label: "Name", sortable: true, sortKey: "group_1" },
+
+    ...PHASES.flatMap(phase =>
+      PHASE_COLUMN_ORDER[phase].map(id => ({
+        id,
+        label: id.replace(`${phase}_`, `${phase.toUpperCase()} `).toUpperCase(),
+        colors: ASSET_PHASES[phase],
+        sortable: true,
+      }))
+    ),
+
+    { id: "relation", label: "Relation", sortable: true },
+    { id: "component", label: "Component", sortable: true },
+  ].filter(c => !hiddenColumns.has(c.id));
+
+  return (
+    <Table
+      size="small"
+      style={{ tableLayout: "fixed", width: "100%" }}
+    >
+      <GroupedTableHead
+        columns={columnsWithTake}
+        onSortChange={onSortChange}
+        currentSortKey={currentSortKey}
+        currentSortDir={currentSortDir}
+      />
+
+      <TableBody>
+        {assets.map((asset, index) => (
+          <GroupedAssetRow
+            key={`${asset.group_1}-${asset.relation}-${index}`}
+            asset={asset}
+            thumbnails={thumbnails}
+            dateTimeFormat={dateTimeFormat}
+            isLastRow={index === assets.length - 1}
+            hiddenColumns={hiddenColumns}
+          />
+        ))}
+      </TableBody>
+
+      {tableFooter || null}
+    </Table>
+  );
+};
+
+export default AssetsGroupedViewTable;
