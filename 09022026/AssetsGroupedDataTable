@@ -20,7 +20,7 @@
     * - [Current Date] - Added proper empty value handling in sorting
     * - 02-02-2026 - SanjayK PSI - Added component field to Asset type for better component tracking.
     * - 06-02-2026 - SanjayK PSI - Added take field to ReviewInfo type for enhanced review tracking.
-    * - [Current Date] - Implemented new header structure with phase blocks
+    * - [Current Date] - Implemented vertical phase header structure
     
   Function:
     * - AssetsDataTable: Main component rendering the assets data table.
@@ -38,7 +38,6 @@
     * - ASSET_PHASES, APPROVAL_STATUS, WORK_STATUS: Mappings for phases and statuses.
     * - getPhaseData: Utility to extract phase-related data from an asset.
     * - isHidden: Utility to check if a column is hidden.
-    * - RecordTableHead: Renders the table header with sortable columns
   * 
   ___________________________________________________________________________________ */
 import React from "react";
@@ -57,7 +56,6 @@ import {
   AssetsDataTableProps,
   Colors,
   Column,
-  RecordTableHeadProps,
   SortDir,
   Asset,
 } from "./types";
@@ -185,30 +183,45 @@ const WORK_STATUS: { [key: string]: Status } = {
   approved: { displayName: "Approved", color: "#32cd32" },
 };
 
+// Define the order of columns within each phase as per your image
+const PHASE_COLUMN_ORDER = {
+  mdl: ['mdl_submitted_at', 'mdl_work_status', 'mdl_approval_status', 'mdl_take'],
+  rig: ['rig_submitted_at', 'rig_work_status', 'rig_approval_status', 'rig_take'],
+  bld: ['bld_work_status', 'bld_approval_status', 'bld_submitted_at', 'bld_take'],
+  dsn: ['dsn_work_status', 'dsn_approval_status', 'dsn_submitted_at', 'dsn_take'],
+  ldv: ['ldv_work_status', 'ldv_approval_status', 'ldv_submitted_at', 'ldv_take'],
+};
+
+// Column definitions with proper labels
 const columns: Column[] = [
   { id: "thumbnail", label: "Thumbnail" },
   { id: "group_1_name", label: "Name", sortable: true, sortKey: "group_1" },
 
+  // MDL columns - ORDER MATTERS: SUBMITTED, WORK, APPR, TAKE
+  { id: "mdl_submitted_at", label: "SUBMITTED", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_submitted" },
   { id: "mdl_work_status", label: "WORK", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_work" },
   { id: "mdl_approval_status", label: "APPR", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_appr" },
-  { id: "mdl_submitted_at", label: "SUBMITTED", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_submitted" },
   { id: "mdl_take", label: "TAKE", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_take" },
 
+  // RIG columns - ORDER MATTERS: SUBMITTED, WORK, APPR, TAKE
+  { id: "rig_submitted_at", label: "SUBMITTED", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_submitted" },
   { id: "rig_work_status", label: "WORK", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_work" },
   { id: "rig_approval_status", label: "APPR", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_appr" },
-  { id: "rig_submitted_at", label: "SUBMITTED", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_submitted" },
   { id: "rig_take", label: "TAKE", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_take" },
 
+  // BLD columns - ORDER MATTERS: WORK, APPR, SUBMITTED, TAKE (as per your image)
   { id: "bld_work_status", label: "WORK", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_work" },
   { id: "bld_approval_status", label: "APPR", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_appr" },
   { id: "bld_submitted_at", label: "SUBMITTED", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_submitted" },
   { id: "bld_take", label: "TAKE", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_take" },
 
+  // DSN columns - ORDER MATTERS: WORK, APPR, SUBMITTED, TAKE
   { id: "dsn_work_status", label: "WORK", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_work" },
   { id: "dsn_approval_status", label: "APPR", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_appr" },
   { id: "dsn_submitted_at", label: "SUBMITTED", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_submitted" },
   { id: "dsn_take", label: "TAKE", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_take" },
 
+  // LDV columns - ORDER MATTERS: WORK, APPR, SUBMITTED, TAKE
   { id: "ldv_work_status", label: "WORK", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_work" },
   { id: "ldv_approval_status", label: "APPR", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_appr" },
   { id: "ldv_submitted_at", label: "SUBMITTED", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_submitted" },
@@ -278,9 +291,9 @@ const MultiLineTooltipTableCell: React.FC<TooltipTableCellProps> = ({
 };
 
 /**
- * New Header Structure Component
+ * Header Component with Vertical Phase Labels
  */
-const PhaseHeader: React.FC<{
+const VerticalPhaseHeader: React.FC<{
   hiddenColumns: Set<string>;
   onSortChange: (sortKey: string) => void;
   currentSortKey: string;
@@ -288,67 +301,72 @@ const PhaseHeader: React.FC<{
 }> = ({ hiddenColumns, onSortChange, currentSortKey, currentSortDir }) => {
   const phases = ['mdl', 'rig', 'bld', 'dsn', 'ldv'] as const;
 
-  // Get phase columns that are visible
-  const getVisiblePhaseColumns = (phase: string) => {
-    return columns.filter(col => 
-      col.id.startsWith(phase) && !hiddenColumns.has(col.id)
-    );
-  };
-
-  // Get column width based on type
+  // Column widths
   const getColumnWidth = (columnId: string): string => {
-    if (columnId.includes('submitted_at')) return '140px';
-    if (columnId.includes('work_status') || columnId.includes('approval_status')) return '80px';
-    if (columnId.includes('take')) return '90px';
     if (columnId === 'thumbnail') return '140px';
     if (columnId === 'group_1_name') return '220px';
     if (columnId === 'relation') return '120px';
     if (columnId === 'component') return '150px';
-    return '100px';
+    if (columnId.includes('submitted_at')) return '160px';
+    if (columnId.includes('take')) return '90px';
+    return '100px'; // WORK and APPR columns
+  };
+
+  // Get visible columns for a phase in correct order
+  const getVisiblePhaseColumns = (phase: string) => {
+    const phaseOrder = PHASE_COLUMN_ORDER[phase as keyof typeof PHASE_COLUMN_ORDER] || [];
+    return phaseOrder
+      .map(colId => columns.find(c => c.id === colId))
+      .filter(col => col && !hiddenColumns.has(col.id)) as Column[];
   };
 
   return (
     <div style={{ 
       display: 'flex', 
       width: '100%',
-      borderBottom: '2px solid #444'
+      backgroundColor: '#f5f5f5',
+      borderBottom: '2px solid #ddd',
+      height: '120px', // Fixed height for header
     }}>
       {/* Left Fixed Columns */}
-      <div style={{ display: 'flex' }}>
-        {/* Thumbnail */}
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        {/* THUMBNAIL - spans both rows */}
         {!hiddenColumns.has('thumbnail') && (
           <div style={{
             width: getColumnWidth('thumbnail'),
             backgroundColor: '#2a2a2a',
-            border: '1px solid #444',
-            borderRight: 'none',
-            textAlign: 'center',
-            fontWeight: 'bold',
             color: '#fff',
-            padding: '12px 8px',
+            fontWeight: 'bold',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            height: '100%',
+            borderRight: '1px solid #444',
             fontSize: '0.9rem',
+            textAlign: 'center',
+            padding: '0 8px',
+            writingMode: 'vertical-lr',
+            transform: 'rotate(180deg)',
           }}>
             THUMBNAIL
           </div>
         )}
         
-        {/* Name */}
+        {/* NAME - spans both rows */}
         {!hiddenColumns.has('group_1_name') && (
           <div style={{
             width: getColumnWidth('group_1_name'),
             backgroundColor: '#2a2a2a',
-            border: '1px solid #444',
-            textAlign: 'center',
-            fontWeight: 'bold',
             color: '#fff',
-            padding: '12px 8px',
+            fontWeight: 'bold',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            height: '100%',
+            borderRight: '1px solid #444',
             fontSize: '0.9rem',
+            textAlign: 'center',
+            padding: '0 8px',
           }}>
             NAME
           </div>
@@ -356,84 +374,94 @@ const PhaseHeader: React.FC<{
       </div>
 
       {/* Phase Columns */}
-      {phases.map(phase => {
-        const phaseColumns = getVisiblePhaseColumns(phase);
-        if (phaseColumns.length === 0) return null;
+      <div style={{ display: 'flex', flex: 1, height: '100%' }}>
+        {phases.map(phase => {
+          const phaseColumns = getVisiblePhaseColumns(phase);
+          if (phaseColumns.length === 0) return null;
 
-        return (
-          <div 
-            key={phase} 
-            style={{ 
-              display: 'flex', 
-              flexDirection: 'column',
-              borderLeft: `solid 3px ${ASSET_PHASES[phase].lineColor}`,
-              borderRight: `solid 3px ${ASSET_PHASES[phase].lineColor}`,
-            }}
-          >
-            {/* Phase Header */}
-            <div style={{
-              backgroundColor: ASSET_PHASES[phase].backgroundColor,
-              borderTop: `solid 3px ${ASSET_PHASES[phase].lineColor}`,
-              textAlign: 'center',
-              fontWeight: 'bold',
-              color: '#fff',
-              textTransform: 'uppercase',
-              padding: '8px 4px',
-              fontSize: '0.9rem',
-              height: '36px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}>
-              {phase.toUpperCase()}
-            </div>
+          const phaseColor = ASSET_PHASES[phase];
+          
+          return (
+            <div 
+              key={phase} 
+              style={{ 
+                display: 'flex', 
+                flexDirection: 'column',
+                height: '100%',
+                borderLeft: `solid 3px ${phaseColor.lineColor}`,
+                borderRight: `solid 3px ${phaseColor.lineColor}`,
+              }}
+            >
+              {/* Phase Header Row (takes 1/3 height) */}
+              <div style={{
+                backgroundColor: phaseColor.backgroundColor,
+                height: '40px', // 1/3 of 120px
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderBottom: `solid 3px ${phaseColor.lineColor}`,
+              }}>
+                <div style={{
+                  color: '#fff',
+                  fontWeight: 'bold',
+                  fontSize: '1rem',
+                  textTransform: 'uppercase',
+                  transform: 'rotate(-90deg)',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {phase.toUpperCase()}
+                </div>
+              </div>
 
-            {/* Column Headers */}
-            <div style={{ display: 'flex' }}>
-              {phaseColumns.map((column, index) => {
-                const isFirst = index === 0;
-                const isLast = index === phaseColumns.length - 1;
-                const isSubmitted = column.id.includes('submitted_at');
-                const sortKey = column.sortKey || column.id;
-                const sortDir = currentSortKey === sortKey ? currentSortDir : 'none';
+              {/* Column Headers Row (takes 2/3 height) */}
+              <div style={{ 
+                display: 'flex', 
+                height: '80px', // 2/3 of 120px
+                backgroundColor: phaseColor.backgroundColor,
+              }}>
+                {phaseColumns.map((column, index) => {
+                  const isFirst = index === 0;
+                  const isLast = index === phaseColumns.length - 1;
+                  const isSubmitted = column.id.includes('submitted_at');
+                  const sortKey = column.sortKey || column.id;
+                  const sortDir = currentSortKey === sortKey ? currentSortDir : 'none';
 
-                return (
-                  <div 
-                    key={column.id} 
-                    style={{ 
-                      display: 'flex', 
-                      flexDirection: 'column',
-                      width: getColumnWidth(column.id),
-                      borderLeft: isFirst ? 'none' : '1px solid #555',
-                      borderRight: isLast ? 'none' : '1px solid #555',
-                    }}
-                  >
-                    {/* Main Column Label */}
-                    <div
-                      style={{
-                        backgroundColor: ASSET_PHASES[phase].backgroundColor,
-                        textAlign: 'center',
-                        fontWeight: 600,
-                        color: '#fff',
-                        padding: '6px 2px',
-                        cursor: column.sortable ? 'pointer' : 'default',
-                        fontSize: '0.85rem',
-                        height: '32px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        '&:hover': column.sortable ? {
-                          backgroundColor: `${ASSET_PHASES[phase].backgroundColor}CC`,
-                        } : {},
+                  return (
+                    <div 
+                      key={column.id} 
+                      style={{ 
+                        display: 'flex', 
+                        flexDirection: 'column',
+                        width: getColumnWidth(column.id),
+                        height: '100%',
+                        borderLeft: isFirst ? 'none' : '1px solid rgba(255,255,255,0.3)',
+                        borderRight: isLast ? 'none' : '1px solid rgba(255,255,255,0.3)',
                       }}
-                      onClick={column.sortable ? () => onSortChange(sortKey) : undefined}
                     >
-                      {column.sortable ? (
+                      {/* Main Column Label */}
+                      <div
+                        style={{
+                          flex: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          textAlign: 'center',
+                          color: '#fff',
+                          fontWeight: 600,
+                          fontSize: '0.85rem',
+                          cursor: column.sortable ? 'pointer' : 'default',
+                          padding: '4px 2px',
+                          '&:hover': column.sortable ? {
+                            backgroundColor: 'rgba(255,255,255,0.1)',
+                          } : {},
+                        }}
+                        onClick={column.sortable ? () => onSortChange(sortKey) : undefined}
+                      >
                         <div style={{ 
                           display: 'flex', 
-                          alignItems: 'center', 
-                          justifyContent: 'center',
-                          gap: '4px'
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '2px'
                         }}>
                           <span>{column.label}</span>
                           {sortDir !== 'none' && (
@@ -442,83 +470,69 @@ const PhaseHeader: React.FC<{
                             </span>
                           )}
                         </div>
-                      ) : (
-                        column.label
+                      </div>
+
+                      {/* "AT" Label for Submitted Columns Only */}
+                      {isSubmitted && (
+                        <div style={{
+                          height: '24px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#ddd',
+                          fontSize: '0.75rem',
+                          fontWeight: 500,
+                          borderTop: '1px solid rgba(255,255,255,0.2)',
+                        }}>
+                          AT
+                        </div>
                       )}
                     </div>
-
-                    {/* "AT" Label for Submitted Columns */}
-                    {isSubmitted && (
-                      <div style={{
-                        backgroundColor: ASSET_PHASES[phase].backgroundColor,
-                        textAlign: 'center',
-                        fontWeight: 500,
-                        color: '#ddd',
-                        fontSize: '0.75rem',
-                        padding: '2px',
-                        borderBottom: `solid 3px ${ASSET_PHASES[phase].lineColor}`,
-                        height: '20px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}>
-                        AT
-                      </div>
-                    )}
-
-                    {/* Bottom border for non-submitted columns */}
-                    {!isSubmitted && (
-                      <div style={{
-                        backgroundColor: ASSET_PHASES[phase].backgroundColor,
-                        borderBottom: `solid 3px ${ASSET_PHASES[phase].lineColor}`,
-                        height: '20px',
-                      }} />
-                    )}
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
 
       {/* Right Fixed Columns */}
-      <div style={{ display: 'flex' }}>
-        {/* Relation */}
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        {/* RELATION - spans both rows */}
         {!hiddenColumns.has('relation') && (
           <div style={{
             width: getColumnWidth('relation'),
             backgroundColor: '#2a2a2a',
-            border: '1px solid #444',
-            borderLeft: 'none',
-            textAlign: 'center',
-            fontWeight: 'bold',
             color: '#fff',
-            padding: '12px 8px',
+            fontWeight: 'bold',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            height: '100%',
+            borderLeft: '1px solid #444',
             fontSize: '0.9rem',
+            textAlign: 'center',
+            padding: '0 8px',
           }}>
             RELATION
           </div>
         )}
         
-        {/* Component */}
+        {/* COMPONENT - spans both rows */}
         {!hiddenColumns.has('component') && (
           <div style={{
             width: getColumnWidth('component'),
             backgroundColor: '#2a2a2a',
-            border: '1px solid #444',
-            borderLeft: 'none',
-            textAlign: 'center',
-            fontWeight: 'bold',
             color: '#fff',
-            padding: '12px 8px',
+            fontWeight: 'bold',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            height: '100%',
+            borderLeft: '1px solid #444',
             fontSize: '0.9rem',
+            textAlign: 'center',
+            padding: '0 8px',
           }}>
             COMPONENT
           </div>
@@ -528,6 +542,210 @@ const PhaseHeader: React.FC<{
   );
 };
 
+/**
+ * Alternative: Table-based implementation (simpler)
+ */
+const TableBasedHeader: React.FC<{
+  hiddenColumns: Set<string>;
+  onSortChange: (sortKey: string) => void;
+  currentSortKey: string;
+  currentSortDir: SortDir;
+}> = ({ hiddenColumns, onSortChange, currentSortKey, currentSortDir }) => {
+  const phases = ['mdl', 'rig', 'bld', 'dsn', 'ldv'] as const;
+
+  return (
+    <Table stickyHeader style={{ tableLayout: 'fixed', width: '100%' }}>
+      <TableHead>
+        {/* Row 1: Main headers */}
+        <TableRow>
+          {/* THUMBNAIL - rowSpan 2 */}
+          {!hiddenColumns.has('thumbnail') && (
+            <TableCell 
+              rowSpan={2}
+              style={{
+                width: 140,
+                backgroundColor: '#2a2a2a',
+                color: '#fff',
+                fontWeight: 'bold',
+                textAlign: 'center',
+                verticalAlign: 'middle',
+                border: '1px solid #444',
+              }}
+            >
+              THUMBNAIL
+            </TableCell>
+          )}
+          
+          {/* NAME - rowSpan 2 */}
+          {!hiddenColumns.has('group_1_name') && (
+            <TableCell 
+              rowSpan={2}
+              style={{
+                minWidth: 220,
+                backgroundColor: '#2a2a2a',
+                color: '#fff',
+                fontWeight: 'bold',
+                textAlign: 'center',
+                verticalAlign: 'middle',
+                border: '1px solid #444',
+              }}
+            >
+              NAME
+            </TableCell>
+          )}
+          
+          {/* Phase headers with individual columns */}
+          {phases.flatMap(phase => {
+            const phaseColumns = columns
+              .filter(col => col.id.startsWith(phase) && !hiddenColumns.has(col.id))
+              .sort((a, b) => {
+                const order = PHASE_COLUMN_ORDER[phase as keyof typeof PHASE_COLUMN_ORDER];
+                return order.indexOf(a.id) - order.indexOf(b.id);
+              });
+            
+            if (phaseColumns.length === 0) return [];
+            
+            return phaseColumns.map((col, colIndex) => {
+              const isFirstInPhase = colIndex === 0;
+              const isLastInPhase = colIndex === phaseColumns.length - 1;
+              const isSubmitted = col.id.includes('submitted_at');
+              const phaseColor = ASSET_PHASES[phase];
+              
+              return (
+                <TableCell
+                  key={col.id}
+                  style={{
+                    backgroundColor: phaseColor.backgroundColor,
+                    borderTop: `solid 3px ${phaseColor.lineColor}`,
+                    borderLeft: isFirstInPhase ? `solid 3px ${phaseColor.lineColor}` : '1px solid rgba(255,255,255,0.3)',
+                    borderRight: isLastInPhase ? `solid 3px ${phaseColor.lineColor}` : '1px solid rgba(255,255,255,0.3)',
+                    borderBottom: isSubmitted ? 'none' : `solid 3px ${phaseColor.lineColor}`,
+                    padding: '4px 2px',
+                    height: '60px',
+                  }}
+                >
+                  {/* Column label */}
+                  <div style={{
+                    color: '#fff',
+                    fontWeight: 600,
+                    fontSize: '0.85rem',
+                    textAlign: 'center',
+                    marginBottom: isSubmitted ? '4px' : '0',
+                  }}>
+                    {col.sortable ? (
+                      <TableSortLabel
+                        active={currentSortKey === (col.sortKey || col.id)}
+                        direction={currentSortDir === 'desc' ? 'desc' : 'asc'}
+                        onClick={() => onSortChange(col.sortKey || col.id)}
+                        style={{ color: '#fff' }}
+                      >
+                        {col.label}
+                      </TableSortLabel>
+                    ) : col.label}
+                  </div>
+                  
+                  {/* AT label for submitted columns */}
+                  {isSubmitted && (
+                    <div style={{
+                      color: '#ddd',
+                      fontSize: '0.75rem',
+                      fontWeight: 500,
+                      textAlign: 'center',
+                      borderTop: '1px solid rgba(255,255,255,0.2)',
+                      paddingTop: '2px',
+                    }}>
+                      AT
+                    </div>
+                  )}
+                </TableCell>
+              );
+            });
+          })}
+          
+          {/* RELATION - rowSpan 2 */}
+          {!hiddenColumns.has('relation') && (
+            <TableCell 
+              rowSpan={2}
+              style={{
+                minWidth: 120,
+                backgroundColor: '#2a2a2a',
+                color: '#fff',
+                fontWeight: 'bold',
+                textAlign: 'center',
+                verticalAlign: 'middle',
+                border: '1px solid #444',
+              }}
+            >
+              RELATION
+            </TableCell>
+          )}
+          
+          {/* COMPONENT - rowSpan 2 */}
+          {!hiddenColumns.has('component') && (
+            <TableCell 
+              rowSpan={2}
+              style={{
+                minWidth: 150,
+                backgroundColor: '#2a2a2a',
+                color: '#fff',
+                fontWeight: 'bold',
+                textAlign: 'center',
+                verticalAlign: 'middle',
+                border: '1px solid #444',
+              }}
+            >
+              COMPONENT
+            </TableCell>
+          )}
+        </TableRow>
+        
+        {/* Row 2: Phase labels (vertical) - This row is actually hidden, phase labels are in row 1 cells */}
+        <TableRow>
+          {phases.flatMap(phase => {
+            const phaseColumns = columns.filter(col => col.id.startsWith(phase) && !hiddenColumns.has(col.id));
+            if (phaseColumns.length === 0) return [];
+            
+            const phaseColor = ASSET_PHASES[phase];
+            
+            // Create a single cell that spans all columns for this phase
+            return [
+              <TableCell
+                key={`phase-label-${phase}`}
+                colSpan={phaseColumns.length}
+                style={{
+                  backgroundColor: phaseColor.backgroundColor,
+                  borderLeft: `solid 3px ${phaseColor.lineColor}`,
+                  borderRight: `solid 3px ${phaseColor.lineColor}`,
+                  borderBottom: `solid 3px ${phaseColor.lineColor}`,
+                  padding: 0,
+                  height: '40px',
+                }}
+              >
+                <div style={{
+                  color: '#fff',
+                  fontWeight: 'bold',
+                  fontSize: '1rem',
+                  textTransform: 'uppercase',
+                  transform: 'rotate(-90deg)',
+                  whiteSpace: 'nowrap',
+                  height: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: phaseColumns.length * 100, // Approximate width
+                }}>
+                  {phase.toUpperCase()}
+                </div>
+              </TableCell>
+            ];
+          })}
+        </TableRow>
+      </TableHead>
+    </Table>
+  );
+};
+
+// Keep the existing AssetRow component as is, but update column order processing
 const AssetRow: React.FC<AssetRowProps & { hiddenColumns: Set<string>; compact: boolean }> = ({
   asset, thumbnails, dateTimeFormat, isLastRow, hiddenColumns, compact, phaseComponents, latestComponents,
 }) => {
@@ -617,219 +835,120 @@ const AssetRow: React.FC<AssetRowProps & { hiddenColumns: Set<string>; compact: 
   
   const componentData = getComponentData();
 
-  // Get column width helper
-  const getColumnWidth = (columnId: string): string => {
-    if (columnId.includes('submitted_at')) return '140px';
-    if (columnId.includes('work_status') || columnId.includes('approval_status')) return '80px';
-    if (columnId.includes('take')) return '90px';
-    if (columnId === 'thumbnail') return '140px';
-    if (columnId === 'group_1_name') return '220px';
-    if (columnId === 'relation') return '120px';
-    if (columnId === 'component') return '150px';
-    return '100px';
+  // Process phase columns in correct order
+  const renderPhaseColumns = () => {
+    const phases = ['mdl', 'rig', 'bld', 'dsn', 'ldv'] as const;
+    
+    return phases.flatMap(phase => {
+      // Get columns in correct order for this phase
+      const phaseOrder = PHASE_COLUMN_ORDER[phase as keyof typeof PHASE_COLUMN_ORDER] || [];
+      const visiblePhaseColumns = phaseOrder.filter(colId => !isHidden(colId));
+      
+      if (visiblePhaseColumns.length === 0) return [];
+      
+      const phaseColor = ASSET_PHASES[phase];
+      const { workStatus, approvalStatus, localTimeText, takeText } = getPhaseData(phase);
+      
+      return visiblePhaseColumns.map((colId, index) => {
+        const isFirst = index === 0;
+        const isLast = index === visiblePhaseColumns.length - 1;
+        
+        let cellContent = '—';
+        let cellColor = '';
+        
+        if (colId.includes('work_status')) {
+          cellContent = workStatus ? workStatus.displayName : '—';
+          cellColor = workStatus ? workStatus.color : '';
+        } else if (colId.includes('approval_status')) {
+          cellContent = approvalStatus ? approvalStatus.displayName : '—';
+          cellColor = approvalStatus ? approvalStatus.color : '';
+        } else if (colId.includes('submitted_at')) {
+          cellContent = localTimeText;
+        } else if (colId.includes('take')) {
+          cellContent = takeText;
+        }
+        
+        return (
+          <TableCell
+            key={colId}
+            style={{
+              color: cellColor,
+              borderLeft: isFirst ? `solid 3px ${phaseColor.lineColor}` : '1px solid #ddd',
+              borderRight: isLast ? `solid 3px ${phaseColor.lineColor}` : '1px solid #ddd',
+              borderBottom: isLastRow ? `solid 3px ${phaseColor.lineColor}` : '1px solid #ddd',
+              padding: '8px 4px',
+              textAlign: 'center',
+              backgroundColor: isLastRow ? '#f9f9f9' : 'transparent',
+            }}
+          >
+            {cellContent}
+          </TableCell>
+        );
+      });
+    });
   };
 
   return (
-    <div style={{ 
-      display: 'flex', 
-      width: '100%',
-      borderBottom: isLastRow ? '2px solid #444' : '1px solid #555',
-      backgroundColor: isLastRow ? '#f9f9f9' : 'transparent',
-    }}>
+    <TableRow>
       {/* Thumbnail */}
       {!isHidden("thumbnail") && (
-        <div style={{
-          width: getColumnWidth('thumbnail'),
-          minWidth: getColumnWidth('thumbnail'),
-          maxWidth: getColumnWidth('thumbnail'),
-          borderRight: '1px solid #555',
-          padding: '8px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
+        <TableCell style={compact ? { width: 140, minWidth: 140, maxWidth: 140 } : undefined}>
           {thumbnails[`${asset.group_1}-${asset.relation}`] ? (
             <img
               src={thumbnails[`${asset.group_1}-${asset.relation}`]}
               alt={`${asset.group_1} thumbnail`}
-              style={{ width: "100px", height: "auto", maxHeight: "60px", objectFit: "contain" }}
+              style={{ width: "100px", height: "auto" }}
             />
           ) : (
-            <span style={{ color: '#999', fontSize: '0.8rem' }}>No Thumbnail</span>
+            <span>No Thumbnail</span>
           )}
-        </div>
+        </TableCell>
       )}
 
       {/* Name */}
       {!isHidden("group_1_name") && (
-        <div style={{
-          width: getColumnWidth('group_1_name'),
-          minWidth: getColumnWidth('group_1_name'),
-          borderRight: '1px solid #555',
-          padding: '8px',
-          display: 'flex',
-          alignItems: 'center',
-          fontWeight: 500,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}>
+        <TableCell style={compact ? { minWidth: 220 } : undefined}>
           {formatForDisplay(asset.group_1)}
-        </div>
+        </TableCell>
       )}
 
-      {/* Phase Columns */}
-      {(Object.entries(ASSET_PHASES) as Array<[string, { lineColor: string }]>).map(
-        ([phase, { lineColor }]) => {
-          const ids = {
-            work: `${phase}_work_status`,
-            appr: `${phase}_approval_status`,
-            subm: `${phase}_submitted_at`,
-            take: `${phase}_take`,
-          };
+      {/* Phase Columns (in correct order) */}
+      {renderPhaseColumns()}
 
-          const visibleIds = [
-            !isHidden(ids.work) ? ids.work : null,
-            !isHidden(ids.appr) ? ids.appr : null,
-            !isHidden(ids.subm) ? ids.subm : null,
-            !isHidden(ids.take) ? ids.take : null,
-          ].filter(Boolean) as string[];
-
-          if (visibleIds.length === 0) return null;
-
-          const firstId = visibleIds[0];
-          const lastId = visibleIds[visibleIds.length - 1];
-          
-          const { workStatus, approvalStatus, localTimeText, takeText } = getPhaseData(phase);
-
-          return (
-            <React.Fragment key={`${asset.group_1}-${asset.relation}-${phase}`}>
-              {/* WORK */}
-              {!isHidden(ids.work) && (
-                <div style={{
-                  width: getColumnWidth(ids.work),
-                  minWidth: getColumnWidth(ids.work),
-                  borderLeft: firstId === ids.work ? `solid 3px ${lineColor}` : '1px solid #555',
-                  borderRight: lastId === ids.work ? `solid 3px ${lineColor}` : '1px solid #555',
-                  padding: '8px 4px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  textAlign: 'center',
-                  color: workStatus ? workStatus.color : '#666',
-                  fontWeight: workStatus ? 500 : 400,
-                  fontSize: '0.85rem',
-                }}>
-                  {workStatus ? workStatus.displayName : '—'}
-                </div>
-              )}
-
-              {/* APPR */}
-              {!isHidden(ids.appr) && (
-                <div style={{
-                  width: getColumnWidth(ids.appr),
-                  minWidth: getColumnWidth(ids.appr),
-                  borderLeft: firstId === ids.appr ? 'none' : '1px solid #555',
-                  borderRight: lastId === ids.appr ? `solid 3px ${lineColor}` : '1px solid #555',
-                  padding: '8px 4px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  textAlign: 'center',
-                  color: approvalStatus ? approvalStatus.color : '#666',
-                  fontWeight: approvalStatus ? 500 : 400,
-                  fontSize: '0.85rem',
-                }}>
-                  {approvalStatus ? approvalStatus.displayName : '—'}
-                </div>
-              )}
-
-              {/* SUBMITTED */}
-              {!isHidden(ids.subm) && (
-                <div style={{
-                  width: getColumnWidth(ids.subm),
-                  minWidth: getColumnWidth(ids.subm),
-                  borderLeft: firstId === ids.subm ? 'none' : '1px solid #555',
-                  borderRight: lastId === ids.subm ? `solid 3px ${lineColor}` : '1px solid #555',
-                  padding: '8px 4px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  textAlign: 'center',
-                  fontSize: '0.85rem',
-                }}>
-                  {localTimeText}
-                </div>
-              )}
-
-              {/* TAKE */}
-              {!isHidden(ids.take) && (
-                <div style={{
-                  width: getColumnWidth(ids.take),
-                  minWidth: getColumnWidth(ids.take),
-                  borderLeft: firstId === ids.take ? 'none' : '1px solid #555',
-                  borderRight: lastId === ids.take ? `solid 3px ${lineColor}` : '1px solid #555',
-                  padding: '8px 4px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  textAlign: 'center',
-                  fontSize: '0.85rem',
-                  fontWeight: 500,
-                }}>
-                  {takeText}
-                </div>
-              )}
-            </React.Fragment>
-          );
-        }
-      )}
-
-      {/* RELATION */}
+      {/* Relation */}
       {!isHidden("relation") && !compact && (
-        <div style={{
-          width: getColumnWidth('relation'),
-          minWidth: getColumnWidth('relation'),
-          borderLeft: '1px solid #555',
-          padding: '8px',
-          display: 'flex',
-          alignItems: 'center',
-          fontSize: '0.85rem',
-        }}>
-          {formatForDisplay(asset.relation)}
-        </div>
+        <TableCell>{formatForDisplay(asset.relation)}</TableCell>
       )}
-
-      {/* COMPONENT */}
+      
+      {/* Component */}
       {!isHidden("component") && !compact && (
-        <div style={{
-          width: getColumnWidth('component'),
-          minWidth: getColumnWidth('component'),
-          borderLeft: '1px solid #555',
-          padding: '8px',
-          display: 'flex',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '4px',
-        }}>
+        <TableCell>
           {componentData ? (
-            componentData.split(', ').map((comp: string, index: number) => (
-              <span
-                key={index}
-                style={{
-                  padding: '2px 6px',
-                  backgroundColor: '#e0e0e0',
-                  borderRadius: '12px',
-                  fontSize: '0.75rem',
-                }}
-              >
-                {comp}
-              </span>
-            ))
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '4px',
+              }}
+            >
+              {componentData.split(', ').map((comp: string, index: number) => (
+                <span
+                  key={index}
+                  style={{
+                    padding: '2px 6px',
+                    backgroundColor: '#e0e0e0',
+                    borderRadius: '12px',
+                    fontSize: '0.8rem',
+                  }}
+                >
+                  {comp}
+                </span>
+              ))}
+            </div>
           ) : '—'}
-        </div>
+        </TableCell>
       )}
-    </div>
+    </TableRow>
   );
 };
 
@@ -848,43 +967,39 @@ const AssetsGroupedDataTable: React.FC<AssetsDataTableProps> = ({
   if (!project) return null;
 
   const { thumbnails } = useFetchAssetThumbnails(project, assets);
-
-  // Compact mode: only Thumbnail + Name visible
   const compact = isOnlyFixedVisible(hiddenColumns);
 
   return (
     <div style={{ width: '100%', overflowX: 'auto' }}>
-      {/* Header */}
-      <PhaseHeader
+      {/* Use TableBasedHeader for simpler implementation */}
+      <TableBasedHeader
         hiddenColumns={hiddenColumns}
         onSortChange={onSortChange}
         currentSortKey={currentSortKey}
         currentSortDir={currentSortDir}
       />
-
+      
       {/* Body */}
-      <div style={{ width: '100%' }}>
-        {assets.map((asset, index) => (
-          <AssetRow
-            key={`${asset.group_1}-${asset.relation}`}
-            asset={asset}
-            thumbnails={thumbnails}
-            dateTimeFormat={dateTimeFormat}
-            isLastRow={index === assets.length - 1}
-            hiddenColumns={hiddenColumns}
-            compact={compact}
-            phaseComponents={phaseComponents}
-            latestComponents={latestComponents}
-          />
-        ))}
-      </div>
-
+      <Table style={{ tableLayout: 'fixed', width: '100%' }}>
+        <TableBody>
+          {assets.map((asset, index) => (
+            <AssetRow
+              key={`${asset.group_1}-${asset.relation}`}
+              asset={asset}
+              thumbnails={thumbnails}
+              dateTimeFormat={dateTimeFormat}
+              isLastRow={index === assets.length - 1}
+              hiddenColumns={hiddenColumns}
+              compact={compact}
+              phaseComponents={phaseComponents}
+              latestComponents={latestComponents}
+            />
+          ))}
+        </TableBody>
+      </Table>
+      
       {/* Footer */}
-      {tableFooter && (
-        <div style={{ marginTop: '16px' }}>
-          {tableFooter}
-        </div>
-      )}
+      {tableFooter}
     </div>
   );
 };
