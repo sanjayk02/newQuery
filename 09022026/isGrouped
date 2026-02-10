@@ -1,0 +1,40 @@
+// In the render method of AssetsDataTablePanel.tsx, update the grouped view section:
+{isGrouped ? (
+  <Box width="100%">
+    <AssetsGroupedDataTable
+      project={currentProject}
+      assets={pagedAssets}
+      phaseComponents={phaseComponents}
+      latestComponents={latestComponents}
+      tableFooter={
+        <AssetsDataTableFooter
+          count={filteredTotal}
+          page={pageProps.page}
+          rowsPerPage={pageProps.rowsPerPage}
+          onChangePage={(_, page) =>
+            setPageProps((p) => ({ ...p, page }))
+          }
+          onChangeRowsPerPage={(e) =>
+            setPageProps((p) => ({
+              ...p,
+              page: 0,
+              rowsPerPage: parseInt(e.target.value, 10),
+            }))
+          }
+        />
+      }
+      dateTimeFormat={dateTimeFormat}
+      currentSortKey={uiSortKey}
+      currentSortDir={uiSortDir}
+      onSortChange={handleSortChange}
+      hiddenColumns={hiddenColumns}
+      page={pageProps.page}
+      rowsPerPage={pageProps.rowsPerPage}
+      assetNameKey={filterProps.assetNameKey}
+      approvalStatuses={filterProps.approvalStatuses}
+      workStatuses={filterProps.workStatuses}
+    />
+  </Box>
+) : (
+  // ... existing list view ...
+)}
