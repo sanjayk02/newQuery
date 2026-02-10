@@ -1,0 +1,89 @@
+<TableHead>
+  {/* ================= PHASE ROW ================= */}
+  <TableRow>
+    {/* Fixed left */}
+    {!hiddenColumns.has("thumbnail") && (
+      <TableCell rowSpan={2} className="fixedHeader">
+        THUMBNAIL
+      </TableCell>
+    )}
+    {!hiddenColumns.has("group_1_name") && (
+      <TableCell rowSpan={2} className="fixedHeader">
+        NAME
+      </TableCell>
+    )}
+
+    {/* Phase headers */}
+    {(["mdl", "rig", "bld", "dsn", "ldv"] as const).map(phase => {
+      const visibleCols = PHASE_COLUMN_ORDER[phase]
+        .filter(id => !hiddenColumns.has(id));
+
+      if (!visibleCols.length) return null;
+
+      return (
+        <TableCell
+          key={phase}
+          colSpan={visibleCols.length}
+          style={{
+            background: ASSET_PHASES[phase].backgroundColor,
+            color: "#fff",
+            fontWeight: 700,
+            textAlign: "center",
+            borderLeft: `3px solid ${ASSET_PHASES[phase].lineColor}`,
+            borderRight: `3px solid ${ASSET_PHASES[phase].lineColor}`,
+          }}
+        >
+          {phase.toUpperCase()}
+        </TableCell>
+      );
+    })}
+
+    {/* Fixed right */}
+    {!hiddenColumns.has("relation") && (
+      <TableCell rowSpan={2} className="fixedHeader">
+        RELATION
+      </TableCell>
+    )}
+    {!hiddenColumns.has("component") && (
+      <TableCell rowSpan={2} className="fixedHeader">
+        COMPONENT
+      </TableCell>
+    )}
+  </TableRow>
+
+  {/* ================= COLUMN ROW ================= */}
+  <TableRow>
+    {(["mdl", "rig", "bld", "dsn", "ldv"] as const).flatMap(phase => {
+      const phaseColor = ASSET_PHASES[phase];
+
+      return PHASE_COLUMN_ORDER[phase]
+        .filter(id => !hiddenColumns.has(id))
+        .map((colId, index, arr) => {
+          const col = columns.find(c => c.id === colId)!;
+          const isFirst = index === 0;
+          const isLast = index === arr.length - 1;
+
+          return (
+            <TableCell
+              key={colId}
+              style={{
+                background: phaseColor.backgroundColor,
+                color: "#fff",
+                fontWeight: 600,
+                textAlign: "center",
+                borderLeft: isFirst
+                  ? `3px solid ${phaseColor.lineColor}`
+                  : "1px solid rgba(255,255,255,0.3)",
+                borderRight: isLast
+                  ? `3px solid ${phaseColor.lineColor}`
+                  : "1px solid rgba(255,255,255,0.3)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {col.label}
+            </TableCell>
+          );
+        });
+    })}
+  </TableRow>
+</TableHead>
