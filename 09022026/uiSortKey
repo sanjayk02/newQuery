@@ -1,0 +1,35 @@
+const m = uiSortKey.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted|take)$/i);
+
+if (m) {
+  const phase = m[1].toLowerCase();
+  const field = m[2].toLowerCase();
+
+  // --- SUBMITTED (date sort)
+  if (field === 'submitted') {
+    const aVal = a[`${phase}_submitted_at_utc`] || '';
+    const bVal = b[`${phase}_submitted_at_utc`] || '';
+    return enhancedCompareDates(aVal, bVal, uiSortDir);
+  }
+
+  // --- TAKE (numeric sort)
+  if (field === 'take') {
+    const aValRaw = a[`${phase}_take`];
+    const bValRaw = b[`${phase}_take`];
+
+    const aNum = isEmptyValue(aValRaw) ? Number.MAX_SAFE_INTEGER : parseInt(aValRaw, 10);
+    const bNum = isEmptyValue(bValRaw) ? Number.MAX_SAFE_INTEGER : parseInt(bValRaw, 10);
+
+    if (aNum === bNum) return 0;
+    return uiSortDir === 'asc' ? aNum - bNum : bNum - aNum;
+  }
+
+  // --- WORK / APPR (string sort)
+  const key =
+    field === 'appr'
+      ? `${phase}_approval_status`
+      : `${phase}_work_status`;
+
+  const aVal = (a[key] || '').toString().trim();
+  const bVal = (b[key] || '').toString().trim();
+  return enhancedCompareStrings(aVal, bVal, uiSortDir);
+}
