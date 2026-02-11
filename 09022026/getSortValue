@@ -1,0 +1,28 @@
+const getSortValue = (asset: any, key: string) => {
+  // TAKE columns → numeric
+  const takeMatch = key.match(/^(mdl|rig|bld|dsn|ldv)_take$/i);
+  if (takeMatch) {
+    const val = asset[key];
+    return val ? parseInt(val, 10) : 0;
+  }
+
+  // Submitted → date
+  if (key.includes("submitted")) {
+    const date = new Date(asset[key]);
+    return isNaN(date.getTime()) ? 0 : date.getTime();
+  }
+
+  // Default
+  return asset[key] ?? "";
+};
+
+
+
+items.sort((a, b) => {
+  const aVal = getSortValue(a, sortKey);
+  const bVal = getSortValue(b, sortKey);
+
+  if (aVal < bVal) return sortDir === "asc" ? -1 : 1;
+  if (aVal > bVal) return sortDir === "asc" ? 1 : -1;
+  return 0;
+});
