@@ -1,0 +1,17 @@
+const shouldFetchAllList =
+  uiSortKey !== 'group_1' || filtersActive;
+
+const listPage = shouldFetchAllList ? 0 : pageProps.page;
+const listRows = shouldFetchAllList ? 1000 : pageProps.rowsPerPage;
+
+const { assets: rawAssets, total: rawTotal } = useFetchAssets(
+  currentProject,
+  listPage,
+  listRows,
+);
+
+
+const shouldFetchAllForPivot =
+  viewMode === 'grouped' ||
+  filtersActive ||
+  uiSortKey !== 'group_1';
