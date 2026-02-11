@@ -1,0 +1,52 @@
+if (col.kind === "appr" || col.kind === "work") {
+  const field = col.kind === "work" ? "work_status" : "approval_status";
+  const raw = asset[phase + "_" + field];
+
+  if (isEmptyValue(raw)) {
+    return <Typography style={{ fontSize: UI.FONT_SIZE_CONTENT }}>—</Typography>;
+  }
+
+  const text = String(raw).trim();
+
+  // Split prefix and status at first capital letter
+  const match = text.match(/^([a-z]+)([A-Z].*)$/);
+
+  let prefix = "";
+  let status = text;
+
+  if (match) {
+    prefix = match[1];
+    status = match[2];
+  }
+
+  return (
+    <Box
+      display="flex"
+      flexDirection="column"
+      alignItems="center"
+      lineHeight={1}
+    >
+      {prefix && (
+        <Typography
+          style={{
+            fontSize: UI.FONT_SIZE_CONTENT - 1,
+            fontWeight: 600,
+            color: "#00b7ff", // prefix color (you can change)
+          }}
+        >
+          {prefix}
+        </Typography>
+      )}
+
+      <Typography
+        style={{
+          fontSize: UI.FONT_SIZE_CONTENT,
+          fontWeight: 500,
+          color: statusColor(status),
+        }}
+      >
+        {status}
+      </Typography>
+    </Box>
+  );
+}
