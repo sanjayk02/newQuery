@@ -1,0 +1,61 @@
+
+Now it looks like sorting is broken.
+
+But actually it was overwritten.
+
+---
+
+# 🔥 Correct Production Fix
+
+If you want:
+
+> Global sorting respected  
+> Grouping only visual  
+
+Then your grouping function should look like this:
+
+```go
+func GroupAndSortByTopNode(rows []AssetPivot) []GroupedAssetBucket {
+    if len(rows) == 0 {
+        return []GroupedAssetBucket{}
+    }
+
+    grouped := make(map[string][]AssetPivot)
+    order := make([]string, 0)
+
+    for _, row := range rows {
+        key := strings.TrimSpace(row.TopGroupNode)
+        if key == "" {
+            key = "Unassigned"
+        }
+        if _, exists := grouped[key]; !exists {
+            grouped[key] = []AssetPivot{}
+            order = append(order, key)
+        }
+        grouped[key] = append(grouped[key], row)
+    }
+
+    // Sort only group headers (optional)
+    sort.Slice(order, func(i, j int) bool {
+        ai := strings.ToLower(order[i])
+        aj := strings.ToLower(order[j])
+        if ai == "unassigned" {
+            return false
+        }
+        if aj == "unassigned" {
+            return true
+        }
+        return ai < aj
+    })
+
+    result := make([]GroupedAssetBucket, 0, len(order))
+    for _, key := range order {
+        result = append(result, GroupedAssetBucket{
+            TopGroupNode: key,
+            ItemCount:    len(grouped[key]),
+            Items:        grouped[key], // PRESERVE SQL ORDER
+        })
+    }
+
+    return result
+}
