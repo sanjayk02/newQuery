@@ -1,5 +1,5 @@
 // ============================================
-// IMPROVED TAKE SORTING WITH BETTER EDGE CASE HANDLING
+// SIMPLER TAKE SORTING - Converts to integers
 // ============================================
 const enhancedCompareTake = useCallback((a: any, b: any, dir: SortDir): number => {
   const isAsc = dir === 'asc';
@@ -12,49 +12,25 @@ const enhancedCompareTake = useCallback((a: any, b: any, dir: SortDir): number =
   if (aEmpty && !bEmpty) return 1;
   if (!aEmpty && bEmpty) return -1;
   
-  // Convert to string and clean
-  const aStr = String(a).trim();
-  const bStr = String(b).trim();
-  
-  // Try to extract numeric part (handles cases like "20.", "0016", "0027")
-  const extractNumber = (str: string): number | null => {
-    // Remove any non-numeric characters except decimal point
-    const cleaned = str.replace(/[^\d.-]/g, '');
-    if (cleaned === '') return null;
+  // Extract numeric value (handles leading zeros)
+  const getNumericValue = (val: any): number => {
+    const str = String(val).trim();
+    // Remove any non-digit characters
+    const digits = str.replace(/\D/g, '');
+    if (digits === '') return Infinity; // Push invalid to end
     
-    const num = parseFloat(cleaned);
-    return isNaN(num) ? null : num;
+    const num = parseInt(digits, 10);
+    return isNaN(num) ? Infinity : num;
   };
   
-  const aNum = extractNumber(aStr);
-  const bNum = extractNumber(bStr);
+  const aVal = getNumericValue(a);
+  const bVal = getNumericValue(b);
   
-  // If both are valid numbers, compare numerically
-  if (aNum !== null && bNum !== null) {
-    if (aNum === bNum) {
-      // If numbers are equal but strings differ (e.g., "0016" vs "16"), 
-      // use string length as tiebreaker (shorter first)
-      if (aStr !== bStr) {
-        return isAsc ? aStr.length - bStr.length : bStr.length - aStr.length;
-      }
-      return 0;
-    }
-    
-    if (isAsc) {
-      return aNum < bNum ? -1 : 1;
-    } else {
-      return aNum > bNum ? -1 : 1;
-    }
-  }
+  if (aVal === bVal) return 0;
   
-  // If one is number and other isn't, number comes first
-  if (aNum !== null && bNum === null) return -1;
-  if (aNum === null && bNum !== null) return 1;
-  
-  // Fallback to string comparison
   if (isAsc) {
-    return aStr.localeCompare(bStr);
+    return aVal < bVal ? -1 : 1;
   } else {
-    return bStr.localeCompare(aStr);
+    return aVal > bVal ? -1 : 1;
   }
 }, []);
