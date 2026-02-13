@@ -1,0 +1,88 @@
+func GroupAndSortByTopNode(
+    rows []AssetPivot,
+    orderKey string,
+    dir SortDirection,
+) []GroupedAssetBucket {
+
+    grouped := make(map[string][]AssetPivot)
+    order := make([]string, 0)
+
+    // -----------------------
+    // 1️⃣ Group rows
+    // -----------------------
+    for _, row := range rows {
+        key := strings.TrimSpace(row.TopGroupNode)
+        if key == "" {
+            key = "Unassigned"
+        }
+        if _, exists := grouped[key]; !exists {
+            grouped[key] = []AssetPivot{}
+            order = append(order, key)
+        }
+        grouped[key] = append(grouped[key], row)
+    }
+
+    // -----------------------
+    // 2️⃣ Sort group headers A→Z
+    // -----------------------
+    isUnassigned := func(s string) bool {
+        return strings.EqualFold(strings.TrimSpace(s), "unassigned")
+    }
+
+    sort.Slice(order, func(i, j int) bool {
+        ai := strings.TrimSpace(order[i])
+        aj := strings.TrimSpace(order[j])
+
+        if isUnassigned(ai) {
+            return false
+        }
+        if isUnassigned(aj) {
+            return true
+        }
+
+        return strings.ToLower(ai) < strings.ToLower(aj)
+    })
+
+    // -----------------------
+    // 3️⃣ Sort inside group
+    // -----------------------
+    for _, key := range order {
+        children := grouped[key]
+
+        sort.SliceStable(children, func(i, j int) bool {
+
+            // ✅ TAKE sorting
+            if strings.Contains(orderKey, "take") {
+                return compareTake(
+                    children[i].MDLTake,
+                    children[j].MDLTake,
+                    dir,
+                )
+            }
+
+            // ✅ Default Group1 sorting
+            gi := strings.ToLower(children[i].Group1)
+            gj := strings.ToLower(children[j].Group1)
+
+            if dir == SortDESC {
+                return gi > gj
+            }
+            return gi < gj
+        })
+
+        grouped[key] = children
+    }
+
+    // -----------------------
+    // 4️⃣ Build result
+    // -----------------------
+    result := make([]GroupedAssetBucket, 0, len(order))
+    for _, key := range order {
+        result = append(result, GroupedAssetBucket{
+            TopGroupNode: key,
+            Items:        grouped[key],
+        })
+    }
+
+    return result
+}
