@@ -1,0 +1,24 @@
+case "mdl_take", "rig_take", "bld_take", "dsn_take", "ldv_take":
+    phase := strings.ToUpper(strings.Split(key, "_")[0])
+    return fmt.Sprintf(
+        "(CASE WHEN %s = '%s' THEN 0 ELSE 1 END) ASC, "+
+            "(%s IS NULL OR %s = '') ASC, "+
+            "CAST(%s AS UNSIGNED) %s, "+
+            "LOWER(%s) ASC",
+        col("phase"), phase,
+        col("take"), col("take"),
+        col("take"), dir,
+        col("group_1"),
+    )
+
+
+
+case "take":
+    return fmt.Sprintf(
+        "(%s IS NULL OR %s = '') ASC, "+
+            "CAST(%s AS UNSIGNED) %s, "+
+            "LOWER(%s) ASC",
+        col("take"), col("take"),
+        col("take"), dir,
+        col("group_1"),
+    )
