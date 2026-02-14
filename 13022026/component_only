@@ -1,0 +1,6 @@
+case "component_only":
+    return fmt.Sprintf(
+        "LOWER(REPLACE(TRIM(LEADING '_' FROM %s), '-', '')) %s, LOWER(%s) ASC",
+        col("component"), dir,
+        col("group_1"),
+    )
