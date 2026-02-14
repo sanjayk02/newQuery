@@ -1,0 +1,107 @@
+func buildOrderClause(alias, key, dir string) string {
+    dir = strings.ToUpper(strings.TrimSpace(dir))
+    if dir != "ASC" && dir != "DESC" {
+        dir = "ASC"
+    }
+
+    col := func(c string) string {
+        if alias == "" {
+            return c
+        }
+        return alias + "." + c
+    }
+
+    // Simple, clean component sorting - just trim and lowercase
+    sortComponent := func() string {
+        return fmt.Sprintf("LOWER(TRIM(%s)) %s", col("component"), dir)
+    }
+
+    switch key {
+    case "group1_only":
+        return fmt.Sprintf(
+            "LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+            col("group_1"), dir,
+            col("relation"),
+            col("submitted_at_utc"),
+            col("submitted_at_utc"), dir,
+        )
+
+    case "relation_only":
+        return fmt.Sprintf(
+            "LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+            col("relation"), dir,
+            col("group_1"),
+            col("submitted_at_utc"),
+            col("submitted_at_utc"), dir,
+        )
+
+    case "component", "component_only":
+        return fmt.Sprintf(
+            "%s, LOWER(%s) ASC",
+            sortComponent(),
+            col("group_1"),
+        )
+
+    case "group_rel_submitted":
+        return fmt.Sprintf(
+            "LOWER(%s) ASC, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+            col("group_1"),
+            col("relation"),
+            col("submitted_at_utc"),
+            col("submitted_at_utc"), dir,
+        )
+
+    // Phase-specific cases should also respect component sorting
+    case "mdl_submitted", "rig_submitted", "bld_submitted", "dsn_submitted", "ldv_submitted":
+        phase := strings.ToUpper(strings.Split(key, "_")[0])
+        return fmt.Sprintf(
+            "(CASE WHEN %s = '%s' THEN 0 ELSE 1 END) ASC, %s %s, %s, LOWER(%s) ASC",
+            col("phase"), phase,
+            col("submitted_at_utc"), dir,
+            sortComponent(),
+            col("group_1"),
+        )
+
+    case "mdl_work", "rig_work", "bld_work", "dsn_work", "ldv_work":
+        phase := strings.ToUpper(strings.Split(key, "_")[0])
+        return fmt.Sprintf(
+            "(CASE WHEN %s = '%s' THEN 0 ELSE 1 END) ASC, (%s IS NULL) ASC, LOWER(%s) %s, %s, LOWER(%s) ASC",
+            col("phase"), phase,
+            col("work_status"),
+            col("work_status"), dir,
+            sortComponent(),
+            col("group_1"),
+        )
+
+    case "work_status":
+        return fmt.Sprintf(
+            "(%s IS NULL) ASC, LOWER(%s) %s, %s, LOWER(%s) ASC",
+            col("work_status"),
+            col("work_status"), dir,
+            sortComponent(),
+            col("group_1"),
+        )
+
+    case "mdl_appr", "rig_appr", "bld_appr", "dsn_appr", "ldv_appr":
+        phase := strings.ToUpper(strings.Split(key, "_")[0])
+        return fmt.Sprintf(
+            "(CASE WHEN %s = '%s' THEN 0 ELSE 1 END) ASC, (%s IS NULL) ASC, LOWER(%s) %s, %s, LOWER(%s) ASC",
+            col("phase"), phase,
+            col("approval_status"),
+            col("approval_status"), dir,
+            sortComponent(),
+            col("group_1"),
+        )
+
+    // ... rest of the cases for take fields
+
+    default:
+        return fmt.Sprintf(
+            "LOWER(%s) %s, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+            col("group_1"), dir,
+            col("relation"),
+            col("submitted_at_utc"),
+            col("submitted_at_utc"), dir,
+        )
+    }
+}
