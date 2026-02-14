@@ -1,0 +1,72 @@
+function buildCellStyle(
+  col: Column,
+  phaseMeta: Record<string, { start: string; end: string }>,
+  opts: { header?: boolean; isGroupRow?: boolean } = {}
+): React.CSSProperties {
+  const { header = false, isGroupRow = false } = opts;
+
+  const meta = col.phase ? phaseMeta[col.phase] : null;
+  const isPhaseStart = !!(meta && meta.start === col.id);
+  const isPhaseEnd = !!(meta && meta.end === col.id);
+
+  const phaseCfg = col.phase ? COLORS.PHASE[col.phase] : null;
+  const edgeColor = col.phase ? phaseCfg!.lineColor : COLORS.COL_EDGE;
+
+  const headerBg = col.phase ? phaseCfg!.backgroundColor : COLORS.HEADER_BG;
+
+  const paddingX =
+    col.id === "group_1_name" ? UI.NAME_PAD_X : col.id === "thumbnail" ? UI.THUMB_PAD_X : UI.ROW_PAD_X;
+
+  const style: React.CSSProperties = {
+    backgroundColor: header ? headerBg : COLORS.ROW_BG,
+    color: header ? "#fff" : COLORS.TEXT,
+    whiteSpace: "normal",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    height: UI.ROW_HEIGHT,
+    padding: `${header ? 4 : UI.ROW_PAD_Y}px ${paddingX}px`,
+    fontSize: header ? UI.FONT_SIZE_HEADER : UI.FONT_SIZE_CONTENT,
+    fontWeight: header ? 500 : 300,
+    borderLeft: "0px",
+    borderRight: "0px",
+    borderBottom: header
+      ? "1px solid " + COLORS.HEADER_BORDER
+      : (isGroupRow ? UI.GROUP_ROW_GAP_PX : UI.ROW_GAP_PX) + "px solid " + COLORS.TABLE_BG,
+  };
+
+  // Shadow logic for header top/bottom lines
+  const shadows: string[] = [];
+  if (header) {
+    shadows.push(`inset 0 ${UI.COL_EDGE_PX}px 0 0 ${edgeColor}`);
+    shadows.push(`inset 0 -${UI.COL_EDGE_PX}px 0 0 ${edgeColor}`);
+  }
+
+  // Phase rails logic
+  if (col.phase) {
+    const rail = phaseCfg!.lineColor;
+    if (isPhaseStart) shadows.push(`inset ${UI.RAIL_PX}px 0 0 0 ${rail}`);
+    if (isPhaseEnd) shadows.push(`inset -${UI.RAIL_PX}px 0 0 0 ${rail}`);
+
+    // Gap after phase end
+    if (isPhaseEnd) style.borderRight = UI.PHASE_GAP_PX + "px solid " + COLORS.TABLE_BG;
+  } else {
+    // Standard column logic
+    if (col.id === "thumbnail") {
+      style.borderRight = "0px";
+    } else if (col.id === "component") {
+      // ✅ ADDED: Proper terminal rail border for COMPONENT column
+      style.borderRight = `solid ${UI.RAIL_PX}px ${COLORS.COL_EDGE}`; 
+      
+      // Add top/bottom rail shadow in header to complete the box look
+      if (header) {
+          shadows.push(`inset -${UI.RAIL_PX}px 0 0 0 ${COLORS.COL_EDGE}`);
+      }
+    } else {
+      style.borderRight = "1px solid " + (header ? COLORS.HEADER_BORDER : COLORS.GRID_LINE);
+    }
+  }
+
+  if (shadows.length) style.boxShadow = shadows.join(", ");
+
+  return style;
+}
