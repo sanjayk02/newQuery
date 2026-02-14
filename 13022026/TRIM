@@ -1,9 +1,9 @@
-default:
+sortComponent := func() string {
     return fmt.Sprintf(
-        "LOWER(%s) %s, LOWER(%s) ASC, LOWER(TRIM(LEADING '_' FROM %s)) ASC, (%s IS NULL) ASC, %s %s",
-        col("group_1"), dir,
-        col("relation"),
+        "CASE WHEN %s IS NULL OR %s = '' THEN 1 ELSE 0 END ASC, LOWER(TRIM(%s)) %s",
         col("component"),
-        col("submitted_at_utc"),
-        col("submitted_at_utc"), dir,
+        col("component"),
+        col("component"),
+        dir,
     )
+}
