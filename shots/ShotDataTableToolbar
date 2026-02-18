@@ -1,10 +1,11 @@
-import React, { useState, useCallback } from "react";
+import React from "react";
 import {
   Toolbar,
   Typography,
-  styled,
   IconButton,
+  Box,
 } from "@material-ui/core";
+import { styled } from "@material-ui/core/styles";
 import ViewListIcon from "@material-ui/icons/ViewList";
 import ViewModuleIcon from "@material-ui/icons/ViewModule";
 
@@ -20,17 +21,36 @@ const StyledToolbar = styled(Toolbar)(({ theme }) => ({
   alignItems: "center",
   paddingTop: theme.spacing(2),
   paddingBottom: theme.spacing(2),
-  marginTop: theme.spacing(1), // 👈 creates gap between bars
+  marginTop: theme.spacing(1),
 }));
 
 const RightSection = styled("div")({
   display: "flex",
   alignItems: "center",
-  gap: 8,
+});
+
+/* Toggle Container */
+const ToggleContainer = styled(Box)({
+  display: "flex",
+  backgroundColor: "#3a3a3a",
+  borderRadius: 4,
+  padding: 4,
 });
 
 /* ------------------------------
-   Sub-components
+   Types
+-------------------------------- */
+
+export type ViewMode = "list" | "group";
+
+type Props = {
+  title?: string;
+  viewMode: ViewMode;
+  onViewChange: (mode: ViewMode) => void;
+};
+
+/* ------------------------------
+   View Toggle Component
 -------------------------------- */
 
 interface ViewToggleProps {
@@ -38,77 +58,56 @@ interface ViewToggleProps {
   onChange: (mode: ViewMode) => void;
 }
 
-const ViewToggle: React.FC<ViewToggleProps> = ({ viewMode, onChange }) => {
-  const getButtonStyle = (mode: ViewMode) => ({
-    backgroundColor: viewMode === mode ? "#1976d2" : "transparent", // Blue when active
-    color: viewMode === mode ? "#ffffff" : "#bdbdbd", // White text when active, gray when inactive
-    transition: "background-color 0.2s, color 0.2s",
-    '&:hover': {
-      backgroundColor: viewMode === mode ? "#1565c0" : "rgba(0, 0, 0, 0.04)", // Darker blue on hover when active
-    },
-  });
+const ViewToggle: React.FC<ViewToggleProps> = ({
+  viewMode,
+  onChange,
+}) => {
+  const getIconColor = (mode: ViewMode) =>
+    viewMode === mode ? "#00bcd4" : "#9e9e9e";
 
   return (
-    <>
+    <ToggleContainer>
       <IconButton
         onClick={() => onChange("list")}
-        style={getButtonStyle("list")}
-        aria-label="list view"
-        aria-pressed={viewMode === "list"}
         size="small"
+        disableRipple
+        style={{ color: getIconColor("list") }}
+        aria-label="list view"
       >
-        <ViewListIcon />
+        <ViewListIcon fontSize="small" />
       </IconButton>
+
       <IconButton
         onClick={() => onChange("group")}
-        style={getButtonStyle("group")}
-        aria-label="group view"
-        aria-pressed={viewMode === "group"}
         size="small"
+        disableRipple
+        style={{ color: getIconColor("group") }}
+        aria-label="group view"
       >
-        <ViewModuleIcon />
+        <ViewModuleIcon fontSize="small" />
       </IconButton>
-    </>
+    </ToggleContainer>
   );
 };
 
 /* ------------------------------
-   Types
--------------------------------- */
-
-type ViewMode = "list" | "group";
-
-type Props = {
-  title?: string;
-  onViewChange?: (mode: ViewMode) => void;
-  defaultView?: ViewMode;
-};
-
-/* ------------------------------
-   Component
+   Main Toolbar Component
 -------------------------------- */
 
 const ShotDataTableToolbar: React.FC<Props> = ({
   title = "Shots Data",
+  viewMode,
   onViewChange,
-  defaultView = "list",
 }) => {
-  const [viewMode, setViewMode] = useState<ViewMode>(defaultView);
-
-  const handleViewChange = useCallback(
-    (mode: ViewMode) => {
-      setViewMode(mode);
-      onViewChange?.(mode);
-    },
-    [onViewChange]
-  );
-
   return (
     <StyledToolbar>
       <Typography variant="h6">{title}</Typography>
 
-      <RightSection role="group" aria-label="view mode selection">
-        <ViewToggle viewMode={viewMode} onChange={handleViewChange} />
+      <RightSection>
+        <ViewToggle
+          viewMode={viewMode}
+          onChange={onViewChange}
+        />
       </RightSection>
     </StyledToolbar>
   );
