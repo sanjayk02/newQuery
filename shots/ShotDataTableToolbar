@@ -1,0 +1,117 @@
+import React, { useState, useCallback } from "react";
+import {
+  Toolbar,
+  Typography,
+  styled,
+  IconButton,
+} from "@material-ui/core";
+import ViewListIcon from "@material-ui/icons/ViewList";
+import ViewModuleIcon from "@material-ui/icons/ViewModule";
+
+/* ------------------------------
+   Styled Components
+-------------------------------- */
+
+const StyledToolbar = styled(Toolbar)(({ theme }) => ({
+  backgroundColor: theme.palette.background.paper,
+  borderBottom: `1px solid ${theme.palette.divider}`,
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  paddingTop: theme.spacing(2),
+  paddingBottom: theme.spacing(2),
+  marginTop: theme.spacing(1), // 👈 creates gap between bars
+}));
+
+const RightSection = styled("div")({
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+});
+
+/* ------------------------------
+   Sub-components
+-------------------------------- */
+
+interface ViewToggleProps {
+  viewMode: ViewMode;
+  onChange: (mode: ViewMode) => void;
+}
+
+const ViewToggle: React.FC<ViewToggleProps> = ({ viewMode, onChange }) => {
+  const getButtonStyle = (mode: ViewMode) => ({
+    backgroundColor: viewMode === mode ? "#1976d2" : "transparent", // Blue when active
+    color: viewMode === mode ? "#ffffff" : "#bdbdbd", // White text when active, gray when inactive
+    transition: "background-color 0.2s, color 0.2s",
+    '&:hover': {
+      backgroundColor: viewMode === mode ? "#1565c0" : "rgba(0, 0, 0, 0.04)", // Darker blue on hover when active
+    },
+  });
+
+  return (
+    <>
+      <IconButton
+        onClick={() => onChange("list")}
+        style={getButtonStyle("list")}
+        aria-label="list view"
+        aria-pressed={viewMode === "list"}
+        size="small"
+      >
+        <ViewListIcon />
+      </IconButton>
+      <IconButton
+        onClick={() => onChange("group")}
+        style={getButtonStyle("group")}
+        aria-label="group view"
+        aria-pressed={viewMode === "group"}
+        size="small"
+      >
+        <ViewModuleIcon />
+      </IconButton>
+    </>
+  );
+};
+
+/* ------------------------------
+   Types
+-------------------------------- */
+
+type ViewMode = "list" | "group";
+
+type Props = {
+  title?: string;
+  onViewChange?: (mode: ViewMode) => void;
+  defaultView?: ViewMode;
+};
+
+/* ------------------------------
+   Component
+-------------------------------- */
+
+const ShotDataTableToolbar: React.FC<Props> = ({
+  title = "Shots Data",
+  onViewChange,
+  defaultView = "list",
+}) => {
+  const [viewMode, setViewMode] = useState<ViewMode>(defaultView);
+
+  const handleViewChange = useCallback(
+    (mode: ViewMode) => {
+      setViewMode(mode);
+      onViewChange?.(mode);
+    },
+    [onViewChange]
+  );
+
+  return (
+    <StyledToolbar>
+      <Typography variant="h6">{title}</Typography>
+
+      <RightSection role="group" aria-label="view mode selection">
+        <ViewToggle viewMode={viewMode} onChange={handleViewChange} />
+      </RightSection>
+    </StyledToolbar>
+  );
+};
+
+export default ShotDataTableToolbar;
