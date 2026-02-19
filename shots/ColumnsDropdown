@@ -1,0 +1,120 @@
+interface ColumnsDropdownProps {
+  columns: ColumnsState;
+  onChange: (columns: ColumnsState) => void;
+}
+
+const ColumnsDropdown: React.FC<ColumnsDropdownProps> = ({
+  columns,
+  onChange,
+}) => {
+  const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
+  const [openGroups, setOpenGroups] = React.useState<string[]>([]);
+
+  const open = Boolean(anchorEl);
+
+  const handleToggleGroup = (group: string) => {
+    setOpenGroups((prev) =>
+      prev.includes(group)
+        ? prev.filter((g) => g !== group)
+        : [...prev, group]
+    );
+  };
+
+  const handleToggleColumn = (id: string) => {
+    onChange({
+      ...columns,
+      [id]: !columns[id],
+    });
+  };
+
+  const handleHideAll = () => {
+    const updated: ColumnsState = {};
+    Object.keys(columns).forEach((key) => (updated[key] = false));
+    onChange(updated);
+  };
+
+  const visibleCount = Object.values(columns).filter(Boolean).length;
+
+  const groupedColumns = ALL_COLUMNS.reduce((acc, col) => {
+    if (!acc[col.group]) acc[col.group] = [];
+    acc[col.group].push(col);
+    return acc;
+  }, {} as Record<string, ColumnItem[]>);
+
+  return (
+    <>
+      <Box
+        display="flex"
+        alignItems="center"
+        style={{
+          cursor: "pointer",
+          backgroundColor: "#3a3a3a",
+          padding: "6px 10px",
+          borderRadius: 4,
+        }}
+        onClick={(e) => setAnchorEl(e.currentTarget)}
+      >
+        <ViewColumnIcon fontSize="small" style={{ marginRight: 6 }} />
+        <Typography variant="body2" style={{ color: "#00bcd4" }}>
+          COLUMNS ({visibleCount})
+        </Typography>
+      </Box>
+
+      <Popover
+        open={open}
+        anchorEl={anchorEl}
+        onClose={() => setAnchorEl(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+      >
+        <ColumnsPanel>
+          {Object.keys(groupedColumns).map((group) => (
+            <Box key={group}>
+              <ListItem button onClick={() => handleToggleGroup(group)}>
+                <ListItemText primary={group} />
+                {openGroups.includes(group) ? (
+                  <ExpandLessIcon />
+                ) : (
+                  <ExpandMoreIcon />
+                )}
+              </ListItem>
+
+              <Collapse in={openGroups.includes(group)}>
+                {groupedColumns[group].map((col) => (
+                  <ListItem
+                    key={col.id}
+                    dense
+                    button
+                    onClick={() => handleToggleColumn(col.id)}
+                  >
+                    <Checkbox
+                      checked={columns[col.id]}
+                      size="small"
+                      style={{ color: "#00bcd4" }}
+                    />
+                    <ListItemText primary={col.label} />
+                  </ListItem>
+                ))}
+              </Collapse>
+
+              <Divider style={{ backgroundColor: "#444" }} />
+            </Box>
+          ))}
+
+          <Box
+            display="flex"
+            justifyContent="space-between"
+            mt={1}
+          >
+            <Button size="small" onClick={handleHideAll}>
+              HIDE ALL
+            </Button>
+            <Button size="small" color="primary">
+              SAVE
+            </Button>
+          </Box>
+        </ColumnsPanel>
+      </Popover>
+    </>
+  );
+};
