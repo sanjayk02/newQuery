@@ -45,7 +45,7 @@ const LeftSection = styled("div")({
 const RightSection = styled("div")({
   display: "flex",
   alignItems: "center",
-  gap: 16,
+  gap: 8, // Reduced gap for better spacing
 });
 
 /* Toggle */
@@ -60,8 +60,9 @@ const SearchContainer = styled(Box)(({ theme }) => ({
   alignItems: "center",
   backgroundColor: theme.palette.background.default,
   borderRadius: 6,
-  padding: "4px 10px",
+  padding: "4px 12px",
   border: `1px solid ${theme.palette.divider}`,
+  height: 36, // Fixed height for consistency
 }));
 
 const StyledInput = styled("input")({
@@ -71,7 +72,27 @@ const StyledInput = styled("input")({
   outline: "none",
   width: 200,
   fontSize: 14,
+  "&::placeholder": {
+    color: "#999",
+    opacity: 1,
+  },
 });
+
+/* Filter and Column Controls */
+const ControlButton = styled(Box)(({ theme }) => ({
+  display: "flex",
+  alignItems: "center",
+  gap: 4,
+  padding: theme.spacing(0.5, 1),
+  borderRadius: 4,
+  cursor: "pointer",
+  height: 36,
+  border: `1px solid transparent`,
+  "&:hover": {
+    backgroundColor: theme.palette.action.hover,
+    borderColor: theme.palette.divider,
+  },
+}));
 
 /* ------------------------------
    Types
@@ -121,19 +142,69 @@ const FilterMenu: React.FC<{
   onChange: (newFilters: Filters) => void;
 }> = ({ filters, onChange }) => {
   const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
+
+  const filterOptions = {
+    assetGroups: ["Buildings", "Vehicles", "Characters", "Environment"],
+    approvalStatus: ["Approved", "Pending", "Changes Requested"],
+    workStatus: ["Not Started", "In Progress", "Complete", "Blocked"],
+  };
+
   const [openSection, setOpenSection] = React.useState<string | null>(null);
+
+  const handleFilterChange = (section: string, value: string) => {
+    const currentValues = filters[section as keyof Filters] as string[];
+    const newValues = currentValues.includes(value)
+      ? currentValues.filter(v => v !== value)
+      : [...currentValues, value];
+    
+    onChange({
+      ...filters,
+      [section]: newValues,
+    });
+  };
+
+  const activeFilterCount = Object.values(filters).flat().length;
 
   return (
     <>
-      <Box
-        onClick={(e) => setAnchorEl(e.currentTarget)}
-        style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
-      >
+      <ControlButton onClick={(e) => setAnchorEl(e.currentTarget)}>
         <FilterListIcon fontSize="small" />
         <Typography variant="body2">Filter</Typography>
-      </Box>
+        {activeFilterCount > 0 && (
+          <Box
+            component="span"
+            sx={{
+              bgcolor: "primary.main",
+              color: "primary.contrastText",
+              borderRadius: "50%",
+              width: 18,
+              height: 18,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 12,
+              ml: 0.5,
+            }}
+          >
+            {activeFilterCount}
+          </Box>
+        )}
+      </ControlButton>
 
-      <Menu open={Boolean(anchorEl)} anchorEl={anchorEl} onClose={() => setAnchorEl(null)}>
+      <Menu
+        open={Boolean(anchorEl)}
+        anchorEl={anchorEl}
+        onClose={() => setAnchorEl(null)}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'right',
+        }}
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'right',
+        }}
+        PaperProps={{ style: { width: 250, maxHeight: 400 } }}
+      >
         <FilterPanel>
           <List dense>
             <ListItem button onClick={() => onChange({
@@ -146,18 +217,42 @@ const FilterMenu: React.FC<{
 
             <Divider />
 
-            {["assetGroups", "approvalStatus", "workStatus"].map((section) => (
+            {Object.entries(filterOptions).map(([section, options]) => (
               <React.Fragment key={section}>
                 <ListItem button onClick={() =>
                   setOpenSection(openSection === section ? null : section)
                 }>
-                  <ListItemText primary={section} />
-                  {openSection === section ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                  <ListItemText 
+                    primary={section.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())} 
+                  />
+                  <Box display="flex" alignItems="center" gap={1}>
+                    {filters[section as keyof Filters]?.length > 0 && (
+                      <Typography variant="caption" color="primary">
+                        ({filters[section as keyof Filters].length})
+                      </Typography>
+                    )}
+                    {openSection === section ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                  </Box>
                 </ListItem>
 
-                <Collapse in={openSection === section}>
-                  <Box pl={2} pb={1}>
-                    <Typography variant="body2">Coming soon...</Typography>
+                <Collapse in={openSection === section} timeout="auto" unmountOnExit>
+                  <Box pl={2} pr={1} pb={1}>
+                    {options.map(option => (
+                      <ListItem 
+                        key={option} 
+                        button 
+                        onClick={() => handleFilterChange(section, option)}
+                        dense
+                      >
+                        <Checkbox
+                          edge="start"
+                          checked={filters[section as keyof Filters]?.includes(option)}
+                          size="small"
+                          disableRipple
+                        />
+                        <ListItemText primary={option} />
+                      </ListItem>
+                    ))}
                   </Box>
                 </Collapse>
               </React.Fragment>
@@ -183,7 +278,8 @@ const ALL_COLUMNS: ColumnItem[] = [
 const ColumnsPanel = styled(Box)(({ theme }) => ({
   display: "flex",
   flexDirection: "column",
-  padding: theme.spacing(2),
+  padding: theme.spacing(1, 0),
+  minWidth: 240,
 }));
 
 const ColumnSelector: React.FC<{
@@ -200,20 +296,52 @@ const ColumnSelector: React.FC<{
     return acc;
   }, {} as Record<string, ColumnItem[]>);
 
+  const activeColumnCount = Object.values(columnState).filter(Boolean).length;
+
   return (
     <>
-      <Box
-        onClick={(e) => setAnchorEl(e.currentTarget)}
-        style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
-      >
+      <ControlButton onClick={(e) => setAnchorEl(e.currentTarget)}>
         <ViewColumnIcon fontSize="small" />
         <Typography variant="body2">Columns</Typography>
-      </Box>
+        {activeColumnCount > 0 && activeColumnCount < ALL_COLUMNS.length && (
+          <Box
+            component="span"
+            sx={{
+              bgcolor: "primary.main",
+              color: "primary.contrastText",
+              borderRadius: "50%",
+              width: 18,
+              height: 18,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 12,
+              ml: 0.5,
+            }}
+          >
+            {activeColumnCount}
+          </Box>
+        )}
+      </ControlButton>
 
-      <Popover open={Boolean(anchorEl)} anchorEl={anchorEl} onClose={() => setAnchorEl(null)}>
+      <Popover
+        open={Boolean(anchorEl)}
+        anchorEl={anchorEl}
+        onClose={() => setAnchorEl(null)}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'right',
+        }}
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'right',
+        }}
+        PaperProps={{ style: { maxHeight: 400 } }}
+      >
         <ColumnsPanel>
-          {Object.entries(grouped).map(([group, cols]) => (
-            <Box key={group}>
+          {Object.entries(grouped).map(([group, cols], index) => (
+            <React.Fragment key={group}>
+              {index > 0 && <Divider />}
               <ListItem button onClick={() =>
                 setOpenGroups(prev =>
                   prev.includes(group)
@@ -225,22 +353,32 @@ const ColumnSelector: React.FC<{
                 {openGroups.includes(group) ? <ExpandLessIcon /> : <ExpandMoreIcon />}
               </ListItem>
 
-              <Collapse in={openGroups.includes(group)}>
-                {cols.map(col => (
-                  <ListItem key={col.id} button onClick={() =>
-                    onChange({
-                      ...columnState,
-                      [col.id]: !columnState[col.id],
-                    })
-                  }>
-                    <Checkbox checked={!!columnState[col.id]} />
-                    <ListItemText primary={col.label} />
-                  </ListItem>
-                ))}
+              <Collapse in={openGroups.includes(group)} timeout="auto" unmountOnExit>
+                <Box pl={2}>
+                  {cols.map(col => (
+                    <ListItem
+                      key={col.id}
+                      button
+                      onClick={() =>
+                        onChange({
+                          ...columnState,
+                          [col.id]: !columnState[col.id],
+                        })
+                      }
+                      dense
+                    >
+                      <Checkbox
+                        edge="start"
+                        checked={!!columnState[col.id]}
+                        size="small"
+                        disableRipple
+                      />
+                      <ListItemText primary={col.label} />
+                    </ListItem>
+                  ))}
+                </Box>
               </Collapse>
-
-              <Divider />
-            </Box>
+            </React.Fragment>
           ))}
         </ColumnsPanel>
       </Popover>
@@ -257,11 +395,19 @@ const ViewToggle: React.FC<{
   onChange: (mode: ViewMode) => void;
 }> = ({ viewMode, onChange }) => (
   <ToggleContainer>
-    <IconButton onClick={() => onChange("list")}>
-      <ViewListIcon color={viewMode === "list" ? "primary" : "inherit"} />
+    <IconButton
+      onClick={() => onChange("list")}
+      size="small"
+      style={{ padding: 8 }}
+    >
+      <ViewListIcon color={viewMode === "list" ? "primary" : "action"} />
     </IconButton>
-    <IconButton onClick={() => onChange("group")}>
-      <ViewModuleIcon color={viewMode === "group" ? "primary" : "inherit"} />
+    <IconButton
+      onClick={() => onChange("group")}
+      size="small"
+      style={{ padding: 8 }}
+    >
+      <ViewModuleIcon color={viewMode === "group" ? "primary" : "action"} />
     </IconButton>
   </ToggleContainer>
 );
