@@ -21,6 +21,7 @@ import FilterListIcon from "@material-ui/icons/FilterList";
 import ExpandLessIcon from "@material-ui/icons/ExpandLess";
 import ExpandMoreIcon from "@material-ui/icons/ExpandMore";
 import ViewColumnIcon from "@material-ui/icons/ViewColumn";
+import RestoreIcon from "@material-ui/icons/Restore";
 
 /* ------------------------------
    Styled Components
@@ -45,7 +46,7 @@ const LeftSection = styled("div")({
 const RightSection = styled("div")({
   display: "flex",
   alignItems: "center",
-  gap: 8, // Reduced gap for better spacing
+  gap: 8,
 });
 
 /* Toggle */
@@ -62,7 +63,7 @@ const SearchContainer = styled(Box)(({ theme }) => ({
   borderRadius: 6,
   padding: "4px 12px",
   border: `1px solid ${theme.palette.divider}`,
-  height: 36, // Fixed height for consistency
+  height: 36,
 }));
 
 const StyledInput = styled("input")({
@@ -78,7 +79,7 @@ const StyledInput = styled("input")({
   },
 });
 
-/* Filter and Column Controls */
+/* Control Buttons */
 const ControlButton = styled(Box)(({ theme }) => ({
   display: "flex",
   alignItems: "center",
@@ -91,6 +92,19 @@ const ControlButton = styled(Box)(({ theme }) => ({
   "&:hover": {
     backgroundColor: theme.palette.action.hover,
     borderColor: theme.palette.divider,
+  },
+}));
+
+/* Reset Button */
+const ResetButton = styled(Button)(({ theme }) => ({
+  height: 36,
+  padding: theme.spacing(0.5, 1.5),
+  marginLeft: theme.spacing(1),
+  color: theme.palette.text.secondary,
+  borderColor: theme.palette.divider,
+  "&:hover": {
+    backgroundColor: theme.palette.action.hover,
+    borderColor: theme.palette.text.secondary,
   },
 }));
 
@@ -125,6 +139,7 @@ type Props = {
   onFilterChange: (newFilters: Filters) => void;
   columnsState: ColumnState;
   onColumnsChange: (newColumns: ColumnState) => void;
+  onReset?: () => void; // Optional reset handler
 };
 
 /* ------------------------------
@@ -207,11 +222,14 @@ const FilterMenu: React.FC<{
       >
         <FilterPanel>
           <List dense>
-            <ListItem button onClick={() => onChange({
-              assetGroups: [],
-              approvalStatus: [],
-              workStatus: [],
-            })}>
+            <ListItem button onClick={() => {
+              onChange({
+                assetGroups: [],
+                approvalStatus: [],
+                workStatus: [],
+              });
+              setAnchorEl(null);
+            }}>
               <ListItemText primary="Clear all filters" />
             </ListItem>
 
@@ -275,6 +293,12 @@ const ALL_COLUMNS: ColumnItem[] = [
   { id: "workStatus", label: "Work Status", group: "Status" },
 ];
 
+// Default column state (all columns visible)
+const DEFAULT_COLUMN_STATE: ColumnState = ALL_COLUMNS.reduce((acc, col) => ({
+  ...acc,
+  [col.id]: true,
+}), {});
+
 const ColumnsPanel = styled(Box)(({ theme }) => ({
   display: "flex",
   flexDirection: "column",
@@ -297,6 +321,10 @@ const ColumnSelector: React.FC<{
   }, {} as Record<string, ColumnItem[]>);
 
   const activeColumnCount = Object.values(columnState).filter(Boolean).length;
+
+  const handleResetColumns = () => {
+    onChange(DEFAULT_COLUMN_STATE);
+  };
 
   return (
     <>
@@ -339,9 +367,19 @@ const ColumnSelector: React.FC<{
         PaperProps={{ style: { maxHeight: 400 } }}
       >
         <ColumnsPanel>
+          <Box px={2} py={1} display="flex" justifyContent="space-between" alignItems="center">
+            <Typography variant="subtitle2">Show Columns</Typography>
+            <Button 
+              size="small" 
+              onClick={handleResetColumns}
+              disabled={activeColumnCount === ALL_COLUMNS.length}
+            >
+              Reset
+            </Button>
+          </Box>
+          <Divider />
           {Object.entries(grouped).map(([group, cols], index) => (
             <React.Fragment key={group}>
-              {index > 0 && <Divider />}
               <ListItem button onClick={() =>
                 setOpenGroups(prev =>
                   prev.includes(group)
@@ -425,7 +463,33 @@ const ShotDataTableToolbar: React.FC<Props> = ({
   onFilterChange,
   columnsState,
   onColumnsChange,
+  onReset,
 }) => {
+
+  const DEFAULT_FILTERS: Filters = {
+    assetGroups: [],
+    approvalStatus: [],
+    workStatus: [],
+  };
+
+  const handleReset = () => {
+    // Reset to defaults
+    onSearchChange("");
+    onFilterChange(DEFAULT_FILTERS);
+    onColumnsChange(DEFAULT_COLUMN_STATE);
+    
+    // Call custom reset handler if provided
+    if (onReset) {
+      onReset();
+    }
+  };
+
+  // Check if any customizations are active
+  const hasChanges = 
+    searchValue !== "" ||
+    Object.values(filters).flat().length > 0 ||
+    Object.values(columnsState).filter(Boolean).length !== ALL_COLUMNS.length;
+
   return (
     <StyledToolbar>
 
@@ -450,6 +514,17 @@ const ShotDataTableToolbar: React.FC<Props> = ({
           columnState={columnsState}
           onChange={onColumnsChange}
         />
+
+        {hasChanges && (
+          <ResetButton
+            variant="outlined"
+            size="small"
+            startIcon={<RestoreIcon />}
+            onClick={handleReset}
+          >
+            Reset
+          </ResetButton>
+        )}
       </RightSection>
 
     </StyledToolbar>
