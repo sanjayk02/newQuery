@@ -1,0 +1,109 @@
+const FilterDropdown: React.FC<FilterDropdownProps> = ({
+  filters,
+  onChange,
+}) => {
+  const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
+  const [openSection, setOpenSection] = React.useState<string | null>(null);
+
+  const handleOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleClose = () => {
+    setAnchorEl(null);
+  };
+
+  const toggleSection = (section: string) => {
+    setOpenSection(openSection === section ? null : section);
+  };
+
+  const clearFilters = () => {
+    onChange({
+      assetGroups: [],
+      approvalStatus: [],
+      workStatus: [],
+    });
+  };
+
+  const open = Boolean(anchorEl);
+
+  return (
+    <>
+      <Box
+        display="flex"
+        alignItems="center"
+        style={{ cursor: "pointer", color: "#ffffff" }}
+        onClick={handleOpen}
+      >
+        <FilterListIcon fontSize="small" style={{ marginRight: 6 }} />
+        <Typography variant="body2">Filter</Typography>
+      </Box>
+
+      <Popover
+        open={open}
+        anchorEl={anchorEl}
+        onClose={handleClose}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+      >
+        <FilterPanel>
+          <List dense>
+            <ListItem button onClick={clearFilters}>
+              <ListItemText primary="Clear all filters" />
+            </ListItem>
+
+            <Divider style={{ backgroundColor: "#444" }} />
+
+            {/* Asset Groups */}
+            <ListItem button onClick={() => toggleSection("assetGroups")}>
+              <ListItemText primary="Asset Groups" />
+              {openSection === "assetGroups" ? (
+                <ExpandLessIcon />
+              ) : (
+                <ExpandMoreIcon />
+              )}
+            </ListItem>
+            <Collapse in={openSection === "assetGroups"}>
+              <Box pl={2} pb={1}>
+                <Typography variant="body2">Group A</Typography>
+                <Typography variant="body2">Group B</Typography>
+              </Box>
+            </Collapse>
+
+            {/* Approval Status */}
+            <ListItem button onClick={() => toggleSection("approvalStatus")}>
+              <ListItemText primary="Approval Status" />
+              {openSection === "approvalStatus" ? (
+                <ExpandLessIcon />
+              ) : (
+                <ExpandMoreIcon />
+              )}
+            </ListItem>
+            <Collapse in={openSection === "approvalStatus"}>
+              <Box pl={2} pb={1}>
+                <Typography variant="body2">Approved</Typography>
+                <Typography variant="body2">Pending</Typography>
+              </Box>
+            </Collapse>
+
+            {/* Work Status */}
+            <ListItem button onClick={() => toggleSection("workStatus")}>
+              <ListItemText primary="Work Status" />
+              {openSection === "workStatus" ? (
+                <ExpandLessIcon />
+              ) : (
+                <ExpandMoreIcon />
+              )}
+            </ListItem>
+            <Collapse in={openSection === "workStatus"}>
+              <Box pl={2} pb={1}>
+                <Typography variant="body2">In Progress</Typography>
+                <Typography variant="body2">Completed</Typography>
+              </Box>
+            </Collapse>
+          </List>
+        </FilterPanel>
+      </Popover>
+    </>
+  );
+};
