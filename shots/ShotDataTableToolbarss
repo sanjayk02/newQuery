@@ -32,49 +32,45 @@ const StyledToolbar = styled(Toolbar)(({ theme }) => ({
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
-  paddingTop: theme.spacing(2),
-  paddingBottom: theme.spacing(2),
-  marginTop: theme.spacing(1),
-  minHeight: 48, // ✅ fixed height issue
+  padding: theme.spacing(1, 2),
+  minHeight: 56,
 }));
 
 const LeftSection = styled("div")({
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
 });
 
 const RightSection = styled("div")({
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    justifyContent: "flex-end",
+  display: "flex",
+  alignItems: "center",
+  gap: 16,
 });
 
+/* Toggle */
 const ToggleContainer = styled(Box)({
-    display: "flex",
-    backgroundColor: "transparent",
-    borderRadius: 4,
-    padding: 4,
+  display: "flex",
+  borderRadius: 4,
 });
 
-const SearchContainer = styled(Box)({
-    display: "flex",
-    alignItems: "center",
-    backgroundColor: "transparent",
-    borderRadius: 4,
-    padding: "4px 8px",
-    gap: 8,
-    border: "1px solid #ccc",
-});
+/* Search */
+const SearchContainer = styled(Box)(({ theme }) => ({
+  display: "flex",
+  alignItems: "center",
+  backgroundColor: theme.palette.background.default,
+  borderRadius: 6,
+  padding: "4px 10px",
+  border: `1px solid ${theme.palette.divider}`,
+}));
 
 const StyledInput = styled("input")({
-    color: "inherit",
-    backgroundColor: "transparent",
-    border: "none",
-    outline: "none",
-    width: 120,
-    fontSize: 14,
+  color: "inherit",
+  backgroundColor: "transparent",
+  border: "none",
+  outline: "none",
+  width: 200,
+  fontSize: 14,
 });
 
 /* ------------------------------
@@ -82,32 +78,32 @@ const StyledInput = styled("input")({
 -------------------------------- */
 
 type Filters = {
-    assetGroups: string[];
-    approvalStatus: string[];
-    workStatus: string[];
+  assetGroups: string[];
+  approvalStatus: string[];
+  workStatus: string[];
 };
 
 export type ViewMode = "list" | "group";
 
 type ColumnItem = {
-    id: string;
-    label: string;
-    group: string;
+  id: string;
+  label: string;
+  group: string;
 };
 
 type ColumnState = {
-    [key: string]: boolean;
+  [key: string]: boolean;
 };
 
 type Props = {
-    viewMode: ViewMode;
-    onViewChange: (mode: ViewMode) => void;
-    searchValue: string;
-    onSearchChange: (value: string) => void;
-    filters: Filters;
-    onFilterChange: (newFilters: Filters) => void;
-    columnsState: ColumnState;
-    onColumnsChange: (newColumns: ColumnState) => void;
+  viewMode: ViewMode;
+  onViewChange: (mode: ViewMode) => void;
+  searchValue: string;
+  onSearchChange: (value: string) => void;
+  filters: Filters;
+  onFilterChange: (newFilters: Filters) => void;
+  columnsState: ColumnState;
+  onColumnsChange: (newColumns: ColumnState) => void;
 };
 
 /* ------------------------------
@@ -115,60 +111,62 @@ type Props = {
 -------------------------------- */
 
 const FilterPanel = styled(Box)({
-    display: "flex",
-    flexDirection: "column",
-    gap: 8,
+  display: "flex",
+  flexDirection: "column",
+  gap: 8,
 });
 
 const FilterMenu: React.FC<{
-    filters: Filters;
-    onChange: (newFilters: Filters) => void;
+  filters: Filters;
+  onChange: (newFilters: Filters) => void;
 }> = ({ filters, onChange }) => {
-    const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
-    const [openSection, setOpenSection] = React.useState<string | null>(null);
+  const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
+  const [openSection, setOpenSection] = React.useState<string | null>(null);
 
-    const open = Boolean(anchorEl);
+  return (
+    <>
+      <Box
+        onClick={(e) => setAnchorEl(e.currentTarget)}
+        style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+      >
+        <FilterListIcon fontSize="small" />
+        <Typography variant="body2">Filter</Typography>
+      </Box>
 
-    return (
-        <>
-            <Box onClick={(e) => setAnchorEl(e.currentTarget)} style={{ cursor: "pointer" }}>
-                <FilterListIcon fontSize="small" />
-                <Typography variant="body2">Filter</Typography>
-            </Box>
+      <Menu open={Boolean(anchorEl)} anchorEl={anchorEl} onClose={() => setAnchorEl(null)}>
+        <FilterPanel>
+          <List dense>
+            <ListItem button onClick={() => onChange({
+              assetGroups: [],
+              approvalStatus: [],
+              workStatus: [],
+            })}>
+              <ListItemText primary="Clear all filters" />
+            </ListItem>
 
-            <Menu open={open} anchorEl={anchorEl} onClose={() => setAnchorEl(null)}>
-                <FilterPanel>
-                    <List dense>
-                        <ListItem button onClick={() => onChange({
-                            assetGroups: [],
-                            approvalStatus: [],
-                            workStatus: [],
-                        })}>
-                            <ListItemText primary="Clear all filters" />
-                        </ListItem>
+            <Divider />
 
-                        <Divider />
+            {["assetGroups", "approvalStatus", "workStatus"].map((section) => (
+              <React.Fragment key={section}>
+                <ListItem button onClick={() =>
+                  setOpenSection(openSection === section ? null : section)
+                }>
+                  <ListItemText primary={section} />
+                  {openSection === section ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                </ListItem>
 
-                        {["assetGroups", "approvalStatus", "workStatus"].map((section) => (
-                            <React.Fragment key={section}>
-                                <ListItem button onClick={() =>
-                                    setOpenSection(openSection === section ? null : section)
-                                }>
-                                    <ListItemText primary={section} />
-                                    {openSection === section ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                                </ListItem>
-                                <Collapse in={openSection === section}>
-                                    <Box pl={2}>
-                                        <Typography variant="body2">Coming soon...</Typography>
-                                    </Box>
-                                </Collapse>
-                            </React.Fragment>
-                        ))}
-                    </List>
-                </FilterPanel>
-            </Menu>
-        </>
-    );
+                <Collapse in={openSection === section}>
+                  <Box pl={2} pb={1}>
+                    <Typography variant="body2">Coming soon...</Typography>
+                  </Box>
+                </Collapse>
+              </React.Fragment>
+            ))}
+          </List>
+        </FilterPanel>
+      </Menu>
+    </>
+  );
 };
 
 /* ------------------------------
@@ -176,75 +174,78 @@ const FilterMenu: React.FC<{
 -------------------------------- */
 
 const ALL_COLUMNS: ColumnItem[] = [
-    { id: "shotName", label: "Shot Name", group: "Basic Info" },
-    { id: "assetGroup", label: "Asset Group", group: "Basic Info" },
-    { id: "approvalStatus", label: "Approval Status", group: "Status" },
-    { id: "workStatus", label: "Work Status", group: "Status" },
+  { id: "shotName", label: "Shot Name", group: "Basic Info" },
+  { id: "assetGroup", label: "Asset Group", group: "Basic Info" },
+  { id: "approvalStatus", label: "Approval Status", group: "Status" },
+  { id: "workStatus", label: "Work Status", group: "Status" },
 ];
 
 const ColumnsPanel = styled(Box)(({ theme }) => ({
-    display: "flex",
-    flexDirection: "column",
-    padding: theme.spacing(2),
+  display: "flex",
+  flexDirection: "column",
+  padding: theme.spacing(2),
 }));
 
 const ColumnSelector: React.FC<{
-    columnState: ColumnState;
-    onChange: (columnState: ColumnState) => void;
+  columnState: ColumnState;
+  onChange: (columnState: ColumnState) => void;
 }> = ({ columnState, onChange }) => {
 
-    const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
-    const [openGroups, setOpenGroups] = React.useState<string[]>([]);
+  const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
+  const [openGroups, setOpenGroups] = React.useState<string[]>([]);
 
-    const groupedColumns = ALL_COLUMNS.reduce((acc, col) => {
-        if (!acc[col.group]) acc[col.group] = [];
-        acc[col.group].push(col);
-        return acc;
-    }, {} as Record<string, ColumnItem[]>);
+  const grouped = ALL_COLUMNS.reduce((acc, col) => {
+    if (!acc[col.group]) acc[col.group] = [];
+    acc[col.group].push(col);
+    return acc;
+  }, {} as Record<string, ColumnItem[]>);
 
-    return (
-        <>
-            <Box onClick={(e) => setAnchorEl(e.currentTarget)} style={{ cursor: "pointer" }}>
-                <ViewColumnIcon />
-                <Typography>COLUMNS</Typography>
+  return (
+    <>
+      <Box
+        onClick={(e) => setAnchorEl(e.currentTarget)}
+        style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+      >
+        <ViewColumnIcon fontSize="small" />
+        <Typography variant="body2">Columns</Typography>
+      </Box>
+
+      <Popover open={Boolean(anchorEl)} anchorEl={anchorEl} onClose={() => setAnchorEl(null)}>
+        <ColumnsPanel>
+          {Object.entries(grouped).map(([group, cols]) => (
+            <Box key={group}>
+              <ListItem button onClick={() =>
+                setOpenGroups(prev =>
+                  prev.includes(group)
+                    ? prev.filter(g => g !== group)
+                    : [...prev, group]
+                )
+              }>
+                <ListItemText primary={group} />
+                {openGroups.includes(group) ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+              </ListItem>
+
+              <Collapse in={openGroups.includes(group)}>
+                {cols.map(col => (
+                  <ListItem key={col.id} button onClick={() =>
+                    onChange({
+                      ...columnState,
+                      [col.id]: !columnState[col.id],
+                    })
+                  }>
+                    <Checkbox checked={!!columnState[col.id]} />
+                    <ListItemText primary={col.label} />
+                  </ListItem>
+                ))}
+              </Collapse>
+
+              <Divider />
             </Box>
-
-            <Popover open={Boolean(anchorEl)} anchorEl={anchorEl} onClose={() => setAnchorEl(null)}>
-                <ColumnsPanel>
-                    {Object.entries(groupedColumns).map(([group, cols]) => (
-                        <Box key={group}>
-                            <ListItem button onClick={() =>
-                                setOpenGroups(prev =>
-                                    prev.includes(group)
-                                        ? prev.filter(g => g !== group)
-                                        : [...prev, group]
-                                )
-                            }>
-                                <ListItemText primary={group} />
-                                {openGroups.includes(group) ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                            </ListItem>
-
-                            <Collapse in={openGroups.includes(group)}>
-                                {cols.map(col => (
-                                    <ListItem key={col.id} button onClick={() =>
-                                        onChange({
-                                            ...columnState,
-                                            [col.id]: !columnState[col.id],
-                                        })
-                                    }>
-                                        <Checkbox checked={!!columnState[col.id]} />
-                                        <ListItemText primary={col.label} />
-                                    </ListItem>
-                                ))}
-                            </Collapse>
-
-                            <Divider />
-                        </Box>
-                    ))}
-                </ColumnsPanel>
-            </Popover>
-        </>
-    );
+          ))}
+        </ColumnsPanel>
+      </Popover>
+    </>
+  );
 };
 
 /* ------------------------------
@@ -252,17 +253,17 @@ const ColumnSelector: React.FC<{
 -------------------------------- */
 
 const ViewToggle: React.FC<{
-    viewMode: ViewMode;
-    onChange: (mode: ViewMode) => void;
+  viewMode: ViewMode;
+  onChange: (mode: ViewMode) => void;
 }> = ({ viewMode, onChange }) => (
-    <ToggleContainer>
-        <IconButton onClick={() => onChange("list")}>
-            <ViewListIcon color={viewMode === "list" ? "primary" : "inherit"} />
-        </IconButton>
-        <IconButton onClick={() => onChange("group")}>
-            <ViewModuleIcon color={viewMode === "group" ? "primary" : "inherit"} />
-        </IconButton>
-    </ToggleContainer>
+  <ToggleContainer>
+    <IconButton onClick={() => onChange("list")}>
+      <ViewListIcon color={viewMode === "list" ? "primary" : "inherit"} />
+    </IconButton>
+    <IconButton onClick={() => onChange("group")}>
+      <ViewModuleIcon color={viewMode === "group" ? "primary" : "inherit"} />
+    </IconButton>
+  </ToggleContainer>
 );
 
 /* ------------------------------
@@ -270,39 +271,43 @@ const ViewToggle: React.FC<{
 -------------------------------- */
 
 const ShotDataTableToolbar: React.FC<Props> = ({
-    viewMode,
-    onViewChange,
-    searchValue,
-    onSearchChange,
-    filters,
-    onFilterChange,
-    columnsState,
-    onColumnsChange,
+  viewMode,
+  onViewChange,
+  searchValue,
+  onSearchChange,
+  filters,
+  onFilterChange,
+  columnsState,
+  onColumnsChange,
 }) => {
-    return (
-        <StyledToolbar>
-            <RightSection>
-                <ViewToggle viewMode={viewMode} onChange={onViewChange} />
-            </RightSection>
+  return (
+    <StyledToolbar>
 
-            <LeftSection>
-                <SearchContainer>
-                    <StyledInput
-                        value={searchValue}
-                        onChange={(e) => onSearchChange(e.target.value)}
-                        placeholder="Search shots..."
-                    />
-                </SearchContainer>
+      {/* LEFT */}
+      <LeftSection>
+        <ViewToggle viewMode={viewMode} onChange={onViewChange} />
+      </LeftSection>
 
-                <FilterMenu filters={filters} onChange={onFilterChange} />
+      {/* RIGHT */}
+      <RightSection>
+        <SearchContainer>
+          <StyledInput
+            value={searchValue}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="Search shots..."
+          />
+        </SearchContainer>
 
-                <ColumnSelector
-                    columnState={columnsState}
-                    onChange={onColumnsChange}
-                />
-            </LeftSection>
-        </StyledToolbar>
-    );
+        <FilterMenu filters={filters} onChange={onFilterChange} />
+
+        <ColumnSelector
+          columnState={columnsState}
+          onChange={onColumnsChange}
+        />
+      </RightSection>
+
+    </StyledToolbar>
+  );
 };
 
 export default ShotDataTableToolbar;
