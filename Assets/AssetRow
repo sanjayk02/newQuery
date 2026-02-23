@@ -1,0 +1,77 @@
+// AssetsDataTable.tsx
+
+// ... existing imports
+
+const AssetRow: React.FC<AssetRowProps> = ({
+  asset,
+  reviewInfos,
+  thumbnails,
+  phaseComponents,
+  latestComponents,
+  dateTimeFormat,
+}) => {
+  // Get components for all phases to map columns correctly
+  const allComponents = Object.values(phaseComponents).flat();
+
+  return (
+    <TableRow hover>
+      {/* 1. Thumbnail Column */}
+      <TableCell>
+        {thumbnails[asset.name] ? (
+          <img 
+            src={thumbnails[asset.name]} 
+            alt={asset.name} 
+            style={{ width: 50, borderRadius: 4 }} 
+          />
+        ) : (
+          <div style={{ width: 50, height: 30, background: '#333' }} />
+        )}
+      </TableCell>
+
+      {/* 2. Asset Name Column */}
+      <TableCell style={{ fontWeight: 'bold' }}>
+        {asset.name}
+      </TableCell>
+
+      {/* 3. Dynamic Phase Columns (The Data You Requested) */}
+      {Object.keys(phaseComponents).map((phase) => {
+        const components = phaseComponents[phase];
+        
+        return (
+          <React.Fragment key={phase}>
+            {components.map((component) => {
+              // Extract the specific document for this asset and this component
+              const assetDocs = latestComponents[asset.name] || [];
+              const doc = assetDocs.find((d) => d.component === component);
+
+              return (
+                <TableCell key={`${asset.name}-${component}`} align="center">
+                  {doc ? (
+                    <Tooltip title={`Phase: ${doc.latest_document.phase}`}>
+                      <div style={{ fontSize: '0.8rem' }}>
+                        {/* Render the formatted date */}
+                        {dateTimeFormat.format(new Date(doc.latest_document.submitted_at_utc))}
+                        
+                        {/* Example: Add the Status/Review Info if available */}
+                        <div style={{ opacity: 0.6, fontSize: '0.7rem' }}>
+                           {doc.latest_document.phase}
+                        </div>
+                      </div>
+                    </Tooltip>
+                  ) : (
+                    <span style={{ color: '#666' }}>-</span>
+                  )}
+                </TableCell>
+              );
+            })}
+          </React.Fragment>
+        );
+      })}
+
+      {/* 4. Relation/Status Column */}
+      <TableCell>{asset.relation || 'N/A'}</TableCell>
+    </TableRow>
+  );
+};
+
+// ... rest of the file
