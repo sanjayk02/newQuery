@@ -1,0 +1,68 @@
+// ============================================
+// FIXED: fetchLatestAssetComponents with proper template literal
+// ============================================
+export const fetchLatestAssetComponents = async (
+  project: string,
+  asset: string,
+  relation: string,
+  components: string[],
+  signal?: AbortSignal | null
+): Promise<LatestAssetComponentDocumentsResponse[]> => {
+  // Encode each parameter individually
+  const encodedProject = encodeURIComponent(project);
+  const encodedAsset = encodeURIComponent(asset);
+  const encodedRelation = encodeURIComponent(relation);
+
+  // Build URL with proper encoding
+  const url = `/api/projects/${encodedProject}/latestAssetsOperationInfos`;
+  
+  // Build query parameters
+  const params = new URLSearchParams();
+  params.append('asset', encodedAsset);
+  params.append('relation', encodedRelation);
+  
+  // Append each component separately (the backend expects multiple component params)
+  components.forEach(component => {
+    params.append('component', encodeURIComponent(component));
+  });
+  
+  // Construct final URL - FIXED: using backticks for template literal
+  const fullUrl = `${url}?${params.toString()}`;
+  
+  console.log('fetchLatestAssetComponents URL:', fullUrl);
+  console.log('Request params:', {
+    asset: encodedAsset,
+    relation: encodedRelation,
+    components: components
+  });
+
+  const headers = getAuthHeader();
+  
+  try {
+    const res = await fetch(fullUrl, {
+      method: 'GET',
+      headers,
+      mode: 'cors',
+      signal,
+    });
+
+    if (res.status === 401) {
+      console.error('401 Unauthorized for latest components:', fullUrl);
+      throw new AuthorizationError();
+    }
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      throw new Error(`Failed to fetch latest asset components: ${res.status} ${errorText}`);
+    }
+
+    setNewToken(res);
+    const json: LatestAssetComponentDocumentsResponse[] = await res.json();
+    
+    console.log('fetchLatestAssetComponents response:', json);
+    return json;
+  } catch (error) {
+    console.error('Error in fetchLatestAssetComponents:', error);
+    throw error;
+  }
+};
