@@ -1,0 +1,114 @@
+// In hooks.ts - Add this new hook
+export function useFetchAssetsPivotWithDetails(
+  project: Project | null | undefined,
+  page: number,
+  rowsPerPage: number,
+  sortKey: string,
+  sortDir: SortDir,
+  phase: string,
+  assetNameKey: string,
+  approvalStatuses: string[],
+  workStatuses: string[],
+  viewMode: 'list' | 'grouped',
+): { 
+  assets: Asset[]; 
+  total: number; 
+  groups: PivotGroup[];
+  reviewInfos: { [key: string]: ReviewInfo };
+  thumbnails: { [key: string]: string };
+  loading: boolean;
+} {
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [groups, setGroups] = useState<PivotGroup[]>([]);
+  const [total, setTotal] = useState(0);
+  const [reviewInfos, setReviewInfos] = useState<{ [key: string]: ReviewInfo }>({});
+  const [thumbnails, setThumbnails] = useState<{ [key: string]: string }>({});
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!project?.key_name) return;
+    if (sortDir === 'none') return;
+
+    const controller = new AbortController();
+    setLoading(true);
+
+    const fetchData = async () => {
+      try {
+        // Fetch pivot assets
+        const res = await fetchAssetsPivot(
+          project.key_name,
+          page,
+          rowsPerPage,
+          sortKey,
+          sortDir,
+          phase,
+          assetNameKey,
+          approvalStatuses,
+          workStatuses,
+          viewMode,
+          controller.signal,
+        );
+
+        // Extract assets based on response structure
+        let fetchedAssets: Asset[] = [];
+        if (viewMode === 'list') {
+          fetchedAssets = (res as any).assets || (res as any).data || [];
+        } else {
+          fetchedAssets = (res as any).assets || [];
+        }
+
+        // Validate asset structure
+        const validatedAssets = fetchedAssets.map((asset: any) => ({
+          name: asset.name || asset.asset_name || asset.asset || '',
+          relation: asset.relation || asset.relation_name || 'main',
+        }));
+
+        setAssets(validatedAssets);
+        setTotal((res as any).total || 0);
+        setGroups((res as any).groups || []);
+
+        // If the pivot API returns review infos and thumbnails, extract them
+        if ((res as any).reviewInfos) {
+          const reviewInfoMap: { [key: string]: ReviewInfo } = {};
+          (res as any).reviewInfos.forEach((info: any) => {
+            const key = `${info.asset_name || info.name}-${info.relation || 'main'}-${info.phase}`;
+            reviewInfoMap[key] = info;
+          });
+          setReviewInfos(reviewInfoMap);
+        }
+
+        if ((res as any).thumbnails) {
+          const thumbnailMap: { [key: string]: string } = {};
+          (res as any).thumbnails.forEach((thumb: any) => {
+            const key = `${thumb.asset_name || thumb.name}-${thumb.relation || 'main'}`;
+            thumbnailMap[key] = thumb.data || thumb.url;
+          });
+          setThumbnails(thumbnailMap);
+        }
+
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return;
+        console.error('Error fetching pivot assets:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+
+    return () => controller.abort();
+  }, [
+    project?.key_name,
+    page,
+    rowsPerPage,
+    sortKey,
+    sortDir,
+    phase,
+    assetNameKey,
+    approvalStatuses,
+    workStatuses,
+    viewMode,
+  ]);
+
+  return { assets, total, groups, reviewInfos, thumbnails, loading };
+}
