@@ -1,62 +1,71 @@
 const RecordTableHead: React.FC<RecordTableHeadProps> = ({
   columns,
-  phaseComponents,
   currentSortKey,
   currentSortDir,
   onSortChange,
+  phaseComponents,
 }) => {
-  const getSortDir = (id: string, activeKey: string, activeDir: SortDir): SortDir =>
-    activeKey === id ? activeDir : "none";
 
-  const createSortHandler = (id: string) => () => onSortChange(id);
+  const getSortDir = (key: string): SortDir =>
+    currentSortKey === key ? currentSortDir : "none";
+
+  const createSortHandler = (key: string) => () => {
+    if (onSortChange) onSortChange(key);
+  };
 
   return (
     <TableHead>
       <TableRow>
-        {columns.map((column) => {
-          const borderLineStyle = column.colors ? `solid 3px ${column.colors.lineColor}` : 'none';
-          const borderTopStyle = column.colors ? borderLineStyle : 'none';
-          const borderLeftStyle = column.id.includes('work_status') ? borderLineStyle : 'none';
-          const borderRightStyle = column.id.includes('approval_status') ? borderLineStyle : 'none';
 
-          // Check if this is a submitted_at column that needs to be expanded
-          if (column.id.includes('submitted_at') && !column.id.includes('_component_')) {
-            // Extract phase from column id (e.g., "mdl_submitted_at" -> "mdl")
-            const phase = column.id.replace('_submitted_at', '');
-            const components = phaseComponents[phase] || [];
-            
-            // If there are components for this phase, render multiple columns
+        {columns.map((column) => {
+
+          // 🔹 Handle dynamic submitted_at columns
+          if (
+            column.id.endsWith("_submitted_at") &&
+            !column.id.includes("_component_")
+          ) {
+            const phase = column.id.replace("_submitted_at", "");
+            const components = phaseComponents?.[phase] || [];
+
             if (components.length > 0) {
-              return components.map((component) => {
-                const componentId = `${phase}_${component.toLowerCase()}_submitted_at`;
-                const componentLabel = `${phase.toUpperCase()} ${component} SUBMITTED AT`;
-                const sortKey = `${phase}_${component.toLowerCase()}_submitted`;
-                
+              return components.map((componentName: string) => {
+
+                const dynamicId =
+                  `${phase}_${componentName.toLowerCase()}_submitted_at`;
+
+                const sortKey =
+                  `${phase}_${componentName.toLowerCase()}_submitted`;
+
+                const sortDir = getSortDir(sortKey);
+
                 return (
                   <TableCell
-                    key={componentId}
+                    key={dynamicId}
+                    onClick={() => createSortHandler(sortKey)()}
                     style={{
-                      backgroundColor: column.colors?.backgroundColor || 'none',
-                      borderTop: borderTopStyle,
-                      borderLeft: borderLeftStyle,
-                      borderRight: borderRightStyle,
-                      cursor: 'pointer',
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                      backgroundColor: column.colors?.backgroundColor,
                     }}
-                    onClick={() => onSortChange(sortKey)}
                   >
-                    <Box display="flex" alignItems="center" justifyContent="center">
+                    <Box
+                      display="flex"
+                      alignItems="center"
+                      justifyContent="center"
+                    >
                       <span style={{ fontSize: 12, fontWeight: 500 }}>
-                        {componentLabel}
+                        {`${phase.toUpperCase()} ${componentName} SUBMITTED AT`}
                       </span>
-                      {currentSortKey === sortKey && (
+
+                      {sortDir !== "none" && (
                         <Box ml={0.5}>
-                          <span style={{ 
-                            fontSize: 12,
-                            color: '#fcfeffff',
-                            lineHeight: '12px',
-                            fontWeight: 'bold'
-                          }}>
-                            {currentSortDir === "asc" ? "▲" : "▼"}
+                          <span
+                            style={{
+                              fontSize: 12,
+                              fontWeight: "bold",
+                            }}
+                          >
+                            {sortDir === "asc" ? "▲" : "▼"}
                           </span>
                         </Box>
                       )}
@@ -65,36 +74,37 @@ const RecordTableHead: React.FC<RecordTableHeadProps> = ({
                 );
               });
             }
+
+            return null;
           }
 
-          // Regular column (non-submitted_at or no components)
+          // 🔹 Normal column rendering
           const sortKey = column.sortKey || column.id;
-          const sortDir = getSortDir(sortKey, currentSortKey, currentSortDir);
+          const sortDir = getSortDir(sortKey);
 
           return (
             <TableCell
               key={column.id}
-              style={{
-                backgroundColor: column.colors?.backgroundColor || 'none',
-                borderTop: borderTopStyle,
-                borderLeft: borderLeftStyle,
-                borderRight: borderRightStyle,
-                cursor: column.sortable ? 'pointer' : 'default',
-              }}
               onClick={column.sortable ? createSortHandler(sortKey) : undefined}
+              style={{
+                cursor: column.sortable ? "pointer" : "default",
+                whiteSpace: "nowrap",
+                backgroundColor: column.colors?.backgroundColor,
+              }}
             >
               <Box display="flex" alignItems="center" justifyContent="center">
                 <span style={{ fontSize: 12, fontWeight: 500 }}>
                   {column.label}
                 </span>
+
                 {sortDir !== "none" && (
                   <Box ml={0.5}>
-                    <span style={{ 
-                      fontSize: 12,
-                      color: '#fcfeffff',
-                      lineHeight: '12px',
-                      fontWeight: 'bold'
-                    }}>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        fontWeight: "bold",
+                      }}
+                    >
                       {sortDir === "asc" ? "▲" : "▼"}
                     </span>
                   </Box>
@@ -103,6 +113,7 @@ const RecordTableHead: React.FC<RecordTableHeadProps> = ({
             </TableCell>
           );
         })}
+
       </TableRow>
     </TableHead>
   );
