@@ -1,0 +1,109 @@
+const RecordTableHead: React.FC<RecordTableHeadProps> = ({
+  columns,
+  phaseComponents,
+  currentSortKey,
+  currentSortDir,
+  onSortChange,
+}) => {
+  const getSortDir = (id: string, activeKey: string, activeDir: SortDir): SortDir =>
+    activeKey === id ? activeDir : "none";
+
+  const createSortHandler = (id: string) => () => onSortChange(id);
+
+  return (
+    <TableHead>
+      <TableRow>
+        {columns.map((column) => {
+          const borderLineStyle = column.colors ? `solid 3px ${column.colors.lineColor}` : 'none';
+          const borderTopStyle = column.colors ? borderLineStyle : 'none';
+          const borderLeftStyle = column.id.includes('work_status') ? borderLineStyle : 'none';
+          const borderRightStyle = column.id.includes('approval_status') ? borderLineStyle : 'none';
+
+          // Check if this is a submitted_at column that needs to be expanded
+          if (column.id.includes('submitted_at') && !column.id.includes('_component_')) {
+            // Extract phase from column id (e.g., "mdl_submitted_at" -> "mdl")
+            const phase = column.id.replace('_submitted_at', '');
+            const components = phaseComponents[phase] || [];
+            
+            // If there are components for this phase, render multiple columns
+            if (components.length > 0) {
+              return components.map((component) => {
+                const componentId = `${phase}_${component.toLowerCase()}_submitted_at`;
+                const componentLabel = `${phase.toUpperCase()} ${component} SUBMITTED AT`;
+                const sortKey = `${phase}_${component.toLowerCase()}_submitted`;
+                
+                return (
+                  <TableCell
+                    key={componentId}
+                    style={{
+                      backgroundColor: column.colors?.backgroundColor || 'none',
+                      borderTop: borderTopStyle,
+                      borderLeft: borderLeftStyle,
+                      borderRight: borderRightStyle,
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => onSortChange(sortKey)}
+                  >
+                    <Box display="flex" alignItems="center" justifyContent="center">
+                      <span style={{ fontSize: 12, fontWeight: 500 }}>
+                        {componentLabel}
+                      </span>
+                      {currentSortKey === sortKey && (
+                        <Box ml={0.5}>
+                          <span style={{ 
+                            fontSize: 12,
+                            color: '#fcfeffff',
+                            lineHeight: '12px',
+                            fontWeight: 'bold'
+                          }}>
+                            {currentSortDir === "asc" ? "▲" : "▼"}
+                          </span>
+                        </Box>
+                      )}
+                    </Box>
+                  </TableCell>
+                );
+              });
+            }
+          }
+
+          // Regular column (non-submitted_at or no components)
+          const sortKey = column.sortKey || column.id;
+          const sortDir = getSortDir(sortKey, currentSortKey, currentSortDir);
+
+          return (
+            <TableCell
+              key={column.id}
+              style={{
+                backgroundColor: column.colors?.backgroundColor || 'none',
+                borderTop: borderTopStyle,
+                borderLeft: borderLeftStyle,
+                borderRight: borderRightStyle,
+                cursor: column.sortable ? 'pointer' : 'default',
+              }}
+              onClick={column.sortable ? createSortHandler(sortKey) : undefined}
+            >
+              <Box display="flex" alignItems="center" justifyContent="center">
+                <span style={{ fontSize: 12, fontWeight: 500 }}>
+                  {column.label}
+                </span>
+                {sortDir !== "none" && (
+                  <Box ml={0.5}>
+                    <span style={{ 
+                      fontSize: 12,
+                      color: '#fcfeffff',
+                      lineHeight: '12px',
+                      fontWeight: 'bold'
+                    }}>
+                      {sortDir === "asc" ? "▲" : "▼"}
+                    </span>
+                  </Box>
+                )}
+              </Box>
+            </TableCell>
+          );
+        })}
+      </TableRow>
+    </TableHead>
+  );
+};
