@@ -1,0 +1,22 @@
+{/* ===== MANUAL COMPONENT SUBMITTED COLUMNS ===== */}
+{["mdlRend", "bldRend", "bldAnm", "ldvMdl"].map((componentName) => {
+  const assetKey = `${asset.group_1}-${asset.relation}`;
+
+  const componentList = latestComponents[assetKey] ?? [];
+
+  const componentData = componentList.find(
+    (item) => item.component === componentName
+  );
+
+  const submittedText = componentData?.latest_document?.submitted_at_utc
+    ? dateTimeFormat.format(
+        new Date(componentData.latest_document.submitted_at_utc)
+      )
+    : "—";
+
+  return (
+    <TableCell key={`${assetKey}-${componentName}`}>
+      {submittedText}
+    </TableCell>
+  );
+})}
