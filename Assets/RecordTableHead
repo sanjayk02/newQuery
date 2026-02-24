@@ -1,120 +1,44 @@
-const RecordTableHead: React.FC<RecordTableHeadProps> = ({
-  columns,
-  currentSortKey,
-  currentSortDir,
-  onSortChange,
-  phaseComponents,
-}) => {
 
-  const getSortDir = (key: string): SortDir =>
-    currentSortKey === key ? currentSortDir : "none";
+const phase = ["mdl", "rig", "bld", "dsn", "ldv"]
+  .find(p => column.id.startsWith(p));
 
-  const createSortHandler = (key: string) => () => {
-    if (onSortChange) onSortChange(key);
-  };
+let borderLeft = "none";
+let borderRight = "none";
+let borderTop = "none";
 
-  return (
-    <TableHead>
-      <TableRow>
+if (phase && column.colors) {
+  const rail = `solid 3px ${column.colors.lineColor}`;
 
-        {columns.map((column) => {
+  // 🔥 Build FULL PHASE COLUMN LIST (including dynamic submitted)
+  const phaseColumnIds: string[] = [];
 
-          // 🔹 Handle dynamic submitted_at columns
-          if (
-            column.id.endsWith("_submitted_at") &&
-            !column.id.includes("_component_")
-          ) {
-            const phase = column.id.replace("_submitted_at", "");
-            const components = phaseComponents?.[phase] || [];
+  columns.forEach(c => {
+    if (c.id.startsWith(phase)) {
 
-            if (components.length > 0) {
-              return components.map((componentName: string) => {
+      if (c.id.endsWith("_submitted_at")) {
+        const comps = phaseComponents?.[phase] || [];
 
-                const dynamicId =
-                  `${phase}_${componentName.toLowerCase()}_submitted_at`;
+        if (comps.length > 0) {
+          comps.forEach(comp => {
+            phaseColumnIds.push(
+              `${phase}_${comp.toLowerCase()}_submitted_at`
+            );
+          });
+        } else {
+          phaseColumnIds.push(c.id);
+        }
 
-                const sortKey =
-                  `${phase}_${componentName.toLowerCase()}_submitted`;
+      } else {
+        phaseColumnIds.push(c.id);
+      }
+    }
+  });
 
-                const sortDir = getSortDir(sortKey);
+  const first = phaseColumnIds[0];
+  const last = phaseColumnIds[phaseColumnIds.length - 1];
 
-                return (
-                  <TableCell
-                    key={dynamicId}
-                    onClick={() => createSortHandler(sortKey)()}
-                    style={{
-                      cursor: "pointer",
-                      whiteSpace: "nowrap",
-                      backgroundColor: column.colors?.backgroundColor,
-                    }}
-                  >
-                    <Box
-                      display="flex"
-                      alignItems="center"
-                      justifyContent="center"
-                    >
-                      <span style={{ fontSize: 12, fontWeight: 500 }}>
-                        {`${phase.toUpperCase()} ${componentName} SUBMITTED AT`}
-                      </span>
+  if (column.id === first) borderLeft = rail;
+  if (column.id === last) borderRight = rail;
 
-                      {sortDir !== "none" && (
-                        <Box ml={0.5}>
-                          <span
-                            style={{
-                              fontSize: 12,
-                              fontWeight: "bold",
-                            }}
-                          >
-                            {sortDir === "asc" ? "▲" : "▼"}
-                          </span>
-                        </Box>
-                      )}
-                    </Box>
-                  </TableCell>
-                );
-              });
-            }
-
-            return null;
-          }
-
-          // 🔹 Normal column rendering
-          const sortKey = column.sortKey || column.id;
-          const sortDir = getSortDir(sortKey);
-
-          return (
-            <TableCell
-              key={column.id}
-              onClick={column.sortable ? createSortHandler(sortKey) : undefined}
-              style={{
-                cursor: column.sortable ? "pointer" : "default",
-                whiteSpace: "nowrap",
-                backgroundColor: column.colors?.backgroundColor,
-              }}
-            >
-              <Box display="flex" alignItems="center" justifyContent="center">
-                <span style={{ fontSize: 12, fontWeight: 500 }}>
-                  {column.label}
-                </span>
-
-                {sortDir !== "none" && (
-                  <Box ml={0.5}>
-                    <span
-                      style={{
-                        fontSize: 12,
-                        fontWeight: "bold",
-                      }}
-                    >
-                      {sortDir === "asc" ? "▲" : "▼"}
-                    </span>
-                  </Box>
-                )}
-              </Box>
-            </TableCell>
-          );
-        })}
-
-      </TableRow>
-    </TableHead>
-  );
-};
+  borderTop = rail;
+}
