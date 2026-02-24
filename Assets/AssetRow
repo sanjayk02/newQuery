@@ -1,77 +1,142 @@
-// AssetsDataTable.tsx
-
-// ... existing imports
-
-const AssetRow: React.FC<AssetRowProps> = ({
+const AssetRow: React.FC<
+  AssetRowProps & {
+    hiddenColumns: Set<string>;
+    compact: boolean;
+  }
+> = ({
   asset,
-  reviewInfos,
   thumbnails,
+  dateTimeFormat,
+  isLastRow,
+  hiddenColumns,
+  compact,
   phaseComponents,
   latestComponents,
-  dateTimeFormat,
 }) => {
-  // Get components for all phases to map columns correctly
-  const allComponents = Object.values(phaseComponents).flat();
+
+  const isHidden = (id: string) => hiddenColumns.has(id);
+
+  const getLatestSubmitted = (
+    phase: string,
+    componentName: string
+  ): string => {
+
+    const lookupKey = `${asset.group_1}-${asset.relation}`;
+    const phaseData = latestComponents?.[lookupKey] || [];
+
+    const match = phaseData.find(
+      (c: any) =>
+        c.phase?.toLowerCase() === phase.toLowerCase() &&
+        c.component?.toLowerCase() === componentName.toLowerCase()
+    );
+
+    const submittedUtc =
+      match?.latest_document?.[0]?.submitted_at_utc;
+
+    if (!submittedUtc) return "—";
+
+    try {
+      return dateTimeFormat.format(new Date(submittedUtc));
+    } catch {
+      return "—";
+    }
+  };
 
   return (
-    <TableRow hover>
-      {/* 1. Thumbnail Column */}
-      <TableCell>
-        {thumbnails[asset.name] ? (
-          <img 
-            src={thumbnails[asset.name]} 
-            alt={asset.name} 
-            style={{ width: 50, borderRadius: 4 }} 
-          />
-        ) : (
-          <div style={{ width: 50, height: 30, background: '#333' }} />
-        )}
-      </TableCell>
+    <TableRow>
 
-      {/* 2. Asset Name Column */}
-      <TableCell style={{ fontWeight: 'bold' }}>
-        {asset.name}
-      </TableCell>
+      {/* THUMBNAIL */}
+      {!isHidden("thumbnail") && (
+        <TableCell style={compact ? { width: 140 } : undefined}>
+          {thumbnails[`${asset.group_1}-${asset.relation}`] ? (
+            <img
+              src={thumbnails[`${asset.group_1}-${asset.relation}`]}
+              alt="thumb"
+              style={{ width: "100px" }}
+            />
+          ) : (
+            <span>No Thumbnail</span>
+          )}
+        </TableCell>
+      )}
 
-      {/* 3. Dynamic Phase Columns (The Data You Requested) */}
-      {Object.keys(phaseComponents).map((phase) => {
-        const components = phaseComponents[phase];
-        
+      {/* NAME */}
+      {!isHidden("group_1_name") && (
+        <TableCell>
+          {asset.group_1 || "—"}
+        </TableCell>
+      )}
+
+      {/* PHASES */}
+      {["mdl", "rig", "bld", "dsn", "ldv"].map((phase) => {
+
+        const workKey = `${phase}_work_status`;
+        const apprKey = `${phase}_approval_status`;
+        const takeKey = `${phase}_take`;
+
+        const components = phaseComponents?.[phase] || [];
+
         return (
-          <React.Fragment key={phase}>
-            {components.map((component) => {
-              // Extract the specific document for this asset and this component
-              const assetDocs = latestComponents[asset.name] || [];
-              const doc = assetDocs.find((d) => d.component === component);
+          <React.Fragment key={`${asset.group_1}-${phase}`}>
 
-              return (
-                <TableCell key={`${asset.name}-${component}`} align="center">
-                  {doc ? (
-                    <Tooltip title={`Phase: ${doc.latest_document.phase}`}>
-                      <div style={{ fontSize: '0.8rem' }}>
-                        {/* Render the formatted date */}
-                        {dateTimeFormat.format(new Date(doc.latest_document.submitted_at_utc))}
-                        
-                        {/* Example: Add the Status/Review Info if available */}
-                        <div style={{ opacity: 0.6, fontSize: '0.7rem' }}>
-                           {doc.latest_document.phase}
-                        </div>
-                      </div>
-                    </Tooltip>
-                  ) : (
-                    <span style={{ color: '#666' }}>-</span>
-                  )}
-                </TableCell>
-              );
-            })}
+            {/* WORK */}
+            {!isHidden(workKey) && (
+              <TableCell>
+                {asset[workKey] || "—"}
+              </TableCell>
+            )}
+
+            {/* APPROVAL */}
+            {!isHidden(apprKey) && (
+              <TableCell>
+                {asset[apprKey] || "—"}
+              </TableCell>
+            )}
+
+            {/* SUBMITTED (Dynamic from latestComponents) */}
+            {components.length > 0
+              ? components.map((componentName: string) => {
+                  const columnId =
+                    `${phase}_${componentName.toLowerCase()}_submitted_at`;
+
+                  if (isHidden(columnId)) return null;
+
+                  const submittedText = getLatestSubmitted(
+                    phase,
+                    componentName
+                  );
+
+                  return (
+                    <TableCell
+                      key={`${asset.group_1}-${phase}-${componentName}`}
+                    >
+                      {submittedText}
+                    </TableCell>
+                  );
+                })
+              : null}
+
+            {/* TAKE */}
+            {!isHidden(takeKey) && (
+              <TableCell>
+                {asset[takeKey] || "—"}
+              </TableCell>
+            )}
+
           </React.Fragment>
         );
       })}
 
-      {/* 4. Relation/Status Column */}
-      <TableCell>{asset.relation || 'N/A'}</TableCell>
+      {/* RELATION */}
+      {!isHidden("relation") && !compact && (
+        <TableCell>{asset.relation || "—"}</TableCell>
+      )}
+
+      {/* COMPONENT */}
+      {!isHidden("component") && !compact && (
+        <TableCell>{asset.component || "—"}</TableCell>
+      )}
+
     </TableRow>
   );
 };
-
-// ... rest of the file
