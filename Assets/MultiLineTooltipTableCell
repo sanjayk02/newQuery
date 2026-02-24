@@ -1,0 +1,51 @@
+type TooltipTableCellProps = {
+  tooltipText: string;
+  status?: Status;
+  leftBorderStyle: string;
+  rightBorderStyle: string;
+  bottomBorderStyle: string;
+  children?: React.ReactNode;
+};
+
+const MultiLineTooltipTableCell: React.FC<TooltipTableCellProps> = ({
+  tooltipText,
+  status,
+  leftBorderStyle,
+  rightBorderStyle,
+  bottomBorderStyle = "none",
+  children,
+}) => {
+  const [open, setOpen] = React.useState(false);
+  const hasTooltipText = tooltipText && tooltipText.trim().length > 0;
+
+  const displayText = children ?? (status ? status.displayName : "—");
+
+  return (
+    <TableCell
+      style={{
+        color: status ? status.color : "",
+        borderLeft: leftBorderStyle,
+        borderRight: rightBorderStyle,
+        borderBottom: bottomBorderStyle,
+      }}
+      onClick={hasTooltipText ? () => setOpen(true) : undefined}
+    >
+      {hasTooltipText ? (
+        <Tooltip
+          title={
+            <div style={{ fontSize: "0.8rem", whiteSpace: "pre-wrap" }}>
+              {tooltipText}
+            </div>
+          }
+          onClose={() => setOpen(false)}
+          open={open}
+          arrow
+        >
+          <span>{displayText}</span>
+        </Tooltip>
+      ) : (
+        <span>{displayText}</span>
+      )}
+    </TableCell>
+  );
+};
