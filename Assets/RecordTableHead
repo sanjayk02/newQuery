@@ -1,44 +1,170 @@
+const RecordTableHead: React.FC<RecordTableHeadProps> = ({
+  columns,
+  phaseComponents,
+  currentSortKey,
+  currentSortDir,
+  onSortChange,
+}) => {
 
-const phase = ["mdl", "rig", "bld", "dsn", "ldv"]
-  .find(p => column.id.startsWith(p));
+  const getSortDir = (key: string): SortDir =>
+    currentSortKey === key ? currentSortDir : "none";
 
-let borderLeft = "none";
-let borderRight = "none";
-let borderTop = "none";
+  const createSortHandler = (key: string) => () => {
+    if (onSortChange) onSortChange(key);
+  };
 
-if (phase && column.colors) {
-  const rail = `solid 3px ${column.colors.lineColor}`;
+  const PHASES = ["mdl", "rig", "bld", "dsn", "ldv"];
 
-  // 🔥 Build FULL PHASE COLUMN LIST (including dynamic submitted)
-  const phaseColumnIds: string[] = [];
+  return (
+    <TableHead>
+      <TableRow>
+        {columns.map((column) => {
 
-  columns.forEach(c => {
-    if (c.id.startsWith(phase)) {
+          const sortKey = column.sortKey || column.id;
+          const sortDir = getSortDir(sortKey);
 
-      if (c.id.endsWith("_submitted_at")) {
-        const comps = phaseComponents?.[phase] || [];
+          // -------------------------------------------------
+          // 🔥 PHASE BORDER CALCULATION (INCLUDING DYNAMIC)
+          // -------------------------------------------------
+          const phase = PHASES.find(p => column.id.startsWith(p));
 
-        if (comps.length > 0) {
-          comps.forEach(comp => {
-            phaseColumnIds.push(
-              `${phase}_${comp.toLowerCase()}_submitted_at`
-            );
-          });
-        } else {
-          phaseColumnIds.push(c.id);
-        }
+          let borderLeft = "none";
+          let borderRight = "none";
+          let borderTop = "none";
 
-      } else {
-        phaseColumnIds.push(c.id);
-      }
-    }
-  });
+          if (phase && column.colors) {
+            const rail = `solid 3px ${column.colors.lineColor}`;
 
-  const first = phaseColumnIds[0];
-  const last = phaseColumnIds[phaseColumnIds.length - 1];
+            // Build FULL phase column list including dynamic submitted columns
+            const phaseColumnIds: string[] = [];
 
-  if (column.id === first) borderLeft = rail;
-  if (column.id === last) borderRight = rail;
+            columns.forEach(c => {
+              if (!c.id.startsWith(phase)) return;
 
-  borderTop = rail;
-}
+              if (c.id.endsWith("_submitted_at")) {
+                const comps = phaseComponents?.[phase] || [];
+
+                if (comps.length > 0) {
+                  comps.forEach(comp => {
+                    phaseColumnIds.push(
+                      `${phase}_${comp.toLowerCase()}_submitted_at`
+                    );
+                  });
+                } else {
+                  phaseColumnIds.push(c.id);
+                }
+
+              } else {
+                phaseColumnIds.push(c.id);
+              }
+            });
+
+            const first = phaseColumnIds[0];
+            const last = phaseColumnIds[phaseColumnIds.length - 1];
+
+            if (column.id === first) borderLeft = rail;
+            if (column.id === last) borderRight = rail;
+
+            borderTop = rail;
+          }
+
+          // -------------------------------------------------
+          // 🔥 DYNAMIC SUBMITTED HEADER EXPANSION
+          // -------------------------------------------------
+          if (
+            column.id.endsWith("_submitted_at") &&
+            !column.id.includes("_component_")
+          ) {
+            const phase = column.id.replace("_submitted_at", "");
+            const components = phaseComponents?.[phase] || [];
+
+            if (components.length > 0) {
+              return components.map((componentName: string) => {
+
+                const dynamicId =
+                  `${phase}_${componentName.toLowerCase()}_submitted_at`;
+
+                const dynamicSortKey =
+                  `${phase}_${componentName.toLowerCase()}_submitted`;
+
+                const dynamicSortDir =
+                  getSortDir(dynamicSortKey);
+
+                return (
+                  <TableCell
+                    key={dynamicId}
+                    onClick={createSortHandler(dynamicSortKey)}
+                    style={{
+                      backgroundColor: column.colors?.backgroundColor,
+                      borderLeft:
+                        dynamicId === phaseColumnIds?.[0] ? borderLeft : "none",
+                      borderRight:
+                        dynamicId === phaseColumnIds?.[phaseColumnIds.length - 1]
+                          ? borderRight
+                          : "none",
+                      borderTop,
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                      userSelect: "none",
+                    }}
+                  >
+                    <Box
+                      display="flex"
+                      alignItems="center"
+                      justifyContent="center"
+                    >
+                      <span style={{ fontSize: 12, fontWeight: 500 }}>
+                        {`${phase.toUpperCase()} ${componentName} SUBMITTED AT`}
+                      </span>
+
+                      {dynamicSortDir !== "none" && (
+                        <Box ml={0.5}>
+                          <span style={{ fontSize: 12, fontWeight: "bold" }}>
+                            {dynamicSortDir === "asc" ? "▲" : "▼"}
+                          </span>
+                        </Box>
+                      )}
+                    </Box>
+                  </TableCell>
+                );
+              });
+            }
+          }
+
+          // -------------------------------------------------
+          // 🔹 NORMAL COLUMN
+          // -------------------------------------------------
+          return (
+            <TableCell
+              key={column.id}
+              onClick={column.sortable ? createSortHandler(sortKey) : undefined}
+              style={{
+                backgroundColor: column.colors?.backgroundColor,
+                borderLeft,
+                borderRight,
+                borderTop,
+                cursor: column.sortable ? "pointer" : "default",
+                whiteSpace: "nowrap",
+                userSelect: "none",
+              }}
+            >
+              <Box display="flex" alignItems="center" justifyContent="center">
+                <span style={{ fontSize: 12, fontWeight: 500 }}>
+                  {column.label}
+                </span>
+
+                {sortDir !== "none" && (
+                  <Box ml={0.5}>
+                    <span style={{ fontSize: 12, fontWeight: "bold" }}>
+                      {sortDir === "asc" ? "▲" : "▼"}
+                    </span>
+                  </Box>
+                )}
+              </Box>
+            </TableCell>
+          );
+        })}
+      </TableRow>
+    </TableHead>
+  );
+};
