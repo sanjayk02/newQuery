@@ -1,0 +1,184 @@
+// ================= COMPONENT HELPERS =================
+
+const getComponentCellData = (
+  asset: any,
+  componentName: string
+) => {
+  const assetKey = `${asset.group_1}-${asset.relation}`;
+  const componentList = latestComponents?.[assetKey] || [];
+
+  const item = componentList.find(
+    (x: any) => x.component === componentName
+  );
+
+  if (!item?.latest_document) {
+    return null;
+  }
+
+  const doc = item.latest_document;
+
+  return {
+    component: doc.component ?? componentName,
+    phase: doc.phase ?? "—",
+    submittedAt: doc.submitted_at_utc ?? null,
+  };
+};
+
+
+const getComponentTooltip = (
+  asset: any,
+  componentName: string
+): string => {
+  const data = getComponentCellData(asset, componentName);
+
+  if (!data) {
+    return "No submission available";
+  }
+
+  const submittedText = data.submittedAt
+    ? dateTimeFormat.format(new Date(data.submittedAt))
+    : "—";
+
+  return [
+    `Component: ${data.component}`,
+    `Phase: ${data.phase}`,
+    `Submitted: ${submittedText}`,
+  ].join("\n");
+};
+
+
+const getComponentDisplayText = (
+  asset: any,
+  componentName: string
+): string => {
+  const data = getComponentCellData(asset, componentName);
+
+  if (!data?.submittedAt) return "—";
+
+  return dateTimeFormat.format(new Date(data.submittedAt));
+};
+
+
+
+const visibleIds = [
+  ids.work,
+  ids.appr,
+  ids.subm,
+  ids.take,
+  ids.mdlRend,
+  ids.bldAnm,
+  ids.bldRend,
+  ids.ldvRend,
+]
+  .filter(Boolean)
+  .filter((id) => !isHidden(id)) as string[];
+
+
+
+return (
+  <React.Fragment key={`${asset.group_1}-${asset.relation}-${phase}`}>
+
+    {/* WORK */}
+    {!isHidden(ids.work) && (
+      <MultiLineTooltipTableCell
+        tooltipText={tooltipText}
+        status={workStatus}
+        leftBorderStyle={firstId === ids.work ? rail : "none"}
+        rightBorderStyle={lastId === ids.work ? rail : "none"}
+        bottomBorderStyle={isLastRow ? rail : "none"}
+      />
+    )}
+
+    {/* APPR */}
+    {!isHidden(ids.appr) && (
+      <MultiLineTooltipTableCell
+        tooltipText={tooltipText}
+        status={approvalStatus}
+        leftBorderStyle={firstId === ids.appr ? rail : "none"}
+        rightBorderStyle={lastId === ids.appr ? rail : "none"}
+        bottomBorderStyle={isLastRow ? rail : "none"}
+      />
+    )}
+
+    {/* SUBMITTED */}
+    {!isHidden(ids.subm) && (
+      <MultiLineTooltipTableCell
+        tooltipText={tooltipText}
+        status="none"
+        leftBorderStyle={firstId === ids.subm ? rail : "none"}
+        rightBorderStyle={lastId === ids.subm ? rail : "none"}
+        bottomBorderStyle={isLastRow ? rail : "none"}
+      >
+        {localTimeText}
+      </MultiLineTooltipTableCell>
+    )}
+
+    {/* TAKE */}
+    {!isHidden(ids.take) && (
+      <MultiLineTooltipTableCell
+        tooltipText={tooltipText}
+        status="none"
+        leftBorderStyle={firstId === ids.take ? rail : "none"}
+        rightBorderStyle={lastId === ids.take ? rail : "none"}
+        bottomBorderStyle={isLastRow ? rail : "none"}
+      >
+        {takeText}
+      </MultiLineTooltipTableCell>
+    )}
+
+    {/* ================= MANUAL COMPONENTS ================= */}
+
+    {/* MDLREND */}
+    {phase === "mdl" && ids.mdlRend && !isHidden(ids.mdlRend) && (
+      <MultiLineTooltipTableCell
+        tooltipText={getComponentTooltip(asset, "mdlRend")}
+        status="none"
+        leftBorderStyle={firstId === ids.mdlRend ? rail : "none"}
+        rightBorderStyle={lastId === ids.mdlRend ? rail : "none"}
+        bottomBorderStyle={isLastRow ? rail : "none"}
+      >
+        {getComponentDisplayText(asset, "mdlRend")}
+      </MultiLineTooltipTableCell>
+    )}
+
+    {/* BLDANM */}
+    {phase === "bld" && ids.bldAnm && !isHidden(ids.bldAnm) && (
+      <MultiLineTooltipTableCell
+        tooltipText={getComponentTooltip(asset, "bldAnm")}
+        status="none"
+        leftBorderStyle={firstId === ids.bldAnm ? rail : "none"}
+        rightBorderStyle={lastId === ids.bldAnm ? rail : "none"}
+        bottomBorderStyle={isLastRow ? rail : "none"}
+      >
+        {getComponentDisplayText(asset, "bldAnm")}
+      </MultiLineTooltipTableCell>
+    )}
+
+    {/* BLDREND */}
+    {phase === "bld" && ids.bldRend && !isHidden(ids.bldRend) && (
+      <MultiLineTooltipTableCell
+        tooltipText={getComponentTooltip(asset, "bldRend")}
+        status="none"
+        leftBorderStyle={firstId === ids.bldRend ? rail : "none"}
+        rightBorderStyle={lastId === ids.bldRend ? rail : "none"}
+        bottomBorderStyle={isLastRow ? rail : "none"}
+      >
+        {getComponentDisplayText(asset, "bldRend")}
+      </MultiLineTooltipTableCell>
+    )}
+
+    {/* LDVREND */}
+    {phase === "ldv" && ids.ldvRend && !isHidden(ids.ldvRend) && (
+      <MultiLineTooltipTableCell
+        tooltipText={getComponentTooltip(asset, "ldvRend")}
+        status="none"
+        leftBorderStyle={firstId === ids.ldvRend ? rail : "none"}
+        rightBorderStyle={lastId === ids.ldvRend ? rail : "none"}
+        bottomBorderStyle={isLastRow ? rail : "none"}
+      >
+        {getComponentDisplayText(asset, "ldvRend")}
+      </MultiLineTooltipTableCell>
+    )}
+
+  </React.Fragment>
+);
