@@ -1,0 +1,29 @@
+if (["mdlRend","bldAnm","bldRend","ldvMdl"].includes(col.id)) {
+
+  const assetKey = `${asset.group_1}-${asset.relation}`;
+  const componentList = latestComponents?.[assetKey] || [];
+
+  const componentData = componentList.find(
+    (item: any) => item.component === col.id
+  );
+
+  const submittedText =
+    componentData?.latest_document?.submitted_at_utc
+      ? formatSubmitted(
+          componentData.latest_document.submitted_at_utc,
+          dateTimeFormat
+        )
+      : "—";
+
+  return (
+    <Typography
+      style={{
+        fontSize: UI.FONT_SIZE_CONTENT,
+        whiteSpace: "normal",
+        lineHeight: 1.2,
+      }}
+    >
+      {submittedText}
+    </Typography>
+  );
+}
