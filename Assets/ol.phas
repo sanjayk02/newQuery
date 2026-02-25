@@ -1,0 +1,15 @@
+{col.phase && col.kind && col.id.includes("Rend") || col.id.includes("Anm") || col.id.includes("Mdl") ? (
+  <>
+    {col.label.split(" ")[0].toUpperCase()}
+    <br />
+    SUBMITTED
+  </>
+) : col.phase ? (
+  <>
+    {col.phase.toUpperCase()}
+    <br />
+    {col.kind ? col.kind.toUpperCase() : ""}
+  </>
+) : (
+  col.label
+)}
