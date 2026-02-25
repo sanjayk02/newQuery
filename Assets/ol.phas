@@ -1,8 +1,8 @@
-{col.phase && col.kind && col.id.includes("Rend") || col.id.includes("Anm") || col.id.includes("Mdl") ? (
+{["mdlRend","bldAnm","bldRend","ldvMdl"].includes(col.id) ? (
   <>
-    {col.label.split(" ")[0].toUpperCase()}
+    {col.label.split(" ")[0]}
     <br />
-    SUBMITTED
+    Submitted
   </>
 ) : col.phase ? (
   <>
