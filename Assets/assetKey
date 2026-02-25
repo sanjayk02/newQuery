@@ -1,0 +1,1 @@
+const assetKey = `${asset.group_1}-${(asset.relation || '').replace(/^_+|_+$/g, '')}`;
