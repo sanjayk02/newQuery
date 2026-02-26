@@ -1,0 +1,153 @@
+/* Client-side filtering and sorting */
+const filteredAssets = useMemo(() => {
+  if (!assets) return [];
+
+  const nameFilter = (filterProps.assetNameKey || '').trim().toLowerCase();
+  const approvalFilters = approvalArray.map((s) => s.toLowerCase());
+  const workFilters = workArray.map((s) => s.toLowerCase());
+
+  const phases = ['mdl', 'rig', 'bld', 'dsn', 'ldv'] as const;
+
+  // First, filter the assets
+  const base = assets.filter((asset: any) => {
+    // Top-group filter
+    if (selectedTopGroups.length > 0) {
+      const normalizeTopGroup = (v: any) => {
+        const s = (v || '').toString().trim();
+        if (!s) return 'unassigned';
+        const ls = s.toLowerCase();
+        if (ls === 'unassigned' || ls === 'unassigned/' || ls === 'none' || ls === 'null' || ls === 'undefined') {
+          return 'unassigned';
+        }
+        return ls;
+      };
+
+      const allowed = new Set(selectedTopGroups.map(normalizeTopGroup));
+      const tg = normalizeTopGroup(asset.top_group_node);
+      if (!allowed.has(tg)) return false;
+    }
+
+    // Asset Name filter
+    if (nameFilter) {
+      const name = (asset.group_1 || '').toString().toLowerCase();
+      if (!name.includes(nameFilter)) return false;
+    }
+
+    // Phase-locked matching
+    const phase = effectivePhase && effectivePhase !== 'none'
+      ? effectivePhase.toLowerCase()
+      : null;
+
+    const matchesPhase = (p: string) => {
+      if (approvalFilters.length > 0) {
+        const rawAppr = (asset[`${p}_approval_status`] || '')
+          .toString()
+          .toLowerCase();
+        if (!approvalFilters.includes(rawAppr)) return false;
+      }
+      if (workFilters.length > 0) {
+        const rawWork = (asset[`${p}_work_status`] || '')
+          .toString()
+          .toLowerCase();
+        if (!workFilters.includes(rawWork)) return false;
+      }
+      return true;
+    };
+
+    // No filters at all → keep row
+    if (!nameFilter && approvalFilters.length === 0 && workFilters.length === 0) {
+      return true;
+    }
+
+    // If a specific phase is active, only that phase decides
+    if (phase) {
+      return matchesPhase(phase);
+    }
+
+    // Otherwise, keep the row if ANY phase matches
+    return phases.some((p) => matchesPhase(p));
+  });
+
+  // ============================================
+  // 🔽 ADD THE SORTING CODE HERE 🔽
+  // ============================================
+  // Sort according to current UI sort key/dir
+  if (uiSortKey && uiSortDir !== 'none') {
+    const componentColumns = ['mdlRend', 'bldAnm', 'bldRend', 'ldvMdl'];
+    
+    base.sort((a, b) => {
+      // Component columns sorting (client-side)
+      if (componentColumns.includes(uiSortKey)) {
+        const aKey = `${a.group_1}-${a.relation}`;
+        const bKey = `${b.group_1}-${b.relation}`;
+        
+        const aComponent = latestComponents[aKey]?.find(
+          (c: any) => c.component === uiSortKey
+        );
+        const bComponent = latestComponents[bKey]?.find(
+          (c: any) => c.component === uiSortKey
+        );
+        
+        const aDate = aComponent?.latest_document?.submitted_at_utc;
+        const bDate = bComponent?.latest_document?.submitted_at_utc;
+        
+        return enhancedCompareDates(aDate, bDate, uiSortDir);
+      }
+      
+      // Regular phase columns sorting
+      if (uiSortKey === 'group_1') {
+        return enhancedCompareStrings(a.group_1, b.group_1, uiSortDir);
+      }
+      if (uiSortKey === 'relation') {
+        return enhancedCompareStrings(a.relation, b.relation, uiSortDir);
+      }
+
+      const m = uiSortKey.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted|take|component)$/i);
+      if (m) {
+        const phase = m[1].toLowerCase();
+        const field = m[2].toLowerCase();
+
+        if (field === 'submitted') {
+          const key = `${phase}_submitted_at_utc`;
+          return enhancedCompareDates(a[key], b[key], uiSortDir);
+        }
+        
+        if (field === 'take') {
+          const key = `${phase}_take`;
+          return enhancedCompareTake(a[key], b[key], uiSortDir);
+        }
+
+        if (field === 'component') {
+          const key = `${phase}_component`;
+          return enhancedCompareStrings(a[key], b[key], uiSortDir);
+        }
+
+        const key = field === 'appr'
+          ? `${phase}_approval_status`
+          : `${phase}_work_status`;
+
+        return enhancedCompareStrings(a[key], b[key], uiSortDir);
+      }
+
+      return 0;
+    });
+  }
+  // ============================================
+  // 🔼 END OF SORTING CODE 🔼
+  // ============================================
+
+  return base;
+}, [
+  assets,
+  effectivePhase,
+  uiSortKey,
+  uiSortDir,
+  filterProps.assetNameKey,
+  approvalArray,
+  workArray,
+  selectedTopGroups,
+  latestComponents, // ⚠️ Make sure to add this dependency
+  enhancedCompareTake,
+  enhancedCompareStrings,
+  enhancedCompareDates,
+]);
