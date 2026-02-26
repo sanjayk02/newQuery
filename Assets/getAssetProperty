@@ -1,0 +1,50 @@
+// Helper function to safely get asset property
+const getAssetProperty = (asset: any, phase: string, field: string): any => {
+  const keyMap: { [key: string]: string } = {
+    'submitted': `${phase}_submitted_at_utc`,
+    'take': `${phase}_take`,
+    'component': `${phase}_component`,
+    'appr': `${phase}_approval_status`,
+    'work': `${phase}_work_status`
+  };
+  
+  const key = keyMap[field];
+  return asset[key];
+};
+
+// Then in the sort function:
+if (m) {
+  const phase = m[1].toLowerCase();
+  const field = m[2].toLowerCase();
+
+  if (field === 'submitted') {
+    return enhancedCompareDates(
+      getAssetProperty(a, phase, 'submitted'),
+      getAssetProperty(b, phase, 'submitted'),
+      uiSortDir
+    );
+  }
+  
+  if (field === 'take') {
+    return enhancedCompareTake(
+      getAssetProperty(a, phase, 'take'),
+      getAssetProperty(b, phase, 'take'),
+      uiSortDir
+    );
+  }
+
+  if (field === 'component') {
+    return enhancedCompareStrings(
+      getAssetProperty(a, phase, 'component'),
+      getAssetProperty(b, phase, 'component'),
+      uiSortDir
+    );
+  }
+
+  const compareField = field === 'appr' ? 'appr' : 'work';
+  return enhancedCompareStrings(
+    getAssetProperty(a, phase, compareField),
+    getAssetProperty(b, phase, compareField),
+    uiSortDir
+  );
+}
