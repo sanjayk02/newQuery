@@ -69,32 +69,45 @@ const filteredAssets = useMemo(() => {
   });
 
   // ============================================
-  // 🔽 ADD THE SORTING CODE HERE 🔽
+  // SORTING LOGIC
   // ============================================
-  // Sort according to current UI sort key/dir
   if (uiSortKey && uiSortDir !== 'none') {
+    // Define component columns that need special handling
     const componentColumns = ['mdlRend', 'bldAnm', 'bldRend', 'ldvMdl'];
     
     base.sort((a, b) => {
-      // Component columns sorting (client-side)
+      // COMPONENT COLUMNS (MDLREND, BLDANM, BLDREND, LDVMDL)
       if (componentColumns.includes(uiSortKey)) {
         const aKey = `${a.group_1}-${a.relation}`;
         const bKey = `${b.group_1}-${b.relation}`;
         
-        const aComponent = latestComponents[aKey]?.find(
-          (c: any) => c.component === uiSortKey
-        );
-        const bComponent = latestComponents[bKey]?.find(
-          (c: any) => c.component === uiSortKey
-        );
+        // Get component data for both assets
+        const aComponentList = latestComponents[aKey] || [];
+        const bComponentList = latestComponents[bKey] || [];
         
-        const aDate = aComponent?.latest_document?.submitted_at_utc;
-        const bDate = bComponent?.latest_document?.submitted_at_utc;
+        // Map component names to indices (since component field is empty)
+        const componentIndexMap: { [key: string]: number } = {
+          'mdlRend': 0,
+          'bldAnm': 1,
+          'bldRend': 2,
+          'ldvMdl': 3
+        };
         
+        const index = componentIndexMap[uiSortKey];
+        
+        // Get the items at the expected index
+        const aItem = aComponentList[index];
+        const bItem = bComponentList[index];
+        
+        // Extract dates
+        const aDate = aItem?.latest_document?.submitted_at_utc;
+        const bDate = bItem?.latest_document?.submitted_at_utc;
+        
+        // Use the enhanced date comparison that puts empty values at the end
         return enhancedCompareDates(aDate, bDate, uiSortDir);
       }
       
-      // Regular phase columns sorting
+      // REGULAR COLUMNS (group_1, relation, phase columns)
       if (uiSortKey === 'group_1') {
         return enhancedCompareStrings(a.group_1, b.group_1, uiSortDir);
       }
@@ -102,6 +115,7 @@ const filteredAssets = useMemo(() => {
         return enhancedCompareStrings(a.relation, b.relation, uiSortDir);
       }
 
+      // Phase columns pattern matching
       const m = uiSortKey.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted|take|component)$/i);
       if (m) {
         const phase = m[1].toLowerCase();
@@ -132,9 +146,6 @@ const filteredAssets = useMemo(() => {
       return 0;
     });
   }
-  // ============================================
-  // 🔼 END OF SORTING CODE 🔼
-  // ============================================
 
   return base;
 }, [
@@ -146,7 +157,7 @@ const filteredAssets = useMemo(() => {
   approvalArray,
   workArray,
   selectedTopGroups,
-  latestComponents, // ⚠️ Make sure to add this dependency
+  latestComponents,  // Make sure this is included
   enhancedCompareTake,
   enhancedCompareStrings,
   enhancedCompareDates,
