@@ -1,6 +1,8 @@
 func (poi *PublishOperationInfo) ListLatestAssetDocuments(
 	ctx context.Context,
 	param *entity.LatestAssetComponentParams,
+	sortBy string,
+	sortDir int, // 1 for asc, -1 for desc
 ) (documents []*entity.LatestComponentDocuments, err error) {
 
 	log.Printf("ListLatestAssetDocuments called with parameters:")
@@ -8,6 +10,8 @@ func (poi *PublishOperationInfo) ListLatestAssetDocuments(
 	log.Printf("Asset: %s", param.Asset)
 	log.Printf("Relation: %s", param.Relation)
 	log.Printf("Component: %v", param.Component)
+	log.Printf("SortBy: %s", sortBy)
+	log.Printf("SortDir: %d", sortDir)
 
 	col := poi.db.Collection("pc_publishOperationInfo")
 
@@ -36,8 +40,8 @@ func (poi *PublishOperationInfo) ListLatestAssetDocuments(
 		}},
 	}
 
-	// 3️⃣ Sort so $first gives latest
-	sortStage := bson.D{
+	// 3️⃣ Initial sort for latest per component (always by submitted_at_utc)
+	initialSortStage := bson.D{
 		{"$sort", bson.D{
 			{"submitted_at_utc", -1},
 		}},
@@ -83,30 +87,70 @@ func (poi *PublishOperationInfo) ListLatestAssetDocuments(
 		}},
 	}
 
-	// 6️⃣ Flatten mdlRend date
-	addMDLRendDateStage := bson.D{
+	// 6️⃣ Flatten mdlRend date and add helper fields
+	addFieldsStage := bson.D{
 		{"$addFields", bson.D{
 			{"mdlRendSubmittedAt", bson.D{
 				{"$arrayElemAt", bson.A{"$mdlRendDoc.submitted_at_utc", 0}},
 			}},
+			// Add a field to track if MDLREND exists (for sorting NULLS LAST)
+			{"hasMdlRend", bson.D{
+				{"$gt", bson.A{
+					bson.D{{"$size", "$mdlRendDoc"}},
+					0,
+				}},
+			}},
+			// Add component name for sorting
+			{"componentName", "$_id"},
 		}},
 	}
 
-	// 7️⃣ Final sort (used by UI MDLREND SUBMITTED)
-	finalSortStage := bson.D{
-		{"$sort", bson.D{
-			{"mdlRendSubmittedAt", -1},
+	// 7️⃣ Dynamic final sort based on user input
+	var finalSortStage bson.D
+	
+	if sortBy == "mdlRend" {
+		// Sort by MDLREND date
+		finalSortStage = bson.D{
+			{"$sort", bson.D{
+				// NULLs last (documents without MDLREND go to the end)
+				{"hasMdlRend", -1}, // true (1) comes before false (0)
+				{"mdlRendSubmittedAt", sortDir},
+			}},
+		}
+	} else if sortBy == "component" {
+		// Sort by component name
+		finalSortStage = bson.D{
+			{"$sort", bson.D{
+				{"componentName", sortDir},
+			}},
+		}
+	} else {
+		// Default sort by submitted date
+		finalSortStage = bson.D{
+			{"$sort", bson.D{
+				{"latest_document.submitted_at_utc", sortDir},
+			}},
+		}
+	}
+
+	// 8️⃣ Optional: Remove helper fields from final output
+	cleanupStage := bson.D{
+		{"$project", bson.D{
+			{"component", "$_id"},
+			{"latest_document", 1},
+			{"_id", 0},
 		}},
 	}
 
 	pipeline := mongo.Pipeline{
 		matchStage,
 		projectStage,
-		sortStage,
+		initialSortStage,
 		groupStage,
 		lookupMDLRendStage,
-		addMDLRendDateStage,
+		addFieldsStage,
 		finalSortStage,
+		cleanupStage,
 	}
 
 	cursor, err := col.Aggregate(ctx, pipeline)
