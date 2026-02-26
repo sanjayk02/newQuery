@@ -1,0 +1,94 @@
+export const fetchAssetsPivot = async (
+  project: string,
+  page: number,
+  rowsPerPage: number,
+  sortKey: string,
+  sortDir: string,
+  phase: string,
+  assetNameKey: string,
+  approvalStatuses: string[],
+  workStatuses: string[],
+  view: 'list' | 'grouped',
+  signal?: AbortSignal | null,
+): Promise<AssetsPivotResponse> => {
+  const headers = getAuthHeader();
+  const encodedProject = encodeURIComponent(project);
+  let url = `/api/projects/${encodedProject}/reviews/assets/pivot`;
+
+  const params = new URLSearchParams();
+  params.set('per_page', String(rowsPerPage));
+  params.set('page', String(page + 1));
+  
+  // Map UI sort keys to backend sort keys
+  let backendSortKey = sortKey;
+  
+  // Component columns mapping
+  const componentColumns = ['mdlRend', 'bldAnm', 'bldRend', 'ldvMdl'];
+  if (componentColumns.includes(sortKey)) {
+    backendSortKey = sortKey; // Send as-is to backend
+  }
+  
+  if (backendSortKey && backendSortKey !== 'none') {
+    params.set('sort', backendSortKey);
+  }
+  
+  if (sortDir && sortDir !== 'none') {
+    params.set('dir', sortDir.toUpperCase());
+  }
+  
+  if (phase && phase !== 'none') {
+    params.set('phase', phase);
+  }
+  
+  if (view) {
+    params.set('view', view);
+  }
+
+  const trimmed = (assetNameKey || '').trim();
+  if (trimmed) {
+    params.set('name', trimmed);
+    params.set('name_mode', 'prefix');
+  }
+
+  if (workStatuses.length) {
+    params.set('work', workStatuses.join(','));
+  }
+  
+  if (approvalStatuses.length) {
+    params.set('appr', approvalStatuses.join(','));
+  }
+
+  url += `?${params.toString()}`;
+
+  console.log('Fetching assets with sort:', { 
+    url, 
+    backendSortKey, 
+    sortDir, 
+    phase,
+    view 
+  });
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers,
+      mode: 'cors',
+      signal: signal || controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      throw new Error(`Pivot API Error [${res.status}]: ${errorText}`);
+    }
+
+    setNewToken(res);
+    return await res.json();
+  } catch (error) {
+    clearTimeout(timeoutId);
+    throw error;
+  }
+};
