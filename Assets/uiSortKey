@@ -1,0 +1,72 @@
+// In the filteredAssets useMemo, update the phase column sorting:
+
+if (uiSortKey && uiSortDir !== 'none') {
+  const componentColumns = ['mdlRend', 'bldAnm', 'bldRend', 'ldvMdl'];
+  
+  base.sort((a, b) => {
+    // Component columns (MDLREND, etc.)
+    if (componentColumns.includes(uiSortKey)) {
+      const aKey = `${a.group_1}-${a.relation}`;
+      const bKey = `${b.group_1}-${b.relation}`;
+      
+      const aComponentList = latestComponents[aKey] || [];
+      const bComponentList = latestComponents[bKey] || [];
+      
+      const componentIndexMap: { [key: string]: number } = {
+        'mdlRend': 0,
+        'bldAnm': 1,
+        'bldRend': 2,
+        'ldvMdl': 3
+      };
+      
+      const index = componentIndexMap[uiSortKey];
+      
+      const aItem = aComponentList[index];
+      const bItem = bComponentList[index];
+      
+      const aDate = aItem?.latest_document?.submitted_at_utc;
+      const bDate = bItem?.latest_document?.submitted_at_utc;
+      
+      return enhancedCompareDates(aDate, bDate, uiSortDir);
+    }
+    
+    // Regular columns
+    if (uiSortKey === 'group_1') {
+      return enhancedCompareStrings(a.group_1, b.group_1, uiSortDir);
+    }
+    if (uiSortKey === 'relation') {
+      return enhancedCompareStrings(a.relation, b.relation, uiSortDir);
+    }
+
+    // Phase columns - FIX THE TYPE ERROR HERE
+    const m = uiSortKey.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted|take|component)$/i);
+    if (m) {
+      const phase = m[1].toLowerCase();
+      const field = m[2].toLowerCase();
+
+      if (field === 'submitted') {
+        // Fix: Use type assertion to tell TypeScript this is a valid key
+        const key = `${phase}_submitted_at_utc` as keyof typeof a;
+        return enhancedCompareDates(a[key], b[key], uiSortDir);
+      }
+      
+      if (field === 'take') {
+        const key = `${phase}_take` as keyof typeof a;
+        return enhancedCompareTake(a[key], b[key], uiSortDir);
+      }
+
+      if (field === 'component') {
+        const key = `${phase}_component` as keyof typeof a;
+        return enhancedCompareStrings(a[key], b[key], uiSortDir);
+      }
+
+      const key = (field === 'appr'
+        ? `${phase}_approval_status`
+        : `${phase}_work_status`) as keyof typeof a;
+
+      return enhancedCompareStrings(a[key], b[key], uiSortDir);
+    }
+
+    return 0;
+  });
+}
