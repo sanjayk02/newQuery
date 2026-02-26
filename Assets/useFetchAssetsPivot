@@ -1,0 +1,66 @@
+export function useFetchAssetsPivot(
+  project: Project | null | undefined,
+  page: number,
+  rowsPerPage: number,
+  sortKey: string,
+  sortDir: SortDir,
+  phase: string,
+  assetNameKey: string,
+  approvalStatuses: string[],
+  workStatuses: string[],
+  viewMode: 'list' | 'grouped',
+): { assets: Asset[]; total: number; groups: PivotGroup[] } {
+
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [groups, setGroups] = useState<PivotGroup[]>([]);
+  const [total, setTotal] = useState(0);
+
+  const projectKey = project?.key_name;
+
+  useEffect(() => {
+    if (!projectKey || sortDir === 'none') return;
+
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const res = await fetchAssetsPivot(
+          projectKey,
+          page,
+          rowsPerPage,
+          sortKey,
+          sortDir,
+          phase,
+          assetNameKey,
+          approvalStatuses,
+          workStatuses,
+          viewMode,
+          controller.signal,
+        );
+
+        setAssets(res.assets || []);
+        setGroups(res.groups || []);
+        setTotal(res.total || 0);
+
+      } catch (err) {
+        if ((err as any).name === 'AbortError') return;
+        console.error('Pivot fetch failed:', err);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [
+    projectKey,
+    page,
+    rowsPerPage,
+    sortKey,
+    sortDir,
+    phase,
+    assetNameKey,
+    approvalStatuses,
+    workStatuses,
+    viewMode,
+  ]);
+
+  return { assets, total, groups };
+}
