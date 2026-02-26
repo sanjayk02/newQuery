@@ -1,0 +1,66 @@
+const getComponentCellData = (
+  asset: any,
+  componentName: string
+) => {
+  const assetKey = `${asset.group_1}-${asset.relation}`;
+  const componentList = latestComponents && latestComponents[assetKey] || [];
+
+  // Map component names to expected phases
+  const phaseMap: { [key: string]: string } = {
+    'mdlRend': 'mdl',
+    'bldAnm': 'bld',
+    'bldRend': 'bld',
+    'ldvMdl': 'ldv'
+  };
+  
+  const expectedPhase = phaseMap[componentName];
+  
+  // Find the item that matches the phase
+  const item = componentList.find((x: any) => 
+    x.latest_document?.phase?.toLowerCase() === expectedPhase
+  );
+
+  if (item && item.latest_document) {
+    return {
+      component: componentName,
+      phase: item.latest_document.phase,
+      submittedAt: item.latest_document.submitted_at_utc,
+    };
+  }
+
+  return null;
+};
+
+
+
+const getComponentDisplayText = (
+  asset: any,
+  componentName: string
+): string => {
+  const data = getComponentCellData(asset, componentName);
+
+  if (!data || !data.submittedAt) return "—";
+
+  return dateTimeFormat.format(new Date(data.submittedAt));
+};
+
+const getComponentTooltip = (
+  asset: any,
+  componentName: string
+): string => {
+  const data = getComponentCellData(asset, componentName);
+
+  if (!data) {
+    return "No submission available";
+  }
+
+  const submittedText = data.submittedAt
+    ? dateTimeFormat.format(new Date(data.submittedAt))
+    : "—";
+
+  return [
+    `Component: ${data.component}`,
+    `Phase: ${data.phase}`,
+    `Submitted: ${submittedText}`,
+  ].join("\n");
+};
