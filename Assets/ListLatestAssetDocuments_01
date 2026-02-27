@@ -1,0 +1,250 @@
+func (poi *PublishOperationInfo) ListLatestAssetDocuments(
+	ctx context.Context,
+	param *entity.LatestAssetComponentParams,
+	sortBy string,
+	sortDir int, // 1 for asc, -1 for desc
+) (documents []*entity.LatestComponentDocuments, err error) {
+
+	log.Printf("ListLatestAssetDocuments called with parameters:")
+	log.Printf("Project: %s", param.Project)
+	log.Printf("Asset: %s", param.Asset)
+	log.Printf("Relation: %s", param.Relation)
+	log.Printf("Component: %v", param.Component)
+	log.Printf("SortBy: %s", sortBy)
+	log.Printf("SortDir: %d", sortDir)
+
+	col := poi.db.Collection("pc_publishOperationInfo")
+
+	// 1️⃣ Base match
+	matchStage := bson.D{
+		{"$match", bson.D{
+			{"_central.project", param.Project},
+			{"root", "assets"},
+			{"groups.0", param.Asset},
+			{"relation", param.Relation},
+			{"component", bson.D{{"$in", param.Component}}},
+		}},
+	}
+
+	// 2️⃣ Project only required fields
+	projectStage := bson.D{
+		{"$project", bson.D{
+			{"id", 1},
+			{"groups", 1},
+			{"submitted_at_utc", 1},
+			{"phase", 1},
+			{"component", 1},
+			{"relation", 1},
+			{"_central", 1},
+			{"_id", 0},
+		}},
+	}
+
+	// 3️⃣ Initial sort for latest per component (always by submitted_at_utc)
+	initialSortStage := bson.D{
+		{"$sort", bson.D{
+			{"submitted_at_utc", -1},
+		}},
+	}
+
+	// 4️⃣ Group → latest per component
+	groupStage := bson.D{
+		{"$group", bson.D{
+			{"_id", "$component"},
+			{"latest_document", bson.D{{"$first", "$$ROOT"}}},
+			{"original_component", bson.D{{"$first", "$component"}}},
+		}},
+	}
+
+	// 5️⃣ Lookup latest MDLREND submission
+	lookupMDLRendStage := bson.D{
+		{"$lookup", bson.D{
+			{"from", "pc_publishOperationInfo"},
+			{"let", bson.D{
+				{"project", "$latest_document._central.project"},
+				{"asset", "$latest_document.groups.0"},
+				{"relation", "$latest_document.relation"},
+			}},
+			{"pipeline", bson.A{
+				bson.D{{"$match", bson.D{
+					{"$expr", bson.D{
+						{"$and", bson.A{
+							bson.D{{"$eq", bson.A{"$_central.project", "$$project"}}},
+							bson.D{{"$eq", bson.A{"$root", "assets"}}},
+							bson.D{{"$eq", bson.A{"$groups.0", "$$asset"}}},
+							bson.D{{"$eq", bson.A{"$relation", "$$relation"}}},
+							bson.D{{"$eq", bson.A{"$component", "mdlRend"}}},
+						}},
+					}},
+				}}},
+				bson.D{{"$sort", bson.D{{"submitted_at_utc", -1}}}},
+				bson.D{{"$limit", 1}},
+				bson.D{{"$project", bson.D{
+					{"submitted_at_utc", 1},
+					{"phase", 1},
+					{"_id", 0},
+				}}},
+			}},
+			{"as", "mdlRendDoc"},
+		}},
+	}
+
+	// 6️⃣ Flatten mdlRend date and add helper fields for empty value handling
+	addFieldsStage := bson.D{
+		{"$addFields", bson.D{
+			{"mdlRendSubmittedAt", bson.D{
+				{"$arrayElemAt", bson.A{"$mdlRendDoc.submitted_at_utc", 0}},
+			}},
+			{"mdlRendPhase", bson.D{
+				{"$arrayElemAt", bson.A{"$mdlRendDoc.phase", 0}},
+			}},
+			// Check if MDLREND exists AND has a valid date
+			{"hasValidMdlRend", bson.D{
+				{"$and", bson.A{
+					bson.D{{"$gt", bson.A{bson.D{{"$size", "$mdlRendDoc"}}, 0}}},
+					bson.D{{"$ne", bson.A{
+						bson.D{{"$arrayElemAt", bson.A{"$mdlRendDoc.submitted_at_utc", 0}}},
+						nil
+					}}},
+				}},
+			}},
+			// Add a numeric timestamp for proper sorting
+			{"mdlRendTimestamp", bson.D{
+				{"$cond", bson.D{
+					{"if", bson.D{{"$and", bson.A{
+						bson.D{{"$gt", bson.A{bson.D{{"$size", "$mdlRendDoc"}}, 0}}},
+						bson.D{{"$ne", bson.A{
+							bson.D{{"$arrayElemAt", bson.A{"$mdlRendDoc.submitted_at_utc", 0}}},
+							nil
+						}}},
+					}}}},
+					{"then", bson.D{{"$toLong", bson.D{
+						{"$arrayElemAt", bson.A{"$mdlRendDoc.submitted_at_utc", 0}}
+					}}}},
+					{"else", nil},
+				}},
+			}},
+			// Add component name for sorting
+			{"componentName", bson.D{
+				{"$ifNull", bson.A{"$original_component", "$_id"}},
+			}},
+		}},
+	}
+
+	// 7️⃣ Dynamic final sort based on user input with NULLS LAST
+	var finalSortStage bson.D
+	
+	if sortBy == "mdlRend" {
+		if sortDir == 1 { // Ascending
+			finalSortStage = bson.D{
+				{"$sort", bson.D{
+					// NULLs last: valid entries (1) come before invalid (0)
+					{"hasValidMdlRend", -1},
+					// Then sort by timestamp
+					{"mdlRendTimestamp", 1},
+				}},
+			}
+		} else { // Descending
+			finalSortStage = bson.D{
+				{"$sort", bson.D{
+					// NULLs last: valid entries (1) come before invalid (0)
+					{"hasValidMdlRend", -1},
+					// Then sort by timestamp in descending order
+					{"mdlRendTimestamp", -1},
+				}},
+			}
+		}
+	} else if sortBy == "component" {
+		// Sort by component name with NULLS LAST
+		finalSortStage = bson.D{
+			{"$sort", bson.D{
+				// NULLs last
+				{"componentName", bson.D{
+					{"$meta", "sortKey"}, // This ensures nulls are last
+				}},
+				// Then sort by name
+				{"componentName", sortDir},
+			}},
+		}
+	} else {
+		// Default sort by submitted date with NULLS LAST
+		if sortDir == 1 { // Ascending
+			finalSortStage = bson.D{
+				{"$sort", bson.D{
+					// NULLs last
+					{"latest_document.submitted_at_utc", bson.D{
+						{"$meta", "sortKey"},
+					}},
+					// Then sort by date
+					{"latest_document.submitted_at_utc", 1},
+				}},
+			}
+		} else { // Descending
+			finalSortStage = bson.D{
+				{"$sort", bson.D{
+					// NULLs last
+					{"latest_document.submitted_at_utc", bson.D{
+						{"$meta", "sortKey"},
+					}},
+					// Then sort by date
+					{"latest_document.submitted_at_utc", -1},
+				}},
+			}
+		}
+	}
+
+	// 8️⃣ Clean up output
+	cleanupStage := bson.D{
+		{"$project", bson.D{
+			{"component", "$componentName"},
+			{"latest_document", 1},
+			{"_id", 0},
+		}},
+	}
+
+	pipeline := mongo.Pipeline{
+		matchStage,
+		projectStage,
+		initialSortStage,
+		groupStage,
+		lookupMDLRendStage,
+		addFieldsStage,
+		finalSortStage,
+		cleanupStage,
+	}
+
+	// Log the pipeline for debugging
+	pipelineJSON, _ := bson.MarshalExtJSON(pipeline, true, false)
+	log.Printf("Pipeline: %s", pipelineJSON)
+
+	cursor, err := col.Aggregate(ctx, pipeline)
+	if err != nil {
+		return
+	}
+	defer cursor.Close(ctx)
+
+	if err = cursor.All(ctx, &documents); err != nil {
+		return
+	}
+
+	// Log the first few documents for debugging
+	if len(documents) > 0 {
+		log.Printf("First document: %+v", documents[0])
+		log.Printf("Number of documents: %d", len(documents))
+		
+		// Count documents with/without MDLREND
+		withMdlRend := 0
+		for _, doc := range documents {
+			if doc.LatestDocument.SubmittedAtUTC != nil && !doc.LatestDocument.SubmittedAtUTC.IsZero() {
+				withMdlRend++
+			}
+		}
+		log.Printf("Documents with MDLREND: %d/%d", withMdlRend, len(documents))
+	}
+
+	if documents == nil {
+		documents = []*entity.LatestComponentDocuments{}
+	}
+
+	return
+}
