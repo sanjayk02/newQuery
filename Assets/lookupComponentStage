@@ -1,0 +1,75 @@
+lookupComponentStage := bson.D{
+	{"$lookup", bson.D{
+		{"from", "pc_publishOperationInfo"},
+		{"let", bson.D{
+			{"project", "$latest_document._central.project"},
+			{"asset", "$latest_document.groups.0"},
+			{"relation", "$latest_document.relation"},
+		}},
+		{"pipeline", bson.A{
+			bson.D{{"$match", bson.D{
+				{"$expr", bson.D{
+					{"$and", bson.A{
+						bson.D{{"$eq", bson.A{"$_central.project", "$$project"}}},
+						bson.D{{"$eq", bson.A{"$root", "assets"}}},
+						bson.D{{"$eq", bson.A{"$groups.0", "$$asset"}}},
+						bson.D{{"$eq", bson.A{"$relation", "$$relation"}}},
+						bson.D{{"$eq", bson.A{"$component", sortBy}}},
+					}},
+				}},
+			}}},
+			bson.D{{"$sort", bson.D{{"submitted_at_utc", -1}}}},
+			bson.D{{"$limit", 1}},
+			bson.D{{"$project", bson.D{
+				{"submitted_at_utc", 1},
+				{"_id", 0},
+			}}},
+		}},
+		{"as", "componentDoc"},
+	}},
+}
+
+
+addFieldsStage := bson.D{
+	{"$addFields", bson.D{
+		// Extract submitted date
+		{"componentSubmittedAt", bson.D{
+			{"$arrayElemAt", bson.A{"$componentDoc.submitted_at_utc", 0}},
+		}},
+
+		// NULLS LAST priority
+		// 0 = has value
+		// 1 = missing
+		{"componentPriority", bson.D{
+			{"$cond", bson.A{
+				bson.D{{"$gt", bson.A{
+					bson.D{{"$size", "$componentDoc"}},
+					0,
+				}}},
+				0,
+				1,
+			}},
+		}},
+
+		{"componentName", "$_id"},
+	}},
+}
+
+if sortBy == "mdlRend" ||
+   sortBy == "bldAnm" ||
+   sortBy == "bldRend" ||
+   sortBy == "ldvMdl" {
+
+	finalSortStage = bson.D{
+		{"$sort", bson.D{
+			// 1️⃣ Always push missing values to bottom
+			{"componentPriority", 1},
+
+			// 2️⃣ Then sort real dates
+			{"componentSubmittedAt", sortDir},
+
+			// 3️⃣ Stable fallback
+			{"componentName", 1},
+		}},
+	}
+}
