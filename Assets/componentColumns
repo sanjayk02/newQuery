@@ -1,0 +1,29 @@
+// Component columns (MDLREND, BLDANM, BLDREND, LDVMDL)
+if (componentColumns.includes(uiSortKey)) {
+  const aKey = `${a.group_1}-${a.relation}`;
+  const bKey = `${b.group_1}-${b.relation}`;
+  
+  const aComponentList = latestComponents[aKey] || [];
+  const bComponentList = latestComponents[bKey] || [];
+  
+  // Find component data using helper function
+  const aItem = findComponentData(aComponentList, uiSortKey);
+  const bItem = findComponentData(bComponentList, uiSortKey);
+  
+  const aDate = aItem?.latest_document?.submitted_at_utc;
+  const bDate = bItem?.latest_document?.submitted_at_utc;
+  
+  console.log(`Sorting ${uiSortKey}:`, {
+    aKey,
+    aDate: aDate || '-',
+    bKey,
+    bDate: bDate || '-',
+    dir: uiSortDir
+  });
+  
+  // If date is missing or invalid, treat as empty
+  const aValue = aDate && !isNaN(new Date(aDate).getTime()) ? aDate : null;
+  const bValue = bDate && !isNaN(new Date(bDate).getTime()) ? bDate : null;
+  
+  return enhancedCompareDates(aValue, bValue, uiSortDir);
+}
