@@ -1,0 +1,16 @@
+// Add this right after your other useEffects
+useEffect(() => {
+  if (uiSortKey === 'mdlRend' && filteredAssets.length > 0) {
+    console.log('🔍 MDLREND SORT DEBUG:');
+    console.log('Sort direction:', uiSortDir);
+    
+    // Log first 5 assets with their MDLREND dates
+    filteredAssets.slice(0, 5).forEach((asset, i) => {
+      const key = `${asset.group_1}-${asset.relation}`;
+      const compList = latestComponents[key] || [];
+      const item = findComponentData(compList, 'mdlRend');
+      const date = item?.latest_document?.submitted_at_utc;
+      console.log(`${i+1}. ${asset.group_1}:`, date || '—');
+    });
+  }
+}, [uiSortKey, uiSortDir, filteredAssets, latestComponents]);
