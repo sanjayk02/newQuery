@@ -1,0 +1,40 @@
+const aValue = aDate && !isNaN(new Date(aDate).getTime()) ? aDate : null;
+const bValue = bDate && !isNaN(new Date(bDate).getTime()) ? bDate : null;
+
+return enhancedCompareDates(aValue, bValue, uiSortDir);
+
+const normalizeDate = (val: any) => {
+  if (!val) return undefined;
+
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? undefined : val;
+};
+
+return enhancedCompareDates(
+  normalizeDate(aDate),
+  normalizeDate(bDate),
+  uiSortDir
+);
+
+
+const enhancedCompareDates = (a: any, b: any, dir: SortDir): number => {
+  const aEmpty = isEmptyValue(a);
+  const bEmpty = isEmptyValue(b);
+
+  // 🔥 Always push empty to bottom
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return 1;
+  if (bEmpty) return -1;
+
+  const dateA = new Date(a);
+  const dateB = new Date(b);
+
+  const timeA = dateA.getTime();
+  const timeB = dateB.getTime();
+
+  if (timeA === timeB) return 0;
+
+  return dir === 'asc'
+    ? timeA < timeB ? -1 : 1
+    : timeA > timeB ? -1 : 1;
+};
