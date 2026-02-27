@@ -1,0 +1,77 @@
+/**
+ * Utility functions for consistent empty value handling
+ */
+const isEmptyValue = (value: any): boolean => {
+  if (value === null || value === undefined) return true;
+  const str = String(value).trim();
+  // Check for various empty representations including dash
+  return str === '' || str === '-' || str === '—' || str === 'null' || str === 'undefined' || str === 'N/A';
+};
+
+/**
+ * Enhanced comparison functions that keep empty values at the end
+ */
+const enhancedCompareDates = (a: any, b: any, dir: SortDir): number => {
+  const isAsc = dir === 'asc';
+  
+  const aEmpty = isEmptyValue(a);
+  const bEmpty = isEmptyValue(b);
+  
+  console.log('enhancedCompareDates:', { 
+    a, b, 
+    aEmpty, bEmpty, 
+    dir,
+    result: aEmpty && bEmpty ? 0 : (aEmpty ? 1 : (bEmpty ? -1 : 'compare'))
+  });
+  
+  // Rule: Empty values always go to the END (regardless of sort direction)
+  if (aEmpty && bEmpty) return 0;      // Both empty = equal
+  if (aEmpty && !bEmpty) return 1;     // a empty, b valid = a goes AFTER b
+  if (!aEmpty && bEmpty) return -1;    // a valid, b empty = a goes BEFORE b
+  
+  // Both have valid dates, compare normally
+  try {
+    const dateA = new Date(a);
+    const dateB = new Date(b);
+    
+    // Check if dates are valid
+    if (isNaN(dateA.getTime()) && isNaN(dateB.getTime())) return 0;
+    if (isNaN(dateA.getTime())) return 1;  // Invalid date goes to end
+    if (isNaN(dateB.getTime())) return -1; // Valid date comes before invalid
+    
+    if (dateA.getTime() === dateB.getTime()) return 0;
+    
+    if (isAsc) {
+      return dateA < dateB ? -1 : 1;
+    } else {
+      return dateA > dateB ? -1 : 1;
+    }
+  } catch (e) {
+    // If date parsing fails, fall back to string comparison
+    return enhancedCompareStrings(a, b, dir);
+  }
+};
+
+const enhancedCompareStrings = (a: any, b: any, dir: SortDir): number => {
+  const isAsc = dir === 'asc';
+  
+  const aEmpty = isEmptyValue(a);
+  const bEmpty = isEmptyValue(b);
+  
+  // Rule: Empty values always go to the END
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty && !bEmpty) return 1;   // a empty, goes after b
+  if (!aEmpty && bEmpty) return -1;  // a valid, goes before b
+  
+  // Both have valid strings, compare case-insensitive
+  const compA = String(a).trim().toLowerCase();
+  const compB = String(b).trim().toLowerCase();
+  
+  if (compA === compB) return 0;
+  
+  if (isAsc) {
+    return compA < compB ? -1 : 1;
+  } else {
+    return compA > compB ? -1 : 1;
+  }
+};
