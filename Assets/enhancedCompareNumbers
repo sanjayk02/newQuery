@@ -1,0 +1,20 @@
+const enhancedCompareNumbers = (
+  a: number | null,
+  b: number | null,
+  dir: SortDir
+): number => {
+
+  const aEmpty = a === null;
+  const bEmpty = b === null;
+
+  // 🔥 Always push empty to bottom
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return 1;
+  if (bEmpty) return -1;
+
+  if (a === b) return 0;
+
+  return dir === "asc"
+    ? a! > b! ? 1 : -1
+    : a! < b! ? 1 : -1;
+};
