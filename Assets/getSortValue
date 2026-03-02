@@ -1,0 +1,52 @@
+const getSortValue = (
+  asset: any,
+  key: string,
+  latestComponents?: Record<string, any>
+) => {
+  // TAKE → numeric
+  const takeMatch = key.match(/^(mdl|rig|bld|dsn|ldv)_take$/i);
+  if (takeMatch) {
+    const val = asset[key];
+    return val ? parseInt(String(val).replace(/\D/g, ""), 10) : 0;
+  }
+
+  // Phase Submitted
+  if (key.includes("_submitted")) {
+    const date = new Date(asset[key + "_at_utc"] || asset[key]);
+    return isNaN(date.getTime()) ? 0 : date.getTime();
+  }
+
+  // 🔥 Component Submitted Columns
+  if (["mdlRend","bldAnm","bldRend","ldvMdl"].includes(key)) {
+    const cleanRelation = (asset.relation || "")
+      .toString()
+      .trim()
+      .replace(/^_+|_+$/g, "");
+
+    const assetKey = `${asset.group_1}-${cleanRelation}`;
+    const componentList = latestComponents?.[assetKey] || [];
+
+    const PHASE_COMPONENT_MAP: Record<string, string> = {
+      mdlRend: "mdl",
+      bldAnm: "bld",
+      bldRend: "bld",
+      ldvMdl: "ldv",
+    };
+
+    const expectedPhase = PHASE_COMPONENT_MAP[key];
+
+    const componentData = componentList.find(
+      (item: any) =>
+        item?.latest_document?.phase?.toLowerCase() === expectedPhase
+    );
+
+    const date = new Date(
+      componentData?.latest_document?.submitted_at_utc
+    );
+
+    return isNaN(date.getTime()) ? 0 : date.getTime();
+  }
+
+  // Default string sort
+  return asset[key] || "";
+};
