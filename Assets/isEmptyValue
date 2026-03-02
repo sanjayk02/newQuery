@@ -1,23 +1,42 @@
-const isEmptyValue = (value: any): boolean => {
-  if (value === null || value === undefined) return true;
+const enhancedCompareDates = (a: any, b: any, dir: SortDir): number => {
+  const isEmpty = (val: any) =>
+    val === null ||
+    val === undefined ||
+    val === "" ||
+    val === "-" ||
+    val === "—";
 
-  const str = String(value).trim().toLowerCase();
+  const aEmpty = isEmpty(a);
+  const bEmpty = isEmpty(b);
 
-  return (
-    str === '' ||
-    str === '-' ||
-    str === '—' ||
-    str === 'null' ||
-    str === 'undefined' ||
-    str === 'n/a'
-  );
+  // 🔥 Always push empty to bottom
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return 1;
+  if (bEmpty) return -1;
+
+  const timeA = new Date(a).getTime();
+  const timeB = new Date(b).getTime();
+
+  if (timeA === timeB) return 0;
+
+  return dir === "asc"
+    ? timeA > timeB ? 1 : -1
+    : timeA < timeB ? 1 : -1;
 };
 
-const enhancedCompareStrings = (a: any, b: any, dir: SortDir): number => {
-  const aEmpty = isEmptyValue(a);
-  const bEmpty = isEmptyValue(b);
 
-  // Empty always at end
+const enhancedCompareStrings = (a: any, b: any, dir: SortDir): number => {
+  const isEmpty = (val: any) =>
+    val === null ||
+    val === undefined ||
+    val === "" ||
+    val === "-" ||
+    val === "—";
+
+  const aEmpty = isEmpty(a);
+  const bEmpty = isEmpty(b);
+
+  // 🔥 Always push empty to bottom
   if (aEmpty && bEmpty) return 0;
   if (aEmpty) return 1;
   if (bEmpty) return -1;
@@ -27,50 +46,37 @@ const enhancedCompareStrings = (a: any, b: any, dir: SortDir): number => {
 
   if (compA === compB) return 0;
 
-  return dir === 'asc'
-    ? compA < compB ? -1 : 1
-    : compA > compB ? -1 : 1;
+  return dir === "asc"
+    ? compA > compB ? 1 : -1
+    : compA < compB ? 1 : -1;
 };
 
 
-const enhancedCompareDates = (a: any, b: any, dir: SortDir): number => {
-  const aEmpty = isEmptyValue(a);
-  const bEmpty = isEmptyValue(b);
+const enhancedCompareTake = useCallback(
+  (a: any, b: any, dir: SortDir): number => {
+    const isEmpty = (val: any) =>
+      val === null ||
+      val === undefined ||
+      val === "" ||
+      val === "-" ||
+      val === "—";
 
-  // Empty always at end
-  if (aEmpty && bEmpty) return 0;
-  if (aEmpty) return 1;
-  if (bEmpty) return -1;
+    const aEmpty = isEmpty(a);
+    const bEmpty = isEmpty(b);
 
-  const dateA = new Date(a);
-  const dateB = new Date(b);
+    // 🔥 Always push empty to bottom
+    if (aEmpty && bEmpty) return 0;
+    if (aEmpty) return 1;
+    if (bEmpty) return -1;
 
-  if (isNaN(dateA.getTime()) && isNaN(dateB.getTime())) return 0;
-  if (isNaN(dateA.getTime())) return 1;
-  if (isNaN(dateB.getTime())) return -1;
+    const aVal = parseInt(String(a).replace(/\D/g, ""), 10);
+    const bVal = parseInt(String(b).replace(/\D/g, ""), 10);
 
-  if (dateA.getTime() === dateB.getTime()) return 0;
+    if (aVal === bVal) return 0;
 
-  return dir === 'asc'
-    ? dateA < dateB ? -1 : 1
-    : dateA > dateB ? -1 : 1;
-};
-
-
-const enhancedCompareTake = (a: any, b: any, dir: SortDir): number => {
-  const aEmpty = isEmptyValue(a);
-  const bEmpty = isEmptyValue(b);
-
-  if (aEmpty && bEmpty) return 0;
-  if (aEmpty) return 1;
-  if (bEmpty) return -1;
-
-  const aVal = parseInt(String(a).replace(/\D/g, ''), 10);
-  const bVal = parseInt(String(b).replace(/\D/g, ''), 10);
-
-  if (aVal === bVal) return 0;
-
-  return dir === 'asc'
-    ? aVal < bVal ? -1 : 1
-    : aVal > bVal ? -1 : 1;
-};
+    return dir === "asc"
+      ? aVal > bVal ? 1 : -1
+      : aVal < bVal ? 1 : -1;
+  },
+  []
+);
