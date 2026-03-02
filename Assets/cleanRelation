@@ -1,0 +1,51 @@
+if (["mdlRend", "bldAnm", "bldRend", "ldvMdl"].includes(col.id)) {
+
+  // Normalize relation (avoid underscore mismatch issues)
+  const cleanRelation = (asset.relation || "")
+    .toString()
+    .trim()
+    .replace(/^_+|_+$/g, "");
+
+  const assetKey = `${asset.group_1}-${cleanRelation}`;
+
+  const componentList =
+    latestComponents && latestComponents[assetKey]
+      ? latestComponents[assetKey]
+      : [];
+
+  // Map component column → expected phase
+  const PHASE_COMPONENT_MAP: Record<string, string> = {
+    mdlRend: "mdl",
+    bldAnm: "bld",
+    bldRend: "bld",
+    ldvMdl: "ldv",
+  };
+
+  const expectedPhase = PHASE_COMPONENT_MAP[col.id];
+
+  // Match by phase (NOT by component name)
+  const componentData = componentList.find((item: any) =>
+    item?.latest_document?.phase &&
+    item.latest_document.phase.toLowerCase() === expectedPhase
+  );
+
+  const submittedText =
+    componentData?.latest_document?.submitted_at_utc
+      ? formatSubmitted(
+          componentData.latest_document.submitted_at_utc,
+          dateTimeFormat
+        )
+      : "—";
+
+  return (
+    <Typography
+      style={{
+        fontSize: UI.FONT_SIZE_CONTENT,
+        whiteSpace: "normal",
+        lineHeight: 1.2,
+      }}
+    >
+      {submittedText}
+    </Typography>
+  );
+}
