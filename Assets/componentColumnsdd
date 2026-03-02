@@ -1,0 +1,28 @@
+if (componentColumns.includes(uiSortKey)) {
+
+  const aKey = `${a.group_1}-${a.relation}`;
+  const bKey = `${b.group_1}-${b.relation}`;
+
+  const aComponentList = latestComponents[aKey] || [];
+  const bComponentList = latestComponents[bKey] || [];
+
+  const aItem = findComponentData(aComponentList, uiSortKey);
+  const bItem = findComponentData(bComponentList, uiSortKey);
+
+  const aRaw = aItem?.latest_document?.submitted_at_utc ?? null;
+  const bRaw = bItem?.latest_document?.submitted_at_utc ?? null;
+
+  const aValue = aRaw ? new Date(aRaw).getTime() : null;
+  const bValue = bRaw ? new Date(bRaw).getTime() : null;
+
+  const aEmpty = aValue == null || isNaN(aValue);
+  const bEmpty = bValue == null || isNaN(bValue);
+
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return 1;
+  if (bEmpty) return -1;
+
+  return uiSortDir === "asc"
+    ? aValue! - bValue!
+    : bValue! - aValue!;
+}
