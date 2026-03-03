@@ -1,0 +1,82 @@
+// Change from empty-at-bottom to empty-at-top
+const enhancedCompareDates = (a: any, b: any, dir: SortDir): number => {
+  const isEmpty = (val: any) =>
+    val === null ||
+    val === undefined ||
+    val === "" ||
+    val === "-" ||
+    val === "—";
+
+  const aEmpty = isEmpty(a);
+  const bEmpty = isEmpty(b);
+
+  // 🔥 Empty values go to TOP
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return -1;  // Changed from 1 to -1 (empty comes first)
+  if (bEmpty) return 1;   // Changed from -1 to 1 (empty comes first)
+
+  const timeA = new Date(a).getTime();
+  const timeB = new Date(b).getTime();
+
+  if (timeA === timeB) return 0;
+
+  return dir === "asc"
+    ? timeA > timeB ? 1 : -1
+    : timeA < timeB ? 1 : -1;
+};
+
+const enhancedCompareStrings = (a: any, b: any, dir: SortDir): number => {
+  const isEmpty = (val: any) =>
+    val === null ||
+    val === undefined ||
+    val === "" ||
+    val === "-" ||
+    val === "—";
+
+  const aEmpty = isEmpty(a);
+  const bEmpty = isEmpty(b);
+
+  // 🔥 Empty values go to TOP
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return -1;  // Changed from 1 to -1 (empty comes first)
+  if (bEmpty) return 1;   // Changed from -1 to 1 (empty comes first)
+
+  const compA = String(a).trim().toLowerCase();
+  const compB = String(b).trim().toLowerCase();
+
+  if (compA === compB) return 0;
+
+  return dir === "asc"
+    ? compA > compB ? 1 : -1
+    : compA < compB ? 1 : -1;
+};
+
+const enhancedCompareTake = (
+  a: any,
+  b: any,
+  dir: SortDir
+): number => {
+  const isEmpty = (val: any) =>
+    val === null ||
+    val === undefined ||
+    val === "" ||
+    val === "-" ||
+    val === "—";
+
+  const aEmpty = isEmpty(a);
+  const bEmpty = isEmpty(b);
+
+  // 🔥 Empty values go to TOP
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return -1;  // Changed from 1 to -1 (empty comes first)
+  if (bEmpty) return 1;   // Changed from -1 to 1 (empty comes first)
+
+  const aVal = parseInt(String(a).replace(/\D/g, ""), 10);
+  const bVal = parseInt(String(b).replace(/\D/g, ""), 10);
+
+  if (aVal === bVal) return 0;
+
+  return dir === "asc"
+    ? aVal > bVal ? 1 : -1
+    : aVal < bVal ? 1 : -1;
+};
