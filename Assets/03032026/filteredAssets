@@ -1,0 +1,187 @@
+/* Client-side filtering and sorting */
+const filteredAssets = useMemo(() => {
+  if (!assets) return [];
+
+  const nameFilter = (filterProps.assetNameKey || '').trim().toLowerCase();
+  const approvalFilters = approvalArray.map((s) => s.toLowerCase());
+  const workFilters = workArray.map((s) => s.toLowerCase());
+
+  const phases = ['mdl', 'rig', 'bld', 'dsn', 'ldv'] as const;
+
+  // First, filter the assets
+  const base = assets.filter((asset: any) => {
+    // Top-group filter
+    if (selectedTopGroups.length > 0) {
+      const normalizeTopGroup = (v: any) => {
+        const s = (v || '').toString().trim();
+        if (!s) return 'unassigned';
+        const ls = s.toLowerCase();
+        if (ls === 'unassigned' || ls === 'unassigned/' || ls === 'none' || ls === 'null' || ls === 'undefined') {
+          return 'unassigned';
+        }
+        return ls;
+      };
+
+      const allowed = new Set(selectedTopGroups.map(normalizeTopGroup));
+      const tg = normalizeTopGroup(asset.top_group_node);
+      if (!allowed.has(tg)) return false;
+    }
+
+    // Asset Name filter
+    if (nameFilter) {
+      const name = (asset.group_1 || '').toString().toLowerCase();
+      if (!name.includes(nameFilter)) return false;
+    }
+
+    // Phase-locked matching
+    const phase = effectivePhase && effectivePhase !== 'none'
+      ? effectivePhase.toLowerCase()
+      : null;
+
+    const matchesPhase = (p: string) => {
+      if (approvalFilters.length > 0) {
+        const rawAppr = (asset[`${p}_approval_status`] || '')
+          .toString()
+          .toLowerCase();
+        if (!approvalFilters.includes(rawAppr)) return false;
+      }
+      if (workFilters.length > 0) {
+        const rawWork = (asset[`${p}_work_status`] || '')
+          .toString()
+          .toLowerCase();
+        if (!workFilters.includes(rawWork)) return false;
+      }
+      return true;
+    };
+
+    // No filters at all → keep row
+    if (!nameFilter && approvalFilters.length === 0 && workFilters.length === 0) {
+      return true;
+    }
+
+    // If a specific phase is active, only that phase decides
+    if (phase) {
+      return matchesPhase(phase);
+    }
+
+    // Otherwise, keep the row if ANY phase matches
+    return phases.some((p) => matchesPhase(p));
+  });
+
+  // ============================================
+  // SORTING LOGIC
+  // ============================================
+  if (uiSortKey && uiSortDir !== 'none') {
+    const componentColumns = ['mdlRend', 'bldAnm', 'bldRend', 'ldvMdl'];
+    
+    // 🔍 DEBUG: Log raw assets before sorting when sorting by mdlRend
+    if (uiSortKey === 'mdlRend') {
+      console.log('🔍 RAW ASSETS BEFORE SORT:');
+      console.log(assets.map(a => ({
+        name: a.group_1,
+        relation: a.relation,
+        mdlRend: latestComponents[`${a.group_1}-${a.relation}`]?.find(
+          (x: any) => x.latest_document?.phase === 'mdl'
+        )?.latest_document?.submitted_at_utc || '—'
+      })));
+    }
+    
+    base.sort((a, b) => {
+      // Component columns (MDLREND, BLDANM, BLDREND, LDVMDL)
+      if (componentColumns.includes(uiSortKey)) {
+
+        const aKey = `${a.group_1}-${a.relation}`;
+        const bKey = `${b.group_1}-${b.relation}`;
+
+        const aComponentList = latestComponents[aKey] || [];
+        const bComponentList = latestComponents[bKey] || [];
+
+        const aItem = findComponentData(aComponentList, uiSortKey);
+        const bItem = findComponentData(bComponentList, uiSortKey);
+
+        const aRaw = aItem && aItem.latest_document && aItem.latest_document.submitted_at_utc || null;
+        const bRaw = bItem && bItem.latest_document && bItem.latest_document.submitted_at_utc || null;
+
+        const aValue = aRaw ? new Date(aRaw).getTime() : null;
+        const bValue = bRaw ? new Date(bRaw).getTime() : null;
+
+        const aEmpty = aValue == null || isNaN(aValue);
+        const bEmpty = bValue == null || isNaN(bValue);
+
+        // 🔥 Empty values go to BOTTOM
+        if (aEmpty && bEmpty) return 0;
+        if (aEmpty) return 1;
+        if (bEmpty) return -1;
+
+        return uiSortDir === "asc"
+          ? aValue! - bValue!
+          : bValue! - aValue!;
+      }
+      
+      // Regular columns
+      if (uiSortKey === 'group_1') {
+        return enhancedCompareStrings(a.group_1, b.group_1, uiSortDir);
+      }
+      if (uiSortKey === 'relation') {
+        return enhancedCompareStrings(a.relation, b.relation, uiSortDir);
+      }
+
+      // Phase columns
+      const m = uiSortKey.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted|take|component)$/i);
+      if (m) {
+        const phase = m[1].toLowerCase();
+        const field = m[2].toLowerCase();
+
+        if (field === 'submitted') {
+          const key = `${phase}_submitted_at_utc` as keyof typeof a;
+          return enhancedCompareDates(a[key], b[key], uiSortDir);
+        }
+        
+        if (field === 'take') {
+          const key = `${phase}_take` as keyof typeof a;
+          return enhancedCompareTake(a[key], b[key], uiSortDir);
+        }
+
+        if (field === 'component') {
+          const key = `${phase}_component` as keyof typeof a;
+          return enhancedCompareStrings(a[key], b[key], uiSortDir);
+        }
+
+        const key = (field === 'appr'
+          ? `${phase}_approval_status`
+          : `${phase}_work_status`) as keyof typeof a;
+
+        return enhancedCompareStrings(a[key], b[key], uiSortDir);
+      }
+
+      return 0;
+    });
+    
+    // 🔍 DEBUG: Log sorted assets after sort
+    if (uiSortKey === 'mdlRend') {
+      console.log('🔍 SORTED ASSETS AFTER SORT:');
+      console.log(base.map(a => ({
+        name: a.group_1,
+        relation: a.relation,
+        mdlRend: latestComponents[`${a.group_1}-${a.relation}`]?.find(
+          (x: any) => x.latest_document?.phase === 'mdl'
+        )?.latest_document?.submitted_at_utc || '—'
+      })));
+    }
+  }
+
+  return base;
+}, [
+  assets,
+  effectivePhase,
+  uiSortKey,
+  uiSortDir,
+  filterProps.assetNameKey,
+  approvalArray,
+  workArray,
+  selectedTopGroups,
+  latestComponents,
+  enhancedCompareTake,
+  enhancedCompareStrings,
+  enhancedCompareDates,
+]);
