@@ -1,0 +1,72 @@
+// In the component columns sorting section
+if (componentColumns.includes(uiSortKey)) {
+  
+  // Try multiple key formats
+  const possibleKeys = [
+    `${a.group_1}-${a.relation}`,           // "anitaHero-com"
+    `${a.group_1}_${a.relation}`,           // "anitaHero_com"
+    `${a.group_1}${a.relation}`,            // "anitaHerocom"
+    a.group_1,                               // "anitaHero"
+  ];
+  
+  // Find the first key that exists
+  let aComponentList = [];
+  let usedKey = '';
+  for (const key of possibleKeys) {
+    if (latestComponents[key]) {
+      aComponentList = latestComponents[key];
+      usedKey = key;
+      break;
+    }
+  }
+  
+  // Debug
+  if (uiSortKey === 'mdlRend') {
+    console.log(`Asset ${a.group_1}:`, {
+      attemptedKeys: possibleKeys,
+      usedKey: usedKey || 'none',
+      hasData: aComponentList.length > 0
+    });
+  }
+  
+  // If still no data, try to find by scanning all keys
+  if (aComponentList.length === 0) {
+    // Look for any key that starts with the asset name
+    const matchingKey = Object.keys(latestComponents).find(key => 
+      key.startsWith(a.group_1 + '-') || key.startsWith(a.group_1 + '_')
+    );
+    
+    if (matchingKey) {
+      aComponentList = latestComponents[matchingKey];
+      console.log(`Found matching key for ${a.group_1}: ${matchingKey}`);
+    }
+  }
+
+  const bComponentList = latestComponents[`${b.group_1}-${b.relation}`] || [];
+
+  const aItem = findComponentData(aComponentList, uiSortKey);
+  const bItem = findComponentData(bComponentList, uiSortKey);
+
+  const aRaw = aItem?.latest_document?.submitted_at_utc || null;
+  const bRaw = bItem?.latest_document?.submitted_at_utc || null;
+
+  const aHasData = aRaw !== null;
+  const bHasData = bRaw !== null;
+
+  // If both have no data, sort by name
+  if (!aHasData && !bHasData) {
+    return enhancedCompareStrings(a.group_1, b.group_1, uiSortDir);
+  }
+  
+  // Assets with data come first
+  if (!aHasData) return 1;
+  if (!bHasData) return -1;
+
+  // Both have data, compare dates
+  const aDate = new Date(aRaw).getTime();
+  const bDate = new Date(bRaw).getTime();
+
+  return uiSortDir === "asc"
+    ? aDate - bDate
+    : bDate - aDate;
+}
