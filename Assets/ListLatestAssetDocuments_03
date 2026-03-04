@@ -1,0 +1,224 @@
+func (poi *PublishOperationInfo) ListLatestAssetDocuments(
+    ctx context.Context,
+    param *entity.LatestAssetComponentParams,
+    sortBy string,
+    sortDir int, // 1 for asc, -1 for desc
+) (documents []*entity.LatestComponentDocuments, err error) {
+
+    col := poi.db.Collection("pc_publishOperationInfo")
+
+    // 1️⃣ Base match
+    matchStage := bson.D{
+        {"$match", bson.D{
+            {"_central.project", param.Project},
+            {"root", "assets"},
+            {"groups.0", param.Asset},
+            {"relation", param.Relation},
+            {"component", bson.D{{"$in", param.Component}}},
+        }},
+    }
+
+    // 2️⃣ Project only required fields
+    projectStage := bson.D{
+        {"$project", bson.D{
+            {"id", 1},
+            {"groups", 1},
+            {"submitted_at_utc", 1},
+            {"phase", 1},
+            {"component", 1},
+            {"relation", 1},
+            {"_central", 1},
+            {"_id", 0},
+        }},
+    }
+
+    // 3️⃣ Initial sort (latest first per component)
+    initialSortStage := bson.D{
+        {"$sort", bson.D{
+            {"submitted_at_utc", -1},
+        }},
+    }
+
+    // 4️⃣ Group → latest per component
+    groupStage := bson.D{
+        {"$group", bson.D{
+            {"_id", "$component"},
+            {"latest_document", bson.D{{"$first", "$$ROOT"}}},
+        }},
+    }
+
+    // 5️⃣ Lookup latest MDLREND
+    lookupMDLRendStage := bson.D{
+        {"$lookup", bson.D{
+            {"from", "pc_publishOperationInfo"},
+            {"let", bson.D{
+                {"project", "$latest_document._central.project"},
+                {"asset", "$latest_document.groups.0"},
+                {"relation", "$latest_document.relation"},
+            }},
+            {"pipeline", bson.A{
+                bson.D{{"$match", bson.D{
+                    {"$expr", bson.D{
+                        {"$and", bson.A{
+                            bson.D{{"$eq", bson.A{"$_central.project", "$$project"}}},
+                            bson.D{{"$eq", bson.A{"$root", "assets"}}},
+                            bson.D{{"$eq", bson.A{"$groups.0", "$$asset"}}},
+                            bson.D{{"$eq", bson.A{"$relation", "$$relation"}}},
+                            bson.D{{"$eq", bson.A{"$component", "mdlRend"}}},
+                        }},
+                    }},
+                }}},
+                bson.D{{"$sort", bson.D{{"submitted_at_utc", -1}}}},
+                bson.D{{"$limit", 1}},
+                bson.D{{"$project", bson.D{
+                    {"submitted_at_utc", 1},
+                    {"_id", 0},
+                }}},
+            }},
+            {"as", "mdlRendDoc"},
+        }},
+    }
+
+    // 6️⃣ Flatten MDLREND date
+    addFieldsStage := bson.D{
+        {"$addFields", bson.D{
+            {"mdlRendSubmittedAt", bson.D{
+                {"$arrayElemAt", bson.A{"$mdlRendDoc.submitted_at_utc", 0}},
+            }},
+            {"componentName", "$_id"},
+        }},
+    }
+
+    // 🔍 DEBUG STAGE: Log all mdlRendSubmittedAt values
+    debugStage := bson.D{
+        {"$addFields", bson.D{
+            {"debug_info", bson.D{
+                {"$cond", bson.A{
+                    bson.D{{"$eq", bson.A{"$mdlRendSubmittedAt", nil}}},
+                    "NO_MDLREND_DATA",
+                    bson.D{{"$concat", bson.A{
+                        "Component: ", "$componentName", 
+                        " | Date: ", bson.D{{"$toString", "$mdlRendSubmittedAt"}}
+                    }}},
+                }},
+            }},
+        }},
+    }
+
+    // 7️⃣ Dynamic sort stages
+    var finalSortStages mongo.Pipeline
+
+    if sortBy == "mdlRend" {
+
+        finalSortStages = mongo.Pipeline{
+            {
+                {"$addFields", bson.D{
+                    {"mdlRendSortWeight", bson.D{
+                        {"$cond", bson.A{
+                            bson.D{{"$ifNull", bson.A{"$mdlRendSubmittedAt", false}}},
+                            1, // has date
+                            2, // no date
+                        }},
+                    }},
+                }},
+            },
+            {
+                {"$sort", bson.D{
+                    {"mdlRendSortWeight", 1},         // NULLS LAST
+                    {"mdlRendSubmittedAt", sortDir},  // user direction
+                }},
+            },
+        }
+
+    } else if sortBy == "component" {
+
+        finalSortStages = mongo.Pipeline{
+            {
+                {"$sort", bson.D{
+                    {"componentName", sortDir},
+                }},
+            },
+        }
+
+    } else {
+
+        finalSortStages = mongo.Pipeline{
+            {
+                {"$sort", bson.D{
+                    {"latest_document.submitted_at_utc", sortDir},
+                }},
+            },
+        }
+    }
+
+    // 8️⃣ Cleanup helper fields
+    cleanupStage := bson.D{
+        {"$project", bson.D{
+            {"component", "$_id"},
+            {"latest_document", 1},
+            {"_id", 0},
+            // Include debug info if needed
+            // {"debug_info", 1},
+        }},
+    }
+
+    // 🔥 Build final pipeline
+    pipeline := mongo.Pipeline{
+        matchStage,
+        projectStage,
+        initialSortStage,
+        groupStage,
+        lookupMDLRendStage,
+        addFieldsStage,
+        debugStage, // Add debug stage here
+    }
+
+    pipeline = append(pipeline, finalSortStages...)
+    pipeline = append(pipeline, cleanupStage)
+
+    // Execute and log results
+    cursor, err := col.Aggregate(ctx, pipeline)
+    if err != nil {
+        return
+    }
+    defer cursor.Close(ctx)
+
+    // Debug: Print all results
+    var results []map[string]interface{}
+    if err = cursor.All(ctx, &results); err != nil {
+        return
+    }
+
+    // Print all mdlRendSubmittedAt values
+    fmt.Println("=== MDLREND SUBMITTED DATA ===")
+    for i, result := range results {
+        component := result["component"]
+        mdlRendDate := result["mdlRendSubmittedAt"]
+        
+        if mdlRendDate == nil {
+            fmt.Printf("%d. Component: %v | MDLREND: NO DATA\n", i, component)
+        } else {
+            fmt.Printf("%d. Component: %v | MDLREND: %v\n", i, component, mdlRendDate)
+        }
+    }
+    fmt.Println("==============================")
+
+    // Convert back to documents
+    // You'll need to re-decode or use the results directly
+    // For simplicity, I'll show how to map back to your document type
+    documents = []*entity.LatestComponentDocuments{}
+    for _, result := range results {
+        // Convert map to your document type
+        // This depends on your entity structure
+        var doc entity.LatestComponentDocuments
+        // Map fields from result to doc
+        // ...
+        documents = append(documents, &doc)
+    }
+
+    if documents == nil {
+        documents = []*entity.LatestComponentDocuments{}
+    }
+
+    return
+}
