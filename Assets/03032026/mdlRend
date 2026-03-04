@@ -1,0 +1,9 @@
+  // Debug: Check if component data exists
+  if (uiSortKey === 'mdlRend') {
+    console.log(`Asset ${a.group_1}:`, {
+      key: aKey,
+      hasComponentData: !!latestComponents[aKey],
+      componentListLength: aComponentList.length,
+      mdlRendItem: aComponentList.find((x: any) => x.latest_document?.phase === 'mdl')
+    });
+  }
