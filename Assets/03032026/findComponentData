@@ -1,0 +1,70 @@
+const findComponentData = (componentList: any[], componentKey: string) => {
+  if (!componentList || componentList.length === 0) return null;
+  
+  // Log what we're looking for
+  console.log(`Looking for ${componentKey} in list of ${componentList.length} items`);
+  
+  // Try to find by phase first (most reliable)
+  const expectedPhase = componentPhaseMap[componentKey];
+  const item = componentList.find((item: any) => 
+    item.latest_document?.phase?.toLowerCase() === expectedPhase
+  );
+  
+  if (item) {
+    console.log(`Found by phase ${expectedPhase}:`, item);
+    return item;
+  }
+  
+  console.log('No match found');
+  return null;
+};
+
+// In the component columns sorting section
+if (componentColumns.includes(uiSortKey)) {
+  // Get the raw relation without modification
+  const relation = a.relation || '';
+  
+  // Create the key exactly as it appears in latestComponents
+  const aKey = `${a.group_1}-${relation}`;
+  const bKey = `${b.group_1}-${b.relation || ''}`;
+  
+  // Debug to see what keys actually exist
+  if (uiSortKey === 'mdlRend') {
+    console.log(`Asset ${a.group_1}:`, {
+      key: aKey,
+      exists: !!latestComponents[aKey],
+      availableKeys: Object.keys(latestComponents).filter(k => 
+        k.startsWith(a.group_1 + '-')
+      )
+    });
+  }
+
+  const aComponentList = latestComponents[aKey] || [];
+  const bComponentList = latestComponents[bKey] || [];
+
+  const aItem = findComponentData(aComponentList, uiSortKey);
+  const bItem = findComponentData(bComponentList, uiSortKey);
+
+  const aRaw = aItem?.latest_document?.submitted_at_utc || null;
+  const bRaw = bItem?.latest_document?.submitted_at_utc || null;
+
+  const aHasData = aRaw !== null;
+  const bHasData = bRaw !== null;
+
+  // If both have no data, sort by name
+  if (!aHasData && !bHasData) {
+    return enhancedCompareStrings(a.group_1, b.group_1, uiSortDir);
+  }
+  
+  // Assets with data come first
+  if (!aHasData) return 1;
+  if (!bHasData) return -1;
+
+  // Both have data, compare dates
+  const aDate = new Date(aRaw).getTime();
+  const bDate = new Date(bRaw).getTime();
+
+  return uiSortDir === "asc"
+    ? aDate - bDate
+    : bDate - aDate;
+}
