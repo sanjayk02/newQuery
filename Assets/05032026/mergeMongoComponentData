@@ -1,0 +1,52 @@
+func (r *ReviewInfo) mergeMongoComponentData(
+	ctx context.Context,
+	rows []AssetPivot,
+) error {
+
+	mongoDocs, err := r.publishRepo.ListLatestAssetDocuments(
+		ctx,
+		&entity.LatestAssetComponentParams{
+			Component: []string{
+				"mdlRend",
+				"bldAnm",
+				"bldRend",
+				"ldvMdl",
+			},
+		},
+	)
+
+	if err != nil {
+		return err
+	}
+
+	componentMap := map[string]map[string]*time.Time{}
+
+	for _, doc := range mongoDocs {
+
+		key := doc.Groups[0] + "|" + doc.Relation
+
+		if componentMap[key] == nil {
+			componentMap[key] = map[string]*time.Time{}
+		}
+
+		if doc.LatestDocument.SubmittedAtUTC != nil {
+			componentMap[key][doc.ID] = doc.LatestDocument.SubmittedAtUTC
+		}
+	}
+
+	for i := range rows {
+
+		key := rows[i].Group1 + "|" + rows[i].Relation
+
+		if componentMap[key] == nil {
+			continue
+		}
+
+		rows[i].MDLRendSubmittedAt = componentMap[key]["mdlRend"]
+		rows[i].BLDAnmSubmittedAt = componentMap[key]["bldAnm"]
+		rows[i].BLDRendSubmittedAt = componentMap[key]["bldRend"]
+		rows[i].LDVMdlSubmittedAt = componentMap[key]["ldvMdl"]
+	}
+
+	return nil
+}
