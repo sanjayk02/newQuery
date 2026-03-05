@@ -33,6 +33,10 @@ func (r *ReviewInfo) mergeMongoComponentData(
 					"bldAnm",
 					"bldRend",
 					"ldvMdl",
+					// Also include possible variations from MongoDB
+					"mdRend",    // What's actually in MongoDB
+					"bldAnn",    // What's actually in MongoDB
+					"ldvMdL",    // What's actually in MongoDB
 				},
 			},
 		)
@@ -58,8 +62,30 @@ func (r *ReviewInfo) mergeMongoComponentData(
 			if doc == nil || doc.LatestDocument == nil {
 				continue
 			}
+			
 			t := doc.LatestDocument.SubmittedAtUTC
+			
+			// Log the actual component name from MongoDB
+			log.Printf("  Raw MongoDB component: %s", doc.Component)
+			
+			// Store with the original component name
 			componentMap[key][doc.Component] = &t
+			
+			// Also map variations to expected names
+			switch doc.Component {
+			case "mdRend":
+				componentMap[key]["mdlRend"] = &t
+				log.Printf("  Mapped mdRend → mdlRend")
+			case "bldAnn":
+				componentMap[key]["bldAnm"] = &t
+				log.Printf("  Mapped bldAnn → bldAnm")
+			case "ldvMdL":
+				componentMap[key]["ldvMdl"] = &t
+				log.Printf("  Mapped ldvMdL → ldvMdl")
+			default:
+				componentMap[key][doc.Component] = &t
+			}
+			
 			log.Printf("  Stored %s for %s|%s at %v", 
 				doc.Component, row.Group1, row.Relation, t)
 		}
@@ -71,12 +97,33 @@ func (r *ReviewInfo) mergeMongoComponentData(
 		key := fmt.Sprintf("%s|%s", rows[i].Group1, rows[i].Relation)
 		
 		if comp, ok := componentMap[key]; ok {
-			rows[i].MDLRend = comp["mdlRend"]
-			rows[i].BLDAnm = comp["bldAnm"]
-			rows[i].BLDRend = comp["bldRend"]
-			rows[i].LDVMdl = comp["ldvMdl"]
-			matchedCount++
+			// Check each expected component
+			if val, exists := comp["mdlRend"]; exists {
+				rows[i].MDLRend = val
+			} else if val, exists := comp["mdRend"]; exists {
+				rows[i].MDLRend = val
+				log.Printf("  Using mdRend as fallback for mdlRend for %s", key)
+			}
 			
+			if val, exists := comp["bldAnm"]; exists {
+				rows[i].BLDAnm = val
+			} else if val, exists := comp["bldAnn"]; exists {
+				rows[i].BLDAnm = val
+				log.Printf("  Using bldAnn as fallback for bldAnm for %s", key)
+			}
+			
+			if val, exists := comp["bldRend"]; exists {
+				rows[i].BLDRend = val
+			}
+			
+			if val, exists := comp["ldvMdl"]; exists {
+				rows[i].LDVMdl = val
+			} else if val, exists := comp["ldvMdL"]; exists {
+				rows[i].LDVMdl = val
+				log.Printf("  Using ldvMdL as fallback for ldvMdl for %s", key)
+			}
+			
+			matchedCount++
 			log.Printf("✓ Merged data for %s", key)
 		} else {
 			log.Printf("✗ No data found for %s", key)
