@@ -4,45 +4,69 @@ func (r *ReviewInfo) mergeMongoComponentData(
 	project string,
 ) error {
 
-	for i := range rows {
-
-		mongoDocs, err := r.publishOperationInfo.ListLatestAssetDocuments(
-			ctx,
-			&entity.LatestAssetComponentParams{
-				Project: project,
-				Asset:   rows[i].Group1,
-				Relation: rows[i].Relation,
-				Component: []string{
-					"mdlRend",
-					"bldAnm",
-					"bldRend",
-					"ldvMdl",
-				},
+	mongoDocs, err := r.publishOperationInfo.ListLatestAssetDocuments(
+		ctx,
+		&entity.LatestAssetComponentParams{
+			Project: project,
+			Component: []string{
+				"mdlRend",
+				"bldAnm",
+				"bldRend",
+				"ldvMdl",
 			},
-		)
+		},
+	)
+	if err != nil {
+		return err
+	}
 
-		if err != nil {
-			return err
+	// Build Mongo lookup map
+	componentMap := map[string]map[string]*time.Time{}
+
+	for _, doc := range mongoDocs {
+
+		if len(doc.LatestDocument.Groups) < 2 {
+			continue
 		}
 
-		for _, doc := range mongoDocs {
+		asset := doc.LatestDocument.Groups[0]
+		relation := doc.LatestDocument.Groups[1]
 
-			submitted := doc.LatestDocument.SubmittedAtUTC
+		key := asset + "|" + relation
 
-			switch doc.Component {
+		if componentMap[key] == nil {
+			componentMap[key] = map[string]*time.Time{}
+		}
 
-			case "mdlRend":
-				rows[i].MDLRendSubmittedAt = &submitted
+		if !doc.LatestDocument.SubmittedAtUTC.IsZero() {
+			componentMap[key][doc.Component] = &doc.LatestDocument.SubmittedAtUTC
+		}
+	}
 
-			case "bldAnm":
-				rows[i].BLDAnmSubmittedAt = &submitted
+	// Merge Mongo values into SQL rows
+	for i := range rows {
 
-			case "bldRend":
-				rows[i].BLDRendSubmittedAt = &submitted
+		key := rows[i].Group1 + "|" + rows[i].Relation
+		comp := componentMap[key]
 
-			case "ldvMdl":
-				rows[i].LDVMdlSubmittedAt = &submitted
-			}
+		if comp == nil {
+			continue
+		}
+
+		if t, ok := comp["mdlRend"]; ok {
+			rows[i].MDLRendSubmittedAt = t
+		}
+
+		if t, ok := comp["bldAnm"]; ok {
+			rows[i].BLDAnmSubmittedAt = t
+		}
+
+		if t, ok := comp["bldRend"]; ok {
+			rows[i].BLDRendSubmittedAt = t
+		}
+
+		if t, ok := comp["ldvMdl"]; ok {
+			rows[i].LDVMdlSubmittedAt = t
 		}
 	}
 
