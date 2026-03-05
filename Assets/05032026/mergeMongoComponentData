@@ -1,74 +1,60 @@
 func (r *ReviewInfo) mergeMongoComponentData(
-	ctx context.Context,
-	rows []AssetPivot,
-	project string,
+    ctx context.Context,
+    rows []AssetPivot,
+    project string,
 ) error {
 
-	mongoDocs, err := r.publishOperationInfo.ListLatestAssetDocuments(
-		ctx,
-		&entity.LatestAssetComponentParams{
-			Project: project,
-			Component: []string{
-				"mdlRend",
-				"bldAnm",
-				"bldRend",
-				"ldvMdl",
-			},
-		},
-	)
-	if err != nil {
-		return err
-	}
+    mongoDocs, err := r.publishOperationInfo.ListLatestAssetDocuments(
+        ctx,
+        &entity.LatestAssetComponentParams{
+            Project: project,
+            Component: []string{
+                "mdlRend",
+                "bldAnm",
+                "bldRend",
+                "ldvMdl",
+            },
+        },
+    )
+    if err != nil {
+        return err
+    }
 
-	// Build Mongo lookup map
-	componentMap := map[string]map[string]*time.Time{}
+    componentMap := map[string]map[string]*time.Time{}
 
-	for _, doc := range mongoDocs {
+    for _, doc := range mongoDocs {
 
-		if len(doc.LatestDocument.Groups) < 2 {
-			continue
-		}
+        groups := doc.LatestDocument.Groups
+        if len(groups) < 2 {
+            continue
+        }
 
-		asset := doc.LatestDocument.Groups[0]
-		relation := doc.LatestDocument.Groups[1]
+        asset := groups[len(groups)-2]
+        relation := groups[len(groups)-1]
 
-		key := asset + "|" + relation
+        key := asset + "|" + relation
 
-		if componentMap[key] == nil {
-			componentMap[key] = map[string]*time.Time{}
-		}
+        if componentMap[key] == nil {
+            componentMap[key] = map[string]*time.Time{}
+        }
 
-		if !doc.LatestDocument.SubmittedAtUTC.IsZero() {
-			componentMap[key][doc.Component] = &doc.LatestDocument.SubmittedAtUTC
-		}
-	}
+        t := doc.LatestDocument.SubmittedAtUTC
+        componentMap[key][doc.Component] = &t
+    }
 
-	// Merge Mongo values into SQL rows
-	for i := range rows {
+    for i := range rows {
 
-		key := rows[i].Group1 + "|" + rows[i].Relation
-		comp := componentMap[key]
+        key := rows[i].Group1 + "|" + rows[i].Relation
 
-		if comp == nil {
-			continue
-		}
+        if comp, ok := componentMap[key]; ok {
 
-		if t, ok := comp["mdlRend"]; ok {
-			rows[i].MDLRendSubmittedAt = t
-		}
+            rows[i].MDLRend = comp["mdlRend"]
+            rows[i].BLDAnm = comp["bldAnm"]
+            rows[i].BLDRend = comp["bldRend"]
+            rows[i].LDVMdl = comp["ldvMdl"]
 
-		if t, ok := comp["bldAnm"]; ok {
-			rows[i].BLDAnmSubmittedAt = t
-		}
+        }
+    }
 
-		if t, ok := comp["bldRend"]; ok {
-			rows[i].BLDRendSubmittedAt = t
-		}
-
-		if t, ok := comp["ldvMdl"]; ok {
-			rows[i].LDVMdlSubmittedAt = t
-		}
-	}
-
-	return nil
+    return nil
 }
