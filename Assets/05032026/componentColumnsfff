@@ -1,0 +1,43 @@
+
+if (componentColumns.includes(uiSortKey)) {
+  const aKey = `${a.group_1}-${a.relation}`;
+  const bKey = `${b.group_1}-${b.relation}`;
+
+  const aComponentList = latestComponents[aKey] || [];
+  const bComponentList = latestComponents[bKey] || [];
+
+  // Map frontend component to MongoDB component
+  const mongoComponentMap: { [key: string]: string } = {
+    'mdlRend': 'mdRend',
+    'bldAnm': 'bldAnn',
+    'bldRend': 'bldRend',
+    'ldvMdl': 'lvdMl'
+  };
+  
+  const mongoComponentName = mongoComponentMap[uiSortKey];
+
+  const aItem = aComponentList.find((x: any) => 
+    x && x.component === mongoComponentName
+  );
+  const bItem = bComponentList.find((x: any) => 
+    x && x.component === mongoComponentName
+  );
+
+  const aRaw = aItem && aItem.latest_document && aItem.latest_document.submitted_at_utc || null;
+  const bRaw = bItem && bItem.latest_document && bItem.latest_document.submitted_at_utc || null;
+
+  const aValue = aRaw ? new Date(aRaw).getTime() : null;
+  const bValue = bRaw ? new Date(bRaw).getTime() : null;
+
+  const aEmpty = aValue == null || isNaN(aValue);
+  const bEmpty = bValue == null || isNaN(bValue);
+
+  // Empty values go to BOTTOM
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return 1;
+  if (bEmpty) return -1;
+
+  return uiSortDir === "asc"
+    ? aValue! - bValue!
+    : bValue! - aValue!;
+}
