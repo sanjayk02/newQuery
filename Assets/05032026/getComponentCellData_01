@@ -1,0 +1,33 @@
+const getComponentCellData = (
+  asset: any,
+  componentName: string
+) => {
+  const assetKey = `${asset.group_1}-${asset.relation}`;
+  const componentList = latestComponents && latestComponents[assetKey] || [];
+
+  // Map frontend component names to MongoDB component names
+  const mongoComponentMap: { [key: string]: string } = {
+    'md1Rend': 'mdRend',  // FIX: Map md1Rend to MongoDB's mdRend
+    'bldAnm': 'bldAnn',    // Maps to MongoDB's bldAnn
+    'bldRend': 'bldRend',  // Maps to MongoDB's bldRend
+    'ldvMdl': 'lvdMl'      // Maps to MongoDB's lvdMl
+  };
+  
+  const mongoComponentName = mongoComponentMap[componentName];
+  
+  // Find by exact component name match
+  const item = componentList.find((x: any) => 
+    x && x.component === mongoComponentName
+  );
+
+  if (item && item.latest_document) {
+    return {
+      component: componentName,
+      mongoComponent: item.component,
+      phase: item.latest_document.phase,
+      submittedAt: item.latest_document.submitted_at_utc,
+    };
+  }
+
+  return null;
+};
