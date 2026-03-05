@@ -5,41 +5,66 @@ func (poi *PublishOperationInfo) ListLatestAssetComponentDocuments(
 
 	log.Printf("ListLatestAssetComponentDocuments called")
 	log.Printf("Project: %s", param.Project)
+	log.Printf("Asset: %s", param.Asset)
+	log.Printf("Relation: %s", param.Relation)
 	log.Printf("Components: %v", param.Component)
 
 	col := poi.db.Collection("pc_publishOperationInfo")
 
-	// Pipeline to get latest document per component
+	// Match stage - filter by project, root, asset, relation, and components
+	// Note: The entity uses "Asset" but MongoDB stores it in groups.0
+	matchStage := bson.D{
+		{"$match", bson.D{
+			{"_central.project", param.Project},
+			{"root", "assets"},
+			{"groups.0", param.Asset},        // Asset is the first element in groups
+			{"relation", param.Relation},      // Relation field
+			{"component", bson.D{{"$in", param.Component}}},
+		}},
+	}
+
+	// Project stage - include all necessary fields
+	projectStage := bson.D{
+		{"$project", bson.D{
+			{"groups", 1},
+			{"relation", 1},
+			{"submitted_at_utc", 1},
+			{"phase", 1},
+			{"component", 1},
+			{"_id", 0},
+		}},
+	}
+
+	// Sort stage - newest first
+	sortStage := bson.D{
+		{"$sort", bson.D{
+			{"submitted_at_utc", -1},
+		}},
+	}
+
+	// Group stage - get the latest document for each component
+	groupStage := bson.D{
+		{"$group", bson.D{
+			{"_id", "$component"},
+			{"latest_document", bson.D{{"$first", "$$ROOT"}}},
+		}},
+	}
+
+	// Project to match the expected output structure
+	outputStage := bson.D{
+		{"$project", bson.D{
+			{"_id", 0},
+			{"component", "$_id"},
+			{"latest_document", 1},
+		}},
+	}
+
 	pipeline := mongo.Pipeline{
-		// Match stage
-		{
-			{"$match", bson.D{
-				{"_central.project", param.Project},
-				{"root", "assets"},
-				{"component", bson.D{{"$in", param.Component}}},
-			}},
-		},
-		// Sort by date (newest first)
-		{
-			{"$sort", bson.D{
-				{"submitted_at_utc", -1},
-			}},
-		},
-		// Group by component to get latest
-		{
-			{"$group", bson.D{
-				{"_id", "$component"},
-				{"latest_document", bson.D{{"$first", "$$ROOT"}}},
-			}},
-		},
-		// Project to reshape
-		{
-			{"$project", bson.D{
-				{"_id", 0},
-				{"component", "$_id"},
-				{"latest_document", 1},
-			}},
-		},
+		matchStage,
+		projectStage,
+		sortStage,
+		groupStage,
+		outputStage,
 	}
 
 	cursor, err := col.Aggregate(ctx, pipeline)
@@ -58,10 +83,14 @@ func (poi *PublishOperationInfo) ListLatestAssetComponentDocuments(
 
 	log.Printf("Mongo documents fetched: %d", len(documents))
 	
-	// Debug: Log the first document's groups to verify structure
+	// Debug: Log the first document's structure
 	if len(documents) > 0 && documents[0].LatestDocument != nil {
-		log.Printf("Sample groups: %v", documents[0].LatestDocument.Groups)
-		log.Printf("Sample relation: %s", documents[0].LatestDocument.Relation)
+		log.Printf("Sample document: Component=%s, Groups=%v, Relation=%s, Phase=%s, Submitted=%v",
+			documents[0].Component,
+			documents[0].LatestDocument.Groups,
+			documents[0].LatestDocument.Relation,
+			documents[0].LatestDocument.Phase,
+			documents[0].LatestDocument.SubmittedAtUTC)
 	}
 
 	return documents, nil
