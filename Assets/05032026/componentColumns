@@ -1,0 +1,99 @@
+// In AssetsDataTablePanel.tsx, find the sorting section and update:
+
+if (uiSortKey && uiSortDir !== 'none') {
+  const componentColumns = ['mdlRend', 'bldAnm', 'bldRend', 'ldvMdl'];
+  
+  base.sort((a, b) => {
+    // Component columns (MDLREND, BLDANM, BLDREND, LDVMDL)
+    if (componentColumns.includes(uiSortKey)) {
+      // Helper to get asset key
+      const getAssetKey = (asset: any) => {
+        const cleanRelation = (asset.relation || '')
+          .toString()
+          .trim()
+          .replace(/^_+|_+$/g, '');
+        return `${asset.name}-${cleanRelation}`;
+      };
+
+      // Helper to find component
+      const findComponent = (list: any[], componentKey: string) => {
+        if (!list) return null;
+        
+        // Try exact match
+        let item = list.find((item: any) => item.component === componentKey);
+        
+        // Try case-insensitive
+        if (!item) {
+          item = list.find((item: any) => 
+            item.component && item.component.toLowerCase() === componentKey.toLowerCase()
+          );
+        }
+        
+        // Try by phase
+        if (!item) {
+          const phaseMap: { [key: string]: string } = {
+            'mdlRend': 'mdl',
+            'bldAnm': 'bld',
+            'bldRend': 'bld',
+            'ldvMdl': 'ldv'
+          };
+          const expectedPhase = phaseMap[componentKey];
+          if (expectedPhase) {
+            item = list.find((item: any) => 
+              item.latest_document?.phase?.toLowerCase() === expectedPhase
+            );
+          }
+        }
+        
+        return item;
+      };
+
+      const aKey = getAssetKey(a);
+      const bKey = getAssetKey(b);
+      
+      const aComponentList = latestComponents[aKey] || [];
+      const bComponentList = latestComponents[bKey] || [];
+      
+      const aItem = findComponent(aComponentList, uiSortKey);
+      const bItem = findComponent(bComponentList, uiSortKey);
+      
+      const aDate = aItem?.latest_document?.submitted_at_utc || null;
+      const bDate = bItem?.latest_document?.submitted_at_utc || null;
+      
+      return enhancedCompareDates(aDate, bDate, uiSortDir);
+    }
+    
+    // Regular columns
+    if (uiSortKey === 'group_1') {
+      return enhancedCompareStrings(a.group_1, b.group_1, uiSortDir);
+    }
+    if (uiSortKey === 'relation') {
+      return enhancedCompareStrings(a.relation, b.relation, uiSortDir);
+    }
+
+    // Phase columns
+    const m = uiSortKey.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted|take|component)$/i);
+    if (m) {
+      const phase = m[1].toLowerCase();
+      const field = m[2].toLowerCase();
+
+      if (field === 'submitted') {
+        const key = `${phase}_submitted_at_utc` as keyof typeof a;
+        return enhancedCompareDates(a[key], b[key], uiSortDir);
+      }
+      
+      if (field === 'take') {
+        const key = `${phase}_take` as keyof typeof a;
+        return enhancedCompareTake(a[key], b[key], uiSortDir);
+      }
+
+      const key = (field === 'appr'
+        ? `${phase}_approval_status`
+        : `${phase}_work_status`) as keyof typeof a;
+
+      return enhancedCompareStrings(a[key], b[key], uiSortDir);
+    }
+
+    return 0;
+  });
+}
