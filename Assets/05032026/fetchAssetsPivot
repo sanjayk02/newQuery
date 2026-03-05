@@ -1,0 +1,115 @@
+/**
+ * fetchAssetsPivot
+ * * Fetches a paginated, sorted, and filtered list of asset phase summaries.
+ * Handles specialized backend sorting for component-specific submission dates.
+ * * @param project - The project key.
+ * @param page - Current page index (0-based).
+ * @param rowsPerPage - Number of items per page.
+ * @param sortKey - UI column ID to sort by.
+ * @param sortDir - Direction of sort ('asc' or 'desc').
+ * @param phase - Current phase filter context.
+ * @param assetNameKey - Search string for asset names.
+ * @param approvalStatuses - Array of approval statuses to filter.
+ * @param workStatuses - Array of work statuses to filter.
+ * @param view - View mode ('list' or 'grouped').
+ * @param signal - AbortSignal for request cancellation.
+ */
+export const fetchAssetsPivot = async (
+  project: string,
+  page: number,
+  rowsPerPage: number,
+  sortKey: string,
+  sortDir: string,
+  phase: string,
+  assetNameKey: string,
+  approvalStatuses: string[],
+  workStatuses: string[],
+  view: 'list' | 'grouped',
+  signal?: AbortSignal | null,
+): Promise<AssetsPivotResponse> => {
+  const headers = getAuthHeader();
+  const encodedProject = encodeURIComponent(project);
+  let url = `/api/projects/${encodedProject}/reviews/assets/pivot`;
+
+  const params = new URLSearchParams();
+  params.set('per_page', String(rowsPerPage));
+  params.set('page', String(page + 1)); // Backend expects 1-based page index
+  
+  // 1. Map UI sort keys to backend sort keys
+  let backendSortKey = sortKey;
+  
+  // Identify component columns that require server-side date sorting
+  const componentColumns = ['mdlRend', 'bldAnm', 'bldRend', 'ldvMdl'];
+  if (componentColumns.includes(sortKey)) {
+    backendSortKey = sortKey; // These are passed as-is to trigger the custom backend pipeline
+  }
+  
+  if (backendSortKey && backendSortKey !== 'none') {
+    params.set('sort', backendSortKey);
+  }
+  
+  if (sortDir && sortDir !== 'none') {
+    params.set('dir', sortDir.toUpperCase());
+  }
+  
+  // 2. Apply Filters
+  if (phase && phase !== 'none') {
+    params.set('phase', phase);
+  }
+  
+  if (view) {
+    params.set('view', view);
+  }
+
+  const trimmed = (assetNameKey || '').trim();
+  if (trimmed) {
+    params.set('name', trimmed);
+    params.set('name_mode', 'prefix');
+  }
+
+  // Ensure array filters are passed as comma-separated strings
+  if (workStatuses.length) {
+    params.set('work', workStatuses.join(','));
+  }
+  
+  if (approvalStatuses.length) {
+    params.set('appr', approvalStatuses.join(','));
+  }
+
+  url += `?${params.toString()}`;
+
+  // Debug log for tracking sort parameter propagation
+  console.log('Fetching assets with sort:', { 
+    url, 
+    backendSortKey, 
+    sortDir, 
+    phase,
+    view 
+  });
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15-second timeout
+
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers,
+      mode: 'cors',
+      signal: signal || controller.signal,
+    });
+    
+    // Clear timeout if request finishes
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      throw new Error(`Pivot API Error [${res.status}]: ${errorText}`);
+    }
+
+    setNewToken(res);
+    return await res.json();
+  } catch (error) {
+    clearTimeout(timeoutId);
+    throw error;
+  }
+};
