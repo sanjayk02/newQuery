@@ -3,7 +3,7 @@ func (r *ReviewInfo) mergeMongoComponentData(
 	rows []AssetPivot,
 ) error {
 
-	mongoDocs, err := r.publishRepo.ListLatestAssetDocuments(
+	mongoDocs, err := r.publishOperationInfo.ListLatestAssetDocuments(
 		ctx,
 		&entity.LatestAssetComponentParams{
 			Component: []string{
@@ -23,29 +23,29 @@ func (r *ReviewInfo) mergeMongoComponentData(
 
 	for _, doc := range mongoDocs {
 
-		key := doc.Groups[0] + "|" + doc.Relation
+		asset := doc.LatestDocument.Groups[0]
 
-		if componentMap[key] == nil {
-			componentMap[key] = map[string]*time.Time{}
+		if componentMap[asset] == nil {
+			componentMap[asset] = map[string]*time.Time{}
 		}
 
-		if doc.LatestDocument.SubmittedAtUTC != nil {
-			componentMap[key][doc.ID] = doc.LatestDocument.SubmittedAtUTC
-		}
+		submitted := doc.LatestDocument.SubmittedAtUTC
+
+		componentMap[asset][doc.Component] = &submitted
 	}
 
 	for i := range rows {
 
-		key := rows[i].Group1 + "|" + rows[i].Relation
+		asset := rows[i].Group1
 
-		if componentMap[key] == nil {
+		if componentMap[asset] == nil {
 			continue
 		}
 
-		rows[i].MDLRendSubmittedAt = componentMap[key]["mdlRend"]
-		rows[i].BLDAnmSubmittedAt = componentMap[key]["bldAnm"]
-		rows[i].BLDRendSubmittedAt = componentMap[key]["bldRend"]
-		rows[i].LDVMdlSubmittedAt = componentMap[key]["ldvMdl"]
+		rows[i].MDLRendSubmittedAt = componentMap[asset]["mdlRend"]
+		rows[i].BLDAnmSubmittedAt = componentMap[asset]["bldAnm"]
+		rows[i].BLDRendSubmittedAt = componentMap[asset]["bldRend"]
+		rows[i].LDVMdlSubmittedAt = componentMap[asset]["ldvMdl"]
 	}
 
 	return nil
