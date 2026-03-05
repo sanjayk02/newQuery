@@ -1,60 +1,101 @@
+/*
+──────────────────────────────────────────────────────────────────────────
+
+	MongoDB Integration for Latest Submissions
+	──────────────────────────────────────────────────────────────────────────
+*/
 func (r *ReviewInfo) mergeMongoComponentData(
-    ctx context.Context,
-    rows []AssetPivot,
-    project string,
+	ctx context.Context,
+	rows []AssetPivot,
+	project string,
 ) error {
+	
+	log.Printf("Starting mergeMongoComponentData for project: %s, rows: %d", project, len(rows))
 
-    mongoDocs, err := r.publishOperationInfo.ListLatestAssetDocuments(
-        ctx,
-        &entity.LatestAssetComponentParams{
-            Project: project,
-            Component: []string{
-                "mdlRend",
-                "bldAnm",
-                "bldRend",
-                "ldvMdl",
-            },
-        },
-    )
-    if err != nil {
-        return err
-    }
+	mongoDocs, err := r.publishOperationInfo.ListLatestAssetComponentDocuments(
+		ctx,
+		&entity.LatestAssetComponentParams{
+			Project: project,
+			Component: []string{
+				"mdlRend",
+				"bldAnm",
+				"bldRend",
+				"ldvMdl",
+			},
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to fetch MongoDB documents: %w", err)
+	}
 
-    componentMap := map[string]map[string]*time.Time{}
+	log.Printf("Fetched %d MongoDB documents", len(mongoDocs))
 
-    for _, doc := range mongoDocs {
+	componentMap := make(map[string]map[string]*time.Time)
 
-        groups := doc.LatestDocument.Groups
-        if len(groups) < 2 {
-            continue
-        }
+	for _, doc := range mongoDocs {
+		if doc == nil || doc.LatestDocument == nil {
+			log.Printf("Warning: Skipping nil document")
+			continue
+		}
 
-        asset := groups[len(groups)-2]
-        relation := groups[len(groups)-1]
+		groups := doc.LatestDocument.Groups
+		if len(groups) < 2 {
+			log.Printf("Warning: Groups array length %d is less than 2 for component: %s", 
+				len(groups), doc.Component)
+			continue
+		}
 
-        key := asset + "|" + relation
+		// For assets, the structure is typically: [category, asset_name, ...]
+		// But we need to be careful about the exact structure
+		asset := groups[len(groups)-2]
+		relation := groups[len(groups)-1]
 
-        if componentMap[key] == nil {
-            componentMap[key] = map[string]*time.Time{}
-        }
+		// Create a composite key
+		key := fmt.Sprintf("%s|%s", asset, relation)
 
-        t := doc.LatestDocument.SubmittedAtUTC
-        componentMap[key][doc.Component] = &t
-    }
+		if componentMap[key] == nil {
+			componentMap[key] = make(map[string]*time.Time)
+		}
 
-    for i := range rows {
+		// Store the timestamp for this component
+		t := doc.LatestDocument.SubmittedAtUTC
+		componentMap[key][doc.Component] = &t
+		
+		log.Printf("Mapped: key=%s, component=%s, time=%v", key, doc.Component, t)
+	}
 
-        key := rows[i].Group1 + "|" + rows[i].Relation
+	// Merge data into rows
+	matchedCount := 0
+	for i := range rows {
+		key := fmt.Sprintf("%s|%s", rows[i].Group1, rows[i].Relation)
+		
+		if comp, ok := componentMap[key]; ok {
+			rows[i].MDLRend = comp["mdlRend"]
+			rows[i].BLDAnm = comp["bldAnm"]
+			rows[i].BLDRend = comp["bldRend"]
+			rows[i].LDVMdl = comp["ldvMdl"]
+			matchedCount++
+			
+			log.Printf("Merged data for %s: MDLRend=%v, BLDAnm=%v, BLDRend=%v, LDVMdl=%v",
+				key, 
+				safeTimeFormat(rows[i].MDLRend),
+				safeTimeFormat(rows[i].BLDAnm),
+				safeTimeFormat(rows[i].BLDRend),
+				safeTimeFormat(rows[i].LDVMdl))
+		} else {
+			log.Printf("No MongoDB data found for key: %s", key)
+		}
+	}
+	
+	log.Printf("mergeMongoComponentData completed. Matched %d out of %d rows", matchedCount, len(rows))
 
-        if comp, ok := componentMap[key]; ok {
+	return nil
+}
 
-            rows[i].MDLRend = comp["mdlRend"]
-            rows[i].BLDAnm = comp["bldAnm"]
-            rows[i].BLDRend = comp["bldRend"]
-            rows[i].LDVMdl = comp["ldvMdl"]
-
-        }
-    }
-
-    return nil
+// Helper function to safely format time pointers for logging
+func safeTimeFormat(t *time.Time) string {
+	if t == nil {
+		return "nil"
+	}
+	return t.Format(time.RFC3339)
 }
