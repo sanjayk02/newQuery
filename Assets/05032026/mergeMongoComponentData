@@ -1,3 +1,9 @@
+/*
+──────────────────────────────────────────────────────────────────────────
+
+	MongoDB Integration for Latest Submissions
+	──────────────────────────────────────────────────────────────────────────
+*/
 func (r *ReviewInfo) mergeMongoComponentData(
 	ctx context.Context,
 	rows []AssetPivot,
@@ -45,14 +51,26 @@ func (r *ReviewInfo) mergeMongoComponentData(
 
 	// Log each MongoDB document to see their structure
 	for idx, doc := range mongoDocs {
+		// Check both doc and LatestDocument for nil
 		if doc == nil || doc.LatestDocument == nil {
-			log.Printf("Doc %d: nil document", idx)
+			log.Printf("Doc %d: nil document or nil LatestDocument", idx)
 			continue
 		}
 
 		groups := doc.LatestDocument.Groups
-		log.Printf("Mongo Doc %d: Component=%s, Groups=%v, Relation=%s", 
-			idx, doc.Component, groups, doc.LatestDocument.Relation)
+		if len(groups) == 0 {
+			log.Printf("Doc %d: Empty groups array", idx)
+			continue
+		}
+
+		// Get relation from the document, if available
+		docRelation := doc.LatestDocument.Relation
+		if docRelation == "" && len(groups) > 0 {
+			docRelation = groups[len(groups)-1] // Fallback to last group if relation field is empty
+		}
+		
+		log.Printf("Mongo Doc %d: Component=%s, Groups=%v, Relation=%s",
+			idx, doc.Component, groups, docRelation)
 
 		if len(groups) < 2 {
 			log.Printf("  WARNING: Groups array too short: %v", groups)
@@ -60,35 +78,52 @@ func (r *ReviewInfo) mergeMongoComponentData(
 		}
 
 		// Log the groups structure to understand it
+		log.Printf("  Groups structure for doc %d:", idx)
 		for i, g := range groups {
-			log.Printf("  groups[%d] = %s", i, g)
+			log.Printf("    groups[%d] = %s", i, g)
 		}
+		
+		// Also log the full document structure to see all available fields
+		log.Printf("  Full document - Phase: %s, SubmittedAtUTC: %v", 
+			doc.LatestDocument.Phase, doc.LatestDocument.SubmittedAtUTC)
 
 		// Try different key constructions to see what works
-		asset := groups[len(groups)-2]
-		relation := groups[len(groups)-1]
+		asset1 := groups[len(groups)-2] // Second to last element
+		asset2 := groups[0]              // First element
 		
-		// Also try groups[0] as asset (since assets might be first element)
-		assetAlt := groups[0]
+		// Use the relation we extracted above
+		key1 := fmt.Sprintf("%s|%s", asset1, docRelation)
+		key2 := fmt.Sprintf("%s|%s", asset2, docRelation)
 		
-		key1 := fmt.Sprintf("%s|%s", asset, relation)
-		key2 := fmt.Sprintf("%s|%s", assetAlt, relation)
-		
-		log.Printf("  Possible keys: key1='%s', key2='%s'", key1, key2)
+		log.Printf("  Trying keys: key1='%s' (asset from end), key2='%s' (asset from start)", 
+			key1, key2)
 
-		// Store with both possible keys for now
+		// Store the data in componentMap for both keys
+		t := doc.LatestDocument.SubmittedAtUTC
+		
+		// Store for key1
 		if componentMap[key1] == nil {
 			componentMap[key1] = make(map[string]*time.Time)
 		}
+		componentMap[key1][doc.Component] = &t
+		
+		// Store for key2
 		if componentMap[key2] == nil {
 			componentMap[key2] = make(map[string]*time.Time)
 		}
-
-		t := doc.LatestDocument.SubmittedAtUTC
-		componentMap[key1][doc.Component] = &t
 		componentMap[key2][doc.Component] = &t
 		
 		log.Printf("  Stored for component %s at time %v", doc.Component, t)
+	}
+
+	// After building the map, log what we have
+	log.Printf("Built componentMap with %d unique keys", len(componentMap))
+	for key, compMap := range componentMap {
+		components := make([]string, 0, len(compMap))
+		for comp := range compMap {
+			components = append(components, comp)
+		}
+		log.Printf("  Key '%s' has components: %v", key, components)
 	}
 
 	// Now try to match with our rows
@@ -97,10 +132,19 @@ func (r *ReviewInfo) mergeMongoComponentData(
 		key := fmt.Sprintf("%s|%s", row.Group1, row.Relation)
 		
 		if comp, ok := componentMap[key]; ok {
-			rows[i].MDLRend = comp["mdlRend"]
-			rows[i].BLDAnm = comp["bldAnm"]
-			rows[i].BLDRend = comp["bldRend"]
-			rows[i].LDVMdl = comp["ldvMdl"]
+			// Check each component type
+			if val, exists := comp["mdlRend"]; exists {
+				rows[i].MDLRend = val
+			}
+			if val, exists := comp["bldAnm"]; exists {
+				rows[i].BLDAnm = val
+			}
+			if val, exists := comp["bldRend"]; exists {
+				rows[i].BLDRend = val
+			}
+			if val, exists := comp["ldvMdl"]; exists {
+				rows[i].LDVMdl = val
+			}
 			matchedCount++
 			
 			log.Printf("✓ MATCHED: key='%s' - MDLRend=%v, BLDAnm=%v, BLDRend=%v, LDVMdl=%v",
@@ -120,6 +164,7 @@ func (r *ReviewInfo) mergeMongoComponentData(
 	return nil
 }
 
+// Helper function to safely format time pointers for logging
 func safeTimeFormat(t *time.Time) string {
 	if t == nil {
 		return "nil"
