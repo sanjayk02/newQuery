@@ -1,0 +1,90 @@
+package repository
+
+import (
+	"context"
+	"log"
+
+	"github.com/PolygonPictures/central30-web/front/entity"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+)
+
+// ListLatestAssetDocuments fetches the latest published documents for specific asset components
+// and supports dynamic sorting by component submission dates.
+func (poi *PublishOperationInfo) ListLatestAssetDocuments(
+	ctx context.Context,
+	param *entity.LatestAssetComponentParams,
+	sortBy string, // e.g., "mdlRend", "bldAnm", "bldRend", "ldvMdl"
+	sortDir int,    // 1 for ASC, -1 for DESC
+) (documents []*entity.LatestComponentDocuments, err error) {
+
+	col := poi.db.Collection("pc_publishOperationInfo")
+
+	// 1. Filter by Project, Root (assets), Asset Name, and Relation
+	matchStage := bson.D{
+		{"$match", bson.D{
+			{"_central.project", param.Project},
+			{"root", "assets"},
+			{"groups.0", param.Asset},
+			{"relation", param.Relation},
+			{"component", bson.D{{"$in", param.Component}}},
+		}},
+	}
+
+	// 2. Sort by submission date descending initially to pick the "latest" in the group stage
+	initialSort := bson.D{{"$sort", bson.D{{"submitted_at_utc", -1}}}}
+
+	// 3. Group by component to ensure we only get the single latest document per component type
+	groupStage := bson.D{
+		{"$group", bson.D{
+			{"_id", "$component"},
+			{"latest_document", bson.D{{"$first", "$$ROOT"}}},
+		}},
+	}
+
+	// 4. Project the fields into the expected entity structure
+	projectStage := bson.D{
+		{"$project", bson.D{
+			{"component", "$_id"},
+			{"latest_document.id", 1},
+			{"latest_document.groups", 1},
+			{"latest_document.submitted_at_utc", 1},
+			{"latest_document.phase", 1},
+			{"latest_document.component", 1},
+			{"_id", 0},
+		}},
+	}
+
+	// 5. Dynamic Sorting Logic for Specific Components
+	// This ensures that if we sort by "mdlRend", the list is ordered by that component's date
+	var finalSortStage bson.D
+	if sortBy != "" && sortBy != "none" {
+		finalSortStage = bson.D{{"$sort", bson.D{{ "latest_document.submitted_at_utc", sortDir }}}}
+	} else {
+		// Default fallback sort
+		finalSortStage = bson.D{{"$sort", bson.D{{"latest_document.submitted_at_utc", -1}}}}
+	}
+
+	// Assemble the pipeline
+	pipeline := mongo.Pipeline{
+		matchStage,
+		initialSort,
+		groupStage,
+		projectStage,
+		finalSortStage,
+	}
+
+	cursor, err := col.Aggregate(ctx, pipeline)
+	if err != nil {
+		log.Printf("Error aggregating LatestAssetDocuments: %v", err)
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	if err = cursor.All(ctx, &documents); err != nil {
+		log.Printf("Error decoding LatestAssetDocuments: %v", err)
+		return nil, err
+	}
+
+	return documents, nil
+}
