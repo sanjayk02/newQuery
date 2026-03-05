@@ -1,15 +1,16 @@
-func (poi *PublishOperationInfo) ListLatestAssetDocuments(
+func (poi *PublishOperationInfo) ListLatestAssetComponentDocuments(
 	ctx context.Context,
 	param *entity.LatestAssetComponentParams,
 ) (documents []*entity.LatestComponentDocuments, err error) {
 
-	log.Printf("ListLatestAssetDocuments called")
+	log.Printf("ListLatestAssetComponentDocuments called")
 	log.Printf("Project: %s", param.Project)
 	log.Printf("Components: %v", param.Component)
 
 	// IMPORTANT: declare collection
 	col := poi.db.Collection("pc_publishOperationInfo")
 
+	// Match stage - filter by project, root, and components
 	matchStage := bson.D{
 		{"$match", bson.D{
 			{"_central.project", param.Project},
@@ -18,8 +19,10 @@ func (poi *PublishOperationInfo) ListLatestAssetDocuments(
 		}},
 	}
 
+	// Project stage - include all necessary fields
 	projectStage := bson.D{
 		{"$project", bson.D{
+			{"id", 1},
 			{"groups", 1},
 			{"relation", 1},
 			{"submitted_at_utc", 1},
@@ -29,20 +32,34 @@ func (poi *PublishOperationInfo) ListLatestAssetDocuments(
 		}},
 	}
 
+	// Sort stage - newest first
 	sortStage := bson.D{
 		{"$sort", bson.D{
 			{"submitted_at_utc", -1},
 		}},
 	}
 
+	// Group stage - get the latest document for each unique combination
+	// of asset, relation, and component
 	groupStage := bson.D{
 		{"$group", bson.D{
 			{"_id", bson.D{
-				{"asset", "$groups.0"},
+				{"asset", bson.D{{"$arrayElemAt", bson.A{"$groups", -2}}}}, // Second to last element
 				{"relation", "$relation"},
 				{"component", "$component"},
 			}},
 			{"latest_document", bson.D{{"$first", "$$ROOT"}}},
+		}},
+	}
+
+	// Optional: Add a stage to restructure the output for easier consumption
+	reshapeStage := bson.D{
+		{"$project", bson.D{
+			{"_id", 0},
+			{"component", "$_id.component"},
+			{"asset", "$_id.asset"},
+			{"relation", "$_id.relation"},
+			{"latest_document", 1},
 		}},
 	}
 
@@ -51,23 +68,46 @@ func (poi *PublishOperationInfo) ListLatestAssetDocuments(
 		projectStage,
 		sortStage,
 		groupStage,
+		reshapeStage,
 	}
 
 	cursor, err := col.Aggregate(ctx, pipeline)
 	if err != nil {
-		return
+		return nil, fmt.Errorf("aggregation failed: %w", err)
 	}
 	defer cursor.Close(ctx)
 
-	if err = cursor.All(ctx, &documents); err != nil {
-		return
+	// Custom struct to handle the reshaped data
+	var results []struct {
+		Component      string                             `bson:"component"`
+		Asset          string                             `bson:"asset"`
+		Relation       string                             `bson:"relation"`
+		LatestDocument *entity.LatestComponentDocument    `bson:"latest_document"`
 	}
 
-	if documents == nil {
-		documents = []*entity.LatestComponentDocuments{}
+	if err = cursor.All(ctx, &results); err != nil {
+		return nil, fmt.Errorf("failed to decode results: %w", err)
+	}
+
+	// Convert to the expected return type
+	documents = make([]*entity.LatestComponentDocuments, 0, len(results))
+	for _, r := range results {
+		documents = append(documents, &entity.LatestComponentDocuments{
+			Component:      r.Component,
+			LatestDocument: r.LatestDocument,
+		})
 	}
 
 	log.Printf("Mongo documents fetched: %d", len(documents))
+	
+	// Log a sample for debugging
+	if len(documents) > 0 {
+		first := documents[0]
+		if first.LatestDocument != nil {
+			log.Printf("Sample document: Component=%s, Asset/Relation from groups: %v", 
+				first.Component, first.LatestDocument.Groups)
+		}
+	}
 
-	return
+	return documents, nil
 }
