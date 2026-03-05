@@ -1,0 +1,245 @@
+package repository
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/PolygonPictures/central30-web/front/entity"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+)
+
+type PublishOperationInfo struct {
+	db *mongo.Database
+}
+
+func NewPublishOperationInfo(db *mongo.Database) *PublishOperationInfo {
+	return &PublishOperationInfo{
+		db: db,
+	}
+}
+
+// ListLatestAssetDocuments fetches latest docs and supports dynamic sorting for component columns
+func (poi *PublishOperationInfo) ListLatestAssetDocuments(
+	ctx context.Context,
+	param *entity.LatestAssetComponentParams,
+	sortBy string, // Added: "mdlRend", "bldAnm", etc.
+	sortDir int,    // Added: 1 for ASC, -1 for DESC
+) (documents []*entity.LatestComponentDocuments, err error) {
+	col := poi.db.Collection("pc_publishOperationInfo")
+
+	// 1. Filter by Project, Asset, and the specific components requested
+	matchStage := bson.D{
+		{Key: "$match", Value: bson.D{
+			{Key: "_central.project", Value: param.Project},
+			{Key: "root", Value: "assets"},
+			{Key: "groups.0", Value: param.Asset},
+			{Key: "relation", Value: param.Relation},
+			{Key: "component", Value: bson.D{{Key: "$in", Value: param.Component}}},
+		}},
+	}
+
+	// 2. Pre-sort by date to ensure the $group stage picks the most recent entry
+	initialSort := bson.D{{Key: "$sort", Value: bson.D{{Key: "submitted_at_utc", Value: -1}}}}
+
+	// 3. Group by component and pick the first ($first) which is the latest due to initialSort
+	groupStage := bson.D{
+		{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: "$component"},
+			{Key: "latest_document", Value: bson.D{{Key: "$first", Value: "$$ROOT"}}},
+		}},
+	}
+
+	// 4. Project into the entity structure
+	projectStage := bson.D{
+		{Key: "$project", Value: bson.D{
+			{Key: "component", Value: "$_id"},
+			{Key: "latest_document.id", Value: 1},
+			{Key: "latest_document.groups", Value: 1},
+			{Key: "latest_document.submitted_at_utc", Value: 1},
+			{Key: "latest_document.phase", Value: 1},
+			{Key: "latest_document.component", Value: 1},
+			{Key: "_id", Value: 0},
+		}},
+	}
+
+	// 5. Apply user-requested sorting (e.g. sort the list of latest components by their dates)
+	finalSortDir := -1 // Default DESC
+	if sortDir != 0 {
+		finalSortDir = sortDir
+	}
+	
+	finalSortStage := bson.D{{Key: "$sort", Value: bson.D{{Key: "latest_document.submitted_at_utc", Value: finalSortDir}}}}
+
+	pipeline := mongo.Pipeline{matchStage, initialSort, groupStage, projectStage, finalSortStage}
+	
+	cursor, err := col.Aggregate(ctx, pipeline)
+	if err != nil {
+		log.Printf("Aggregate error: %v", err)
+		return
+	}
+	defer cursor.Close(ctx)
+
+	if err = cursor.All(ctx, &documents); err != nil {
+		return
+	}
+	if documents == nil {
+		documents = []*entity.LatestComponentDocuments{}
+	}
+	return
+}
+
+func (poi *PublishOperationInfo) ListShots(
+	ctx context.Context,
+	params *entity.ShotListParams,
+) (documents []*entity.ShotDocument, total int64, err error) {
+	documents = []*entity.ShotDocument{}
+	col := poi.db.Collection("pc_publishOperationInfo")
+
+	filter := bson.D{
+		{Key: "_central.project", Value: params.Project},
+		{Key: "root", Value: "shots"},
+	}
+
+	offset := (params.GetPage() - 1) * params.GetPerPage()
+	if offset < 0 {
+		offset = 0
+	}
+
+	groupsStringStage := bson.D{
+		{Key: "$addFields", Value: bson.D{
+			{Key: "groupsString", Value: bson.D{
+				{Key: "$reduce", Value: bson.D{
+					{Key: "input", Value: "$groups"},
+					{Key: "initialValue", Value: ""},
+					{Key: "in", Value: bson.D{
+						{Key: "$cond", Value: bson.A{
+							bson.D{{Key: "$eq", Value: bson.A{"$$value", ""}}},
+							"$$this",
+							bson.D{{Key: "$concat", Value: bson.A{"$$value", "/", "$$this"}}},
+						}},
+					}},
+				}},
+			}},
+		}},
+	}
+
+	groupStage := bson.D{
+		{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: bson.D{
+				{Key: "groups", Value: "$groups"},
+				{Key: "relation", Value: "$relation"},
+			}},
+			{Key: "sortKey", Value: bson.D{
+				{Key: "$first", Value: "$groupsString"},
+			}},
+		}},
+	}
+
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: filter}},
+		groupsStringStage,
+		groupStage,
+		{
+			{Key: "$facet", Value: bson.D{
+				{Key: "total", Value: bson.A{
+					bson.D{{Key: "$count", Value: "totalCount"}},
+				}},
+				{Key: "documents", Value: bson.A{
+					bson.D{{Key: "$sort", Value: bson.D{{Key: "sortKey", Value: 1}}}},
+					bson.D{{Key: "$skip", Value: offset}},
+					bson.D{{Key: "$limit", Value: params.PerPage}},
+					bson.D{{Key: "$project", Value: bson.D{
+						{Key: "_id", Value: 0},
+						{Key: "groups", Value: "$_id.groups"},
+						{Key: "relation", Value: "$_id.relation"},
+					}}},
+				}},
+			}},
+		},
+	}
+
+	collation := options.Collation{Locale: "en", Strength: 2}
+	aggregateOptions := options.Aggregate().SetCollation(&collation)
+
+	cursor, err := col.Aggregate(ctx, pipeline, aggregateOptions)
+	if err != nil {
+		return
+	}
+	defer cursor.Close(ctx)
+
+	var result struct {
+		Total []struct {
+			TotalCount int64 `bson:"totalCount"`
+		} `bson:"total"`
+		Documents []*entity.ShotDocument `bson:"documents"`
+	}
+
+	if cursor.Next(ctx) {
+		if err = cursor.Decode(&result); err != nil {
+			return
+		}
+	}
+
+	if len(result.Total) > 0 {
+		total = result.Total[0].TotalCount
+	}
+	documents = result.Documents
+	return
+}
+
+func (poi *PublishOperationInfo) ListLatestShotDocuments(
+	ctx context.Context,
+	param *entity.LatestShotComponentParams,
+) (documents []*entity.LatestComponentDocuments, err error) {
+	col := poi.db.Collection("pc_publishOperationInfo")
+
+	matchStage := bson.D{
+		{Key: "$match", Value: bson.D{
+			{Key: "_central.project", Value: param.Project},
+			{Key: "root", Value: "shots"},
+			{Key: "groups.0", Value: param.Group1},
+			{Key: "groups.1", Value: param.Group2},
+			{Key: "groups.2", Value: param.Group3},
+			{Key: "relation", Value: param.Relation},
+			{Key: "component", Value: bson.D{{Key: "$in", Value: param.Component}}},
+		}},
+	}
+
+	projectStage := bson.D{
+		{Key: "$project", Value: bson.D{
+			{Key: "id", Value: 1},
+			{Key: "groups", Value: 1},
+			{Key: "submitted_at_utc", Value: 1},
+			{Key: "phase", Value: 1},
+			{Key: "component", Value: 1},
+			{Key: "_id", Value: 0},
+		}},
+	}
+
+	sortStage := bson.D{{Key: "$sort", Value: bson.D{{Key: "submitted_at_utc", Value: -1}}}}
+
+	groupStage := bson.D{
+		{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: "$component"},
+			{Key: "latest_document", Value: bson.D{{Key: "$first", Value: "$$ROOT"}}},
+		}},
+	}
+
+	pipeline := mongo.Pipeline{matchStage, projectStage, sortStage, groupStage}
+	cursor, err := col.Aggregate(ctx, pipeline)
+	if err != nil {
+		return
+	}
+	defer cursor.Close(ctx)
+
+	if err = cursor.All(ctx, &documents); err != nil {
+		return
+	}
+	if documents == nil {
+		documents = []*entity.LatestComponentDocuments{}
+	}
+	return
+}
