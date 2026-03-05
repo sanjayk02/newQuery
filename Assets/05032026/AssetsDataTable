@@ -38,7 +38,6 @@ import {
   TableHead,
   TableRow,
   Tooltip,
-  TableSortLabel,
   Box,
 } from "@material-ui/core";
 import {
@@ -50,7 +49,7 @@ import {
   SortDir,
   Asset,
 } from "./types";
-import { useFetchAssetThumbnails, useFetchLatestAssetComponents } from "./hooks";
+import { useFetchAssetThumbnails } from "./hooks";
 
 const ASSET_PHASES: { [key: string]: Colors } = {
   mdl: {
@@ -411,16 +410,26 @@ const AssetRow: React.FC<AssetRowProps & { hiddenColumns: Set<string>; compact: 
 
   // ================= COMPONENT HELPERS =================
   const findComponentItem = (list: any[], key: string) => {
-    if (!list) return null;
+    if (!list || !Array.isArray(list)) return null;
     
     // Try exact match
-    let item = list.find((x: any) => x.component === key);
+    let item = null;
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].component === key) {
+        item = list[i];
+        break;
+      }
+    }
     
     // Try case-insensitive
     if (!item) {
-      item = list.find((x: any) => 
-        x.component && x.component.toLowerCase() === key.toLowerCase()
-      );
+      for (let i = 0; i < list.length; i++) {
+        const component = list[i].component;
+        if (component && component.toLowerCase() === key.toLowerCase()) {
+          item = list[i];
+          break;
+        }
+      }
     }
     
     // Try by phase
@@ -433,9 +442,13 @@ const AssetRow: React.FC<AssetRowProps & { hiddenColumns: Set<string>; compact: 
       };
       const expectedPhase = phaseMap[key];
       if (expectedPhase) {
-        item = list.find((x: any) => 
-          x.latest_document?.phase?.toLowerCase() === expectedPhase
-        );
+        for (let i = 0; i < list.length; i++) {
+          const doc = list[i].latest_document;
+          if (doc && doc.phase && doc.phase.toLowerCase() === expectedPhase) {
+            item = list[i];
+            break;
+          }
+        }
       }
     }
     
@@ -446,23 +459,26 @@ const AssetRow: React.FC<AssetRowProps & { hiddenColumns: Set<string>; compact: 
     asset: any,
     componentName: string
   ): string => {
-    const assetKey = `${asset.group_1}-${asset.relation}`;
-    const componentList = latestComponents && latestComponents[assetKey] || [];
+    const assetKey = asset.group_1 + '-' + asset.relation;
+    const componentList = latestComponents && latestComponents[assetKey] ? latestComponents[assetKey] : [];
 
     const item = findComponentItem(componentList, componentName);
 
-    if (!item || !item.latest_document?.submitted_at_utc) return "—";
+    if (!item) return "—";
+    
+    const doc = item.latest_document;
+    if (!doc || !doc.submitted_at_utc) return "—";
 
     // Format as date only
-    return formatDateOnly(item.latest_document.submitted_at_utc);
+    return formatDateOnly(doc.submitted_at_utc);
   };
 
   const getComponentTooltip = (
     asset: any,
     componentName: string
   ): string => {
-    const assetKey = `${asset.group_1}-${asset.relation}`;
-    const componentList = latestComponents && latestComponents[assetKey] || [];
+    const assetKey = asset.group_1 + '-' + asset.relation;
+    const componentList = latestComponents && latestComponents[assetKey] ? latestComponents[assetKey] : [];
 
     const item = findComponentItem(componentList, componentName);
 
@@ -470,25 +486,24 @@ const AssetRow: React.FC<AssetRowProps & { hiddenColumns: Set<string>; compact: 
       return "No submission available";
     }
 
-    const submittedText = item.latest_document?.submitted_at_utc
-      ? formatDateOnly(item.latest_document.submitted_at_utc)
+    const doc = item.latest_document;
+    const submittedText = doc && doc.submitted_at_utc
+      ? formatDateOnly(doc.submitted_at_utc)
       : "—";
 
-    return [
-      `Component: ${item.component}`,
-      `Phase: ${item.latest_document?.phase || 'N/A'}`,
-      `Submitted: ${submittedText}`,
-    ].join("\n");
+    return "Component: " + (item.component || 'N/A') + "\n" +
+           "Phase: " + (doc && doc.phase ? doc.phase : 'N/A') + "\n" +
+           "Submitted: " + submittedText;
   };
 
   const getPhaseData = (phase: string) => {
-    const workStatusKey     = `${phase}_work_status` as keyof Asset;
-    const approvalStatusKey = `${phase}_approval_status` as keyof Asset;
-    const takeKey           = `${phase}_take` as keyof Asset;
+    const workStatusKey     = phase + "_work_status";
+    const approvalStatusKey = phase + "_approval_status";
+    const takeKey           = phase + "_take";
 
-    const workStatusValue     = asset[workStatusKey];
-    const approvalStatusValue = asset[approvalStatusKey];
-    const takeValue           = asset[takeKey];
+    const workStatusValue     = (asset as any)[workStatusKey];
+    const approvalStatusValue = (asset as any)[approvalStatusKey];
+    const takeValue           = (asset as any)[takeKey];
 
     // Status lookup with fallback for empty values
     let workStatus: Status | undefined = undefined;
@@ -531,10 +546,10 @@ const AssetRow: React.FC<AssetRowProps & { hiddenColumns: Set<string>; compact: 
     <TableRow>
       {!isHidden("thumbnail") && (
         <TableCell style={compact ? { width: 140, minWidth: 140, maxWidth: 140 } : undefined}>
-          {thumbnails[`${asset.group_1}-${asset.relation}`] ? (
+          {thumbnails[asset.group_1 + '-' + asset.relation] ? (
             <img
-              src={thumbnails[`${asset.group_1}-${asset.relation}`]}
-              alt={`${asset.group_1} thumbnail`}
+              src={thumbnails[asset.group_1 + '-' + asset.relation]}
+              alt={asset.group_1 + " thumbnail"}
               style={{ width: "100px", height: "auto" }}
             />
           ) : (
@@ -554,9 +569,9 @@ const AssetRow: React.FC<AssetRowProps & { hiddenColumns: Set<string>; compact: 
       {(Object.entries(ASSET_PHASES) as Array<[string, { lineColor: string }]>).map(
           ([phase, { lineColor }]) => {
             const ids = {
-              work: `${phase}_work_status`,
-              appr: `${phase}_approval_status`,
-              take: `${phase}_take`,
+              work: phase + "_work_status",
+              appr: phase + "_approval_status",
+              take: phase + "_take",
 
               ...(phase === "mdl" ? { mdlRend: "mdlRend" } : {}),
               ...(phase === "bld" ? { bldAnm: "bldAnm", bldRend: "bldRend" } : {}),
@@ -579,12 +594,12 @@ const AssetRow: React.FC<AssetRowProps & { hiddenColumns: Set<string>; compact: 
 
             const firstId = visibleIds[0];
             const lastId  = visibleIds[visibleIds.length - 1];
-            const rail = `solid 3px ${lineColor}`;
+            const rail = "solid 3px " + lineColor;
 
             const { workStatus, approvalStatus, takeText, tooltipText } = getPhaseData(phase);
 
             return (
-              <React.Fragment key={`${asset.group_1}-${asset.relation}-${phase}`}>
+              <React.Fragment key={asset.group_1 + '-' + asset.relation + '-' + phase}>
                 {/* WORK */}
                 {!isHidden(ids.work) && (
                   <MultiLineTooltipTableCell
@@ -738,7 +753,7 @@ const AssetsDataTable: React.FC<AssetsDataTableProps> = ({
       <TableBody>
         {assets.map((asset, index) => (
           <AssetRow
-            key={`${asset.group_1}-${asset.relation}-${asset.component}-${index}`}
+            key={asset.group_1 + '-' + asset.relation + '-' + (asset.component || '') + '-' + index}
             asset={asset}
             thumbnails={thumbnails}
             dateTimeFormat={dateTimeFormat}
