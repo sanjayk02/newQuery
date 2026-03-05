@@ -3,46 +3,34 @@ func (poi *PublishOperationInfo) ListLatestAssetComponentDocuments(
 	param *entity.LatestAssetComponentParams,
 ) (documents []*entity.LatestComponentDocuments, err error) {
 
-	log.Printf("=== ListLatestAssetComponentDocuments ===")
+	log.Printf("=== ListLatestAssetComponentDocuments called ===")
 	log.Printf("Project: %s", param.Project)
+	log.Printf("Asset: %s", param.Asset)      // This should now have a value
+	log.Printf("Relation: %s", param.Relation) // This should now have a value
 	log.Printf("Components: %v", param.Component)
+
+	// Validate required fields
+	if param.Asset == "" {
+		return nil, fmt.Errorf("asset is required")
+	}
+	if param.Relation == "" {
+		return nil, fmt.Errorf("relation is required")
+	}
 
 	col := poi.db.Collection("pc_publishOperationInfo")
 
-	// First, let's do a simple find to see what's in the collection
-	count, err := col.CountDocuments(ctx, bson.D{
-		{"_central.project", param.Project},
-		{"root", "assets"},
-	})
-	if err != nil {
-		log.Printf("Error counting documents: %v", err)
-	} else {
-		log.Printf("Total documents in collection for project %s: %d", param.Project, count)
-	}
-
-	// Count documents with our specific components
-	for _, comp := range param.Component {
-		compCount, err := col.CountDocuments(ctx, bson.D{
-			{"_central.project", param.Project},
-			{"root", "assets"},
-			{"component", comp},
-		})
-		if err != nil {
-			log.Printf("Error counting %s documents: %v", comp, err)
-		} else {
-			log.Printf("Documents with component %s: %d", comp, compCount)
-		}
-	}
-
-	// Your existing pipeline
+	// FIX: Include Asset and Relation in the match stage
 	matchStage := bson.D{
 		{"$match", bson.D{
 			{"_central.project", param.Project},
 			{"root", "assets"},
+			{"groups.0", param.Asset},        // Asset is the first element in groups
+			{"relation", param.Relation},      // Relation field
 			{"component", bson.D{{"$in", param.Component}}},
 		}},
 	}
 
+	// Project stage - include all necessary fields
 	projectStage := bson.D{
 		{"$project", bson.D{
 			{"groups", 1},
@@ -54,20 +42,27 @@ func (poi *PublishOperationInfo) ListLatestAssetComponentDocuments(
 		}},
 	}
 
+	// Sort stage - newest first
 	sortStage := bson.D{
 		{"$sort", bson.D{
 			{"submitted_at_utc", -1},
 		}},
 	}
 
+	// Group stage - get the latest document for each component
 	groupStage := bson.D{
 		{"$group", bson.D{
-			{"_id", bson.D{
-				{"asset", "$groups.0"},
-				{"relation", "$relation"},
-				{"component", "$component"},
-			}},
+			{"_id", "$component"},
 			{"latest_document", bson.D{{"$first", "$$ROOT"}}},
+		}},
+	}
+
+	// Project to match the expected output structure
+	outputStage := bson.D{
+		{"$project", bson.D{
+			{"_id", 0},
+			{"component", "$_id"},
+			{"latest_document", 1},
 		}},
 	}
 
@@ -76,6 +71,7 @@ func (poi *PublishOperationInfo) ListLatestAssetComponentDocuments(
 		projectStage,
 		sortStage,
 		groupStage,
+		outputStage,
 	}
 
 	cursor, err := col.Aggregate(ctx, pipeline)
@@ -84,68 +80,23 @@ func (poi *PublishOperationInfo) ListLatestAssetComponentDocuments(
 	}
 	defer cursor.Close(ctx)
 
-	// Decode into a temporary struct to see the full structure
-	var results []bson.M
-	if err = cursor.All(ctx, &results); err != nil {
+	if err = cursor.All(ctx, &documents); err != nil {
 		return nil, fmt.Errorf("failed to decode results: %w", err)
 	}
 
-	log.Printf("Raw results count: %d", len(results))
+	if documents == nil {
+		documents = []*entity.LatestComponentDocuments{}
+	}
+
+	log.Printf("Mongo documents fetched: %d", len(documents))
 	
-	// Log the first few results to see structure
-	for i, result := range results {
-		if i < 3 {
-			log.Printf("Result %d: %+v", i, result)
-		}
+	// Log sample if any documents found
+	if len(documents) > 0 && documents[0].LatestDocument != nil {
+		log.Printf("Sample document: Component=%s, Groups=%v, Relation=%s",
+			documents[0].Component,
+			documents[0].LatestDocument.Groups,
+			documents[0].LatestDocument.Relation)
 	}
 
-	// Now convert to your expected format
-	documents = make([]*entity.LatestComponentDocuments, 0, len(results))
-	for _, result := range results {
-		// Extract the data based on your actual structure
-		// You'll need to adapt this based on what you see in the logs
-		var doc entity.LatestComponentDocuments
-		
-		// This is a guess - adjust based on actual structure
-		if id, ok := result["_id"].(bson.M); ok {
-			if comp, ok := id["component"].(string); ok {
-				doc.Component = comp
-			}
-		}
-		
-		if latest, ok := result["latest_document"].(bson.M); ok {
-			var latestDoc entity.LatestComponentDocument
-			
-			if groups, ok := latest["groups"].(bson.A); ok {
-				for _, g := range groups {
-					if str, ok := g.(string); ok {
-						latestDoc.Groups = append(latestDoc.Groups, str)
-					}
-				}
-			}
-			
-			if rel, ok := latest["relation"].(string); ok {
-				latestDoc.Relation = rel
-			}
-			
-			if submitted, ok := latest["submitted_at_utc"].(time.Time); ok {
-				latestDoc.SubmittedAtUTC = submitted
-			}
-			
-			if phase, ok := latest["phase"].(string); ok {
-				latestDoc.Phase = phase
-			}
-			
-			if comp, ok := latest["component"].(string); ok {
-				latestDoc.Component = comp
-			}
-			
-			doc.LatestDocument = &latestDoc
-		}
-		
-		documents = append(documents, &doc)
-	}
-
-	log.Printf("Final documents count: %d", len(documents))
 	return documents, nil
 }
