@@ -1,15 +1,15 @@
-func (poi *PublishOperationInfo) ListLatestAssetComponentDocuments(
+func (poi *PublishOperationInfo) ListLatestAssetDocuments(
 	ctx context.Context,
 	param *entity.LatestAssetComponentParams,
 ) (documents []*entity.LatestComponentDocuments, err error) {
 
-	log.Printf("ListLatestAssetDocuments called with parameters:")
+	log.Printf("ListLatestAssetDocuments called")
 	log.Printf("Project: %s", param.Project)
 	log.Printf("Components: %v", param.Component)
 
+	// IMPORTANT: declare collection
 	col := poi.db.Collection("pc_publishOperationInfo")
 
-	// Match stage (filter only project + root + components)
 	matchStage := bson.D{
 		{"$match", bson.D{
 			{"_central.project", param.Project},
@@ -18,10 +18,8 @@ func (poi *PublishOperationInfo) ListLatestAssetComponentDocuments(
 		}},
 	}
 
-	// Project only required fields
 	projectStage := bson.D{
 		{"$project", bson.D{
-			{"id", 1},
 			{"groups", 1},
 			{"relation", 1},
 			{"submitted_at_utc", 1},
@@ -31,14 +29,12 @@ func (poi *PublishOperationInfo) ListLatestAssetComponentDocuments(
 		}},
 	}
 
-	// Sort newest first
 	sortStage := bson.D{
 		{"$sort", bson.D{
 			{"submitted_at_utc", -1},
 		}},
 	}
 
-	// Group by asset + relation + component
 	groupStage := bson.D{
 		{"$group", bson.D{
 			{"_id", bson.D{
@@ -68,7 +64,7 @@ func (poi *PublishOperationInfo) ListLatestAssetComponentDocuments(
 	}
 
 	if documents == nil {
-		documents = []*entity.ListLatestAssetComponentDocuments{}
+		documents = []*entity.LatestComponentDocuments{}
 	}
 
 	log.Printf("Mongo documents fetched: %d", len(documents))
