@@ -1,0 +1,29 @@
+const getComponentCellData = (
+  asset: any,
+  componentName: string
+) => {
+  // Use asset.name + normalize relation to match the key built in hooks.ts:
+  // `${assets[index].name}-${cleanRelation}`
+  const cleanRelation = (asset.relation || '').toString().trim().replace(/^_+|_+$/g, '');
+  const assetKey = `${asset.name}-${cleanRelation}`;
+  const componentList = latestComponents && latestComponents[assetKey] || [];
+
+  // item.component is set by MongoDB $group _id = "$component"
+  // which is exactly the string stored in pc_publishOperationInfo.component
+  // (e.g. "mdlRend", "bldAnm", "bldRend", "ldvMdl")
+  // Direct equality is correct — bldAnm and bldRend are now distinct
+  const item = componentList.find((x: any) => x.component === componentName)
+    || componentList.find((x: any) =>
+        x.component && x.component.toLowerCase() === componentName.toLowerCase()
+      );
+
+  if (item && item.latest_document) {
+    return {
+      component: componentName,
+      phase: item.latest_document.phase,
+      submittedAt: item.latest_document.submitted_at_utc,
+    };
+  }
+
+  return null;
+};
