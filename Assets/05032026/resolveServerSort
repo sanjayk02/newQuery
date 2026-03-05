@@ -1,59 +1,22 @@
-/**
- * resolveServerSort
- * * Maps the UI Column ID to the specific key and phase expected by the backend.
- * This is crucial for MDLREND, BLDANM, BLDREND, and LDVMDL, as they sort 
- * by publication dates rather than asset metadata.
- */
 const resolveServerSort = (key: string): { sort: string; phase: string } => {
-  if (!key || key === 'none') {
-    return { sort: 'group_1', phase: 'none' };
-  }
+  if (key === 'group_1') return { sort: 'group_1', phase: 'none' };
+  if (key === 'relation') return { sort: 'relation', phase: 'none' };
 
-  // 1. Handle Special Component Columns (MDLREND, BLDANM, etc.)
-  // These keys are sent directly to the backend to trigger specific date-based sorting.
-  const componentMap: Record<string, string> = {
-    mdlRend: 'mdlRend',
-    bldAnm:  'bldAnm',
-    bldRend: 'bldRend',
-    ldvMdl:  'ldvMdl',
-  };
+  // Component columns
+  if (key === 'mdlRend') return { sort: 'mdlRend', phase: 'mdl' };
+  if (key === 'bldAnm') return { sort: 'bldAnm', phase: 'bld' };
+  if (key === 'bldRend') return { sort: 'bldRend', phase: 'bld' };
+  if (key === 'ldvMdl') return { sort: 'ldvMdl', phase: 'ldv' };
 
-  if (componentMap[key]) {
-    // Map them to their respective phases for backend context if needed
-    const phaseMapping: Record<string, string> = {
-      mdlRend: 'mdl',
-      bldAnm:  'bld',
-      bldRend: 'bld',
-      ldvMdl:  'ldv',
-    };
-    return { sort: componentMap[key], phase: phaseMapping[key] };
-  }
+  const m = key.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted|take|component)$/i);
+  if (!m) return { sort: 'group_1', phase: 'none' };
 
-  // 2. Handle standard "Phase_Field" columns (e.g., mdl_work_status, rig_take)
-  // Uses regex to split the UI ID into [phase] and [field]
-  const phaseMatch = key.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted|take)/i);
-  
-  if (phaseMatch) {
-    const phase = phaseMatch[1].toLowerCase();
-    const field = phaseMatch[2].toLowerCase();
+  const phase = m[1].toLowerCase();
+  const field = m[2].toLowerCase();
 
-    // The backend expects "work_status" or "approval_status"
-    let backendField = field;
-    if (field === 'work') backendField = 'work_status';
-    if (field === 'appr') backendField = 'approval_status';
-    if (field === 'submitted') backendField = 'submitted_at';
-
-    return { 
-      sort: `${phase}_${backendField}`, 
-      phase 
-    };
-  }
-
-  // 3. Fallback for primary columns (Asset Name / Thumbnail)
-  if (key === 'group_1_name' || key === 'thumbnail') {
-    return { sort: 'group_1', phase: 'none' };
-  }
-
-  // Default fallback
-  return { sort: key, phase: 'none' };
+  if (field === 'submitted') return { sort: `${phase}_submitted`, phase };
+  if (field === 'appr') return { sort: `${phase}_appr`, phase };
+  if (field === 'take') return { sort: `${phase}_take`, phase };
+  if (field === 'component') return { sort: `${phase}_component`, phase };
+  return { sort: `${phase}_work`, phase };
 };
