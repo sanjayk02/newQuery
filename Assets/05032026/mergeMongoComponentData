@@ -1,9 +1,3 @@
-/*
-──────────────────────────────────────────────────────────────────────────
-
-	MongoDB Integration for Latest Submissions
-	──────────────────────────────────────────────────────────────────────────
-*/
 func (r *ReviewInfo) mergeMongoComponentData(
 	ctx context.Context,
 	rows []AssetPivot,
@@ -12,149 +6,80 @@ func (r *ReviewInfo) mergeMongoComponentData(
 	
 	log.Printf("=== Starting mergeMongoComponentData ===")
 	log.Printf("Project: %s, Processing %d rows", project, len(rows))
-	
-	// Log the first few rows to see what we're looking for
-	for i, row := range rows {
-		if i < 5 { // Log first 5 rows
-			log.Printf("Row %d: Asset=%s, Relation=%s, Component=%s", 
-				i, row.Group1, row.Relation, row.Component)
-		} else {
-			break
-		}
-	}
 
-	mongoDocs, err := r.publishOperationInfo.ListLatestAssetComponentDocuments(
-		ctx,
-		&entity.LatestAssetComponentParams{
-			Project: project,
-			Component: []string{
-				"mdlRend",
-				"bldAnm",
-				"bldRend",
-				"ldvMdl",
-			},
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("failed to fetch MongoDB documents: %w", err)
-	}
-
-	log.Printf("Fetched %d MongoDB documents", len(mongoDocs))
-
-	// If no MongoDB docs, log and return
-	if len(mongoDocs) == 0 {
-		log.Printf("WARNING: No MongoDB documents found for project %s", project)
-		return nil
-	}
-
+	// Create a map to store component data keyed by asset|relation
 	componentMap := make(map[string]map[string]*time.Time)
 
-	// Log each MongoDB document to see their structure
-	for idx, doc := range mongoDocs {
-		// Check both doc and LatestDocument for nil
-		if doc == nil || doc.LatestDocument == nil {
-			log.Printf("Doc %d: nil document or nil LatestDocument", idx)
+	// For each row, fetch its specific component data
+	for _, row := range rows {
+		// Skip if no asset or relation
+		if row.Group1 == "" || row.Relation == "" {
+			log.Printf("Skipping row with empty asset or relation: %+v", row)
 			continue
 		}
 
-		groups := doc.LatestDocument.Groups
-		if len(groups) == 0 {
-			log.Printf("Doc %d: Empty groups array", idx)
+		log.Printf("Fetching component data for asset=%s, relation=%s", 
+			row.Group1, row.Relation)
+
+		// Fetch MongoDB documents for this specific asset and relation
+		mongoDocs, err := r.publishOperationInfo.ListLatestAssetComponentDocuments(
+			ctx,
+			&entity.LatestAssetComponentParams{
+				Project:  project,
+				Asset:    row.Group1,
+				Relation: row.Relation,
+				Component: []string{
+					"mdlRend",
+					"bldAnm",
+					"bldRend",
+					"ldvMdl",
+				},
+			},
+		)
+		if err != nil {
+			log.Printf("Error fetching for %s|%s: %v", row.Group1, row.Relation, err)
 			continue
 		}
 
-		// Get relation from the document, if available
-		docRelation := doc.LatestDocument.Relation
-		if docRelation == "" && len(groups) > 0 {
-			docRelation = groups[len(groups)-1] // Fallback to last group if relation field is empty
-		}
-		
-		log.Printf("Mongo Doc %d: Component=%s, Groups=%v, Relation=%s",
-			idx, doc.Component, groups, docRelation)
-
-		if len(groups) < 2 {
-			log.Printf("  WARNING: Groups array too short: %v", groups)
+		if len(mongoDocs) == 0 {
+			log.Printf("No MongoDB documents found for %s|%s", row.Group1, row.Relation)
 			continue
 		}
 
-		// Log the groups structure to understand it
-		log.Printf("  Groups structure for doc %d:", idx)
-		for i, g := range groups {
-			log.Printf("    groups[%d] = %s", i, g)
-		}
-		
-		// Also log the full document structure to see all available fields
-		log.Printf("  Full document - Phase: %s, SubmittedAtUTC: %v", 
-			doc.LatestDocument.Phase, doc.LatestDocument.SubmittedAtUTC)
-
-		// Try different key constructions to see what works
-		asset1 := groups[len(groups)-2] // Second to last element
-		asset2 := groups[0]              // First element
-		
-		// Use the relation we extracted above
-		key1 := fmt.Sprintf("%s|%s", asset1, docRelation)
-		key2 := fmt.Sprintf("%s|%s", asset2, docRelation)
-		
-		log.Printf("  Trying keys: key1='%s' (asset from end), key2='%s' (asset from start)", 
-			key1, key2)
-
-		// Store the data in componentMap for both keys
-		t := doc.LatestDocument.SubmittedAtUTC
-		
-		// Store for key1
-		if componentMap[key1] == nil {
-			componentMap[key1] = make(map[string]*time.Time)
-		}
-		componentMap[key1][doc.Component] = &t
-		
-		// Store for key2
-		if componentMap[key2] == nil {
-			componentMap[key2] = make(map[string]*time.Time)
-		}
-		componentMap[key2][doc.Component] = &t
-		
-		log.Printf("  Stored for component %s at time %v", doc.Component, t)
-	}
-
-	// After building the map, log what we have
-	log.Printf("Built componentMap with %d unique keys", len(componentMap))
-	for key, compMap := range componentMap {
-		components := make([]string, 0, len(compMap))
-		for comp := range compMap {
-			components = append(components, comp)
-		}
-		log.Printf("  Key '%s' has components: %v", key, components)
-	}
-
-	// Now try to match with our rows
-	matchedCount := 0
-	for i, row := range rows {
+		// Create key for this asset|relation
 		key := fmt.Sprintf("%s|%s", row.Group1, row.Relation)
 		
+		if componentMap[key] == nil {
+			componentMap[key] = make(map[string]*time.Time)
+		}
+
+		// Store each component's latest document
+		for _, doc := range mongoDocs {
+			if doc == nil || doc.LatestDocument == nil {
+				continue
+			}
+			t := doc.LatestDocument.SubmittedAtUTC
+			componentMap[key][doc.Component] = &t
+			log.Printf("  Stored %s for %s|%s at %v", 
+				doc.Component, row.Group1, row.Relation, t)
+		}
+	}
+
+	// Now merge the data back into the rows
+	matchedCount := 0
+	for i := range rows {
+		key := fmt.Sprintf("%s|%s", rows[i].Group1, rows[i].Relation)
+		
 		if comp, ok := componentMap[key]; ok {
-			// Check each component type
-			if val, exists := comp["mdlRend"]; exists {
-				rows[i].MDLRend = val
-			}
-			if val, exists := comp["bldAnm"]; exists {
-				rows[i].BLDAnm = val
-			}
-			if val, exists := comp["bldRend"]; exists {
-				rows[i].BLDRend = val
-			}
-			if val, exists := comp["ldvMdl"]; exists {
-				rows[i].LDVMdl = val
-			}
+			rows[i].MDLRend = comp["mdlRend"]
+			rows[i].BLDAnm = comp["bldAnm"]
+			rows[i].BLDRend = comp["bldRend"]
+			rows[i].LDVMdl = comp["ldvMdl"]
 			matchedCount++
 			
-			log.Printf("✓ MATCHED: key='%s' - MDLRend=%v, BLDAnm=%v, BLDRend=%v, LDVMdl=%v",
-				key,
-				safeTimeFormat(rows[i].MDLRend),
-				safeTimeFormat(rows[i].BLDAnm),
-				safeTimeFormat(rows[i].BLDRend),
-				safeTimeFormat(rows[i].LDVMdl))
+			log.Printf("✓ Merged data for %s", key)
 		} else {
-			log.Printf("✗ NO MATCH: key='%s'", key)
+			log.Printf("✗ No data found for %s", key)
 		}
 	}
 	
@@ -162,12 +87,4 @@ func (r *ReviewInfo) mergeMongoComponentData(
 		matchedCount, len(rows))
 
 	return nil
-}
-
-// Helper function to safely format time pointers for logging
-func safeTimeFormat(t *time.Time) string {
-	if t == nil {
-		return "nil"
-	}
-	return t.Format("2006-01-02 15:04:05")
 }
