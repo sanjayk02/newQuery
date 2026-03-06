@@ -1,3 +1,9 @@
-I have fixed the Asset page for Component Submitted and implemented sorting. However, global sorting is not working for these fields.
+I have fixed the Asset page for Component Submitted and implemented sorting for the columns. However, global sorting is currently not working for some component columns.
 
-Global sorting is currently not possible for MDLREND, BLDANM, BLDREND, and LDVMDL columns because their values come from MongoDB and are merged after the SQL query has already sorted and paginated the results. Since the SQL database does not have access to these Mongo values during sorting, it cannot sort the complete dataset based on them.
+Global sorting is not possible for the MDLREND, BLDANM, BLDREND, and LDVMDL columns because their values are stored in MongoDB and are merged into the response after the SQL query has already executed sorting and pagination. The SQL database performs sorting only on the data it has access to, and since these component values are fetched separately from MongoDB, they are not available at the time the SQL query runs. As a result, the database cannot perform a true global sort across the entire dataset based on these fields.
+
+Currently, the SQL query retrieves the base asset records, applies sorting and pagination, and then the component data from MongoDB is merged afterward. Because of this workflow, sorting can only be applied correctly to fields that exist in the SQL dataset.
+
+I am exploring alternative approaches to resolve this global sorting limitation. One possible direction is to restructure how the MongoDB component data is integrated so that sorting can be applied more consistently across the full dataset. This may require some additional design changes and could take some time to implement properly.
+
+While I continue working on the Shot page development, I will also investigate and work on a proper solution for this global sorting issue.
