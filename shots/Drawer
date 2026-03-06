@@ -1,0 +1,58 @@
+<Drawer
+  anchor="right"
+  open={Boolean(anchorEl)}
+  onClose={() => setAnchorEl(null)}
+>
+  <ColumnsPanel>
+
+    <Box display="flex" justifyContent="space-between" alignItems="center">
+      <Typography variant="h6">Show Columns</Typography>
+
+      <Button size="small" onClick={handleResetColumns}>
+        Reset
+      </Button>
+    </Box>
+
+    <Divider style={{ margin: "12px 0" }} />
+
+    {Object.entries(grouped).map(([group, cols]) => (
+      <React.Fragment key={group}>
+
+        <ListItem button onClick={() =>
+          setOpenGroups(prev =>
+            prev.includes(group)
+              ? prev.filter(g => g !== group)
+              : [...prev, group]
+          )
+        }>
+          <ListItemText primary={group} />
+          {openGroups.includes(group) ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+        </ListItem>
+
+        <Collapse in={openGroups.includes(group)}>
+          <Box pl={2}>
+            {cols.map(col => (
+              <ListItem
+                key={col.id}
+                button
+                onClick={() =>
+                  onChange({
+                    ...columnState,
+                    [col.id]: !columnState[col.id],
+                  })
+                }
+              >
+                <Checkbox checked={!!columnState[col.id]} size="small" />
+                <ListItemText primary={col.label} />
+              </ListItem>
+            ))}
+          </Box>
+        </Collapse>
+
+        <Divider />
+
+      </React.Fragment>
+    ))}
+
+  </ColumnsPanel>
+</Drawer>
