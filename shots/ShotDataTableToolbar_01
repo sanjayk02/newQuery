@@ -112,7 +112,7 @@ const ResetButton = styled(Button)(({ theme }) => ({
 -------------------------------- */
 
 type Filters = {
-  assetGroups: string[];
+  shotGroups: string[];
   approvalStatus: string[];
   workStatus: string[];
 };
@@ -145,13 +145,14 @@ type Props = {
    Filter Menu (Drawer Version)
 -------------------------------- */
 
-const FilterContainer = styled(Box)({
+const FilterContainer = styled(Box)(({ theme }) => ({
   width: '100%',
   height: '100%',
   display: 'flex',
   flexDirection: 'column',
   overflow: 'hidden',
-});
+  backgroundColor: theme.palette.background.paper,
+}));
 
 const FilterHeader = styled(Box)(({ theme }) => ({
   padding: theme.spacing(1.5, 2),
@@ -160,7 +161,7 @@ const FilterHeader = styled(Box)(({ theme }) => ({
   alignItems: 'center',
   borderBottom: `1px solid ${theme.palette.divider}`,
   flexShrink: 0,
-  backgroundColor: '#fff',
+  backgroundColor: 'transparent',
 }));
 
 const FilterScrollArea = styled(Box)(({ theme }) => ({
@@ -168,6 +169,7 @@ const FilterScrollArea = styled(Box)(({ theme }) => ({
   overflowY: 'auto',
   minHeight: 0,
   padding: theme.spacing(1, 0),
+  backgroundColor: 'transparent',
   
   '&::-webkit-scrollbar': {
     width: 6,
@@ -188,7 +190,7 @@ const FilterScrollArea = styled(Box)(({ theme }) => ({
 const FilterFooter = styled(Box)(({ theme }) => ({
   padding: theme.spacing(1.5, 2),
   borderTop: `1px solid ${theme.palette.divider}`,
-  backgroundColor: '#fff',
+  backgroundColor: 'transparent',
   flexShrink: 0,
   display: 'flex',
   justifyContent: 'flex-end',
@@ -200,11 +202,113 @@ const FilterSection = styled(Box)({
 });
 
 const FilterSectionHeader = styled(ListItem)(({ theme }) => ({
-  backgroundColor: '#f5f5f5',
+  backgroundColor: theme.palette.action.hover,
+  '&:hover': {
+    backgroundColor: theme.palette.action.selected,
+  },
+}));
+
+const ParentItem = styled(ListItem)(({ theme }) => ({
+  paddingLeft: 16,
+  paddingTop: 4,
+  paddingBottom: 4,
+  backgroundColor: theme.palette.background.paper,
+  borderLeft: `3px solid ${theme.palette.primary.main}`,
+  marginBottom: 2,
   '&:hover': {
     backgroundColor: theme.palette.action.hover,
   },
 }));
+
+const ChildItem = styled(ListItem)(({ theme }) => ({
+  paddingLeft: 32,
+  paddingTop: 2,
+  paddingBottom: 2,
+  '&:hover': {
+    backgroundColor: theme.palette.action.hover,
+  },
+}));
+
+const PhaseDivider = styled(Divider)(({ theme }) => ({
+  margin: theme.spacing(1, 0),
+  backgroundColor: theme.palette.divider,
+}));
+
+// Define hierarchical filter options with phases
+interface FilterOption {
+  id: string;
+  label: string;
+  phase?: string;
+  children?: FilterOption[];
+}
+
+const filterOptions = {
+  shotGroups: [
+    { id: "buildings", label: "Buildings", phase: "Asset" },
+    { id: "vehicles", label: "Vehicles", phase: "Asset" },
+    { id: "characters", label: "Characters", phase: "Asset" },
+    { id: "environment", label: "Environment", phase: "Asset" },
+  ],
+  approvalStatus: [
+    { 
+      id: "check", 
+      label: "Check",
+      phase: "Review",
+      children: [
+        { id: "client_review", label: "Client Review", phase: "Review" },
+        { id: "dir_review", label: "Dir Review", phase: "Review" },
+        { id: "epd_review", label: "EPD Review", phase: "Review" },
+      ]
+    },
+    { 
+      id: "on_hold", 
+      label: "On Hold",
+      phase: "Hold",
+      children: [
+        { id: "client_on_hold", label: "Client On Hold", phase: "Hold" },
+        { id: "dir_on_hold", label: "Dir On Hold", phase: "Hold" },
+        { id: "epd_on_hold", label: "EPD On Hold", phase: "Hold" },
+      ]
+    },
+    { 
+      id: "retake", 
+      label: "Retake",
+      phase: "Retake",
+      children: [
+        { id: "exec_retake", label: "Exec Retake", phase: "Retake" },
+        { id: "client_retake", label: "Client Retake", phase: "Retake" },
+        { id: "dir_retake", label: "Dir Retake", phase: "Retake" },
+        { id: "epd_retake", label: "EPD Retake", phase: "Retake" },
+      ]
+    },
+    { 
+      id: "approved", 
+      label: "Approved",
+      phase: "Approved",
+      children: [
+        { id: "client_approved", label: "Client Approved", phase: "Approved" },
+        { id: "dir_approved", label: "Dir Approved", phase: "Approved" },
+        { id: "epd_approved", label: "EPD Approved", phase: "Approved" },
+      ]
+    },
+    { id: "other", label: "Other", phase: "Other" },
+    { id: "omit", label: "Omit", phase: "Other" },
+  ],
+  workStatus: [
+    { id: "check", label: "Check", phase: "Review" },
+    { id: "cgsv_on_hold", label: "CGSV On Hold", phase: "Hold" },
+    { id: "sv_on_hold", label: "SV On Hold", phase: "Hold" },
+    { id: "lead_on_hold", label: "Lead On Hold", phase: "Hold" },
+    { id: "cgsv_retake", label: "CGSV Retake", phase: "Retake" },
+    { id: "sv_retake", label: "SV Retake", phase: "Retake" },
+    { id: "lead_retake", label: "Lead Retake", phase: "Retake" },
+    { id: "cgsv_approved", label: "CGSV Approved", phase: "Approved" },
+    { id: "sv_approved", label: "SV Approved", phase: "Approved" },
+    { id: "lead_approved", label: "Lead Approved", phase: "Approved" },
+    { id: "sv_other", label: "SV Other", phase: "Other" },
+    { id: "lead_other", label: "Lead Other", phase: "Other" },
+  ],
+};
 
 const FilterMenu: React.FC<{
   filters: Filters;
@@ -212,48 +316,32 @@ const FilterMenu: React.FC<{
 }> = ({ filters, onChange }) => {
   const [open, setOpen] = React.useState(false);
   const [openSections, setOpenSections] = React.useState<string[]>([]);
+  const [expandedParents, setExpandedParents] = React.useState<string[]>(['check', 'on_hold', 'retake', 'approved']);
 
-  const filterOptions = {
-    assetGroups: ["Buildings", "Vehicles", "Characters", "Environment"],
-    approvalStatus: [
-      "Check", 
-      "Client Review", 
-      "Dir Review",
-      "EPD Review",
-      "Client On Hold", 
-      "Dir On Hold",
-      "EPD On Hold",
-      "Exec Retake",
-      "Client Retake",
-      "Dir Retake",
-      "EPD Retake",
-      "Client Approved",
-      "Dir Approved",
-      "EPD Approved",
-      "Other",
-      "Omit",
-    ],
-    workStatus: [
-      "Check", 
-      "CGSV On Hold", 
-      "SV On Hold", 
-      "Lead On Hold",
-      "CGSV Retake",
-      "SV Retake",
-      "Lead Retake",
-      "CGSV Approved", 
-      "SV Approved", 
-      "Lead Approved",
-      "SV Other",
-      "Lead Other",
-    ],
+  const handleFilterChange = (section: string, optionId: string) => {
+    const currentValues = filters[section as keyof Filters] as string[] || [];
+    const newValues = currentValues.includes(optionId)
+      ? currentValues.filter(v => v !== optionId)
+      : [...currentValues, optionId];
+    
+    onChange({
+      ...filters,
+      [section]: newValues,
+    });
   };
 
-  const handleFilterChange = (section: string, value: string) => {
-    const currentValues = filters[section as keyof Filters] as string[];
-    const newValues = currentValues.includes(value)
-      ? currentValues.filter(v => v !== value)
-      : [...currentValues, value];
+  const handleParentChange = (section: string, parentId: string, children: FilterOption[]) => {
+    const currentValues = filters[section as keyof Filters] as string[] || [];
+    const childIds = children.map(child => child.id);
+    
+    const allChildrenSelected = childIds.every(id => currentValues.includes(id));
+    
+    let newValues: string[];
+    if (allChildrenSelected) {
+      newValues = currentValues.filter(v => !childIds.includes(v));
+    } else {
+      newValues = [...currentValues, ...childIds.filter(id => !currentValues.includes(id))];
+    }
     
     onChange({
       ...filters,
@@ -263,7 +351,7 @@ const FilterMenu: React.FC<{
 
   const handleClearAll = () => {
     onChange({
-      assetGroups: [],
+      shotGroups: [],
       approvalStatus: [],
       workStatus: [],
     });
@@ -271,7 +359,7 @@ const FilterMenu: React.FC<{
 
   const handleHideAll = () => {
     onChange({
-      assetGroups: [],
+      shotGroups: [],
       approvalStatus: [],
       workStatus: [],
     });
@@ -293,8 +381,159 @@ const FilterMenu: React.FC<{
     );
   };
 
+  const toggleParent = (parentId: string) => {
+    setExpandedParents(prev =>
+      prev.includes(parentId)
+        ? prev.filter(id => id !== parentId)
+        : [...prev, parentId]
+    );
+  };
+
   const getSectionDisplayName = (section: string) => {
+    if (section === 'shotGroups') return 'Shot Groups';
+    if (section === 'approvalStatus') return 'Approval Status';
+    if (section === 'workStatus') return 'Work Status';
     return section.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+  };
+
+  const isChildSelected = (section: string, childId: string) => {
+    return (filters[section as keyof Filters] as string[] || []).includes(childId);
+  };
+
+  const areAllChildrenSelected = (section: string, children: FilterOption[]) => {
+    const currentValues = filters[section as keyof Filters] as string[] || [];
+    return children.every(child => currentValues.includes(child.id));
+  };
+
+  const isSomeChildrenSelected = (section: string, children: FilterOption[]) => {
+    const currentValues = filters[section as keyof Filters] as string[] || [];
+    return children.some(child => currentValues.includes(child.id)) && !areAllChildrenSelected(section, children);
+  };
+
+  // Group options by phase for approvalStatus section
+  const getOptionsByPhase = (options: FilterOption[]) => {
+    const phases: { [key: string]: FilterOption[] } = {};
+    
+    options.forEach(option => {
+      const phase = option.phase || 'Other';
+      if (!phases[phase]) {
+        phases[phase] = [];
+      }
+      phases[phase].push(option);
+    });
+    
+    return phases;
+  };
+
+  // Render options with phase dividers
+  const renderOptionsWithPhaseDividers = (section: string, options: FilterOption[]) => {
+    if (section !== 'approvalStatus' && section !== 'workStatus') {
+      return options.map(option => renderFilterItem(section, option));
+    }
+
+    const optionsByPhase = getOptionsByPhase(options);
+    const phaseOrder = ['Review', 'Hold', 'Retake', 'Approved', 'Other'];
+    
+    return phaseOrder.map((phase, index) => {
+      const phaseOptions = optionsByPhase[phase] || [];
+      if (phaseOptions.length === 0) return null;
+      
+      return (
+        <React.Fragment key={phase}>
+          {index > 0 && <PhaseDivider />}
+          <Box>
+            {phaseOptions.map(option => renderFilterItem(section, option))}
+          </Box>
+        </React.Fragment>
+      );
+    });
+  };
+
+  // Render individual filter item (parent or regular)
+  const renderFilterItem = (section: string, option: FilterOption) => {
+    if (option.children) {
+      return (
+        <React.Fragment key={option.id}>
+          <ParentItem
+            button
+            onClick={() => toggleParent(option.id)}
+          >
+            <Checkbox
+              edge="start"
+              checked={areAllChildrenSelected(section, option.children)}
+              indeterminate={isSomeChildrenSelected(section, option.children)}
+              size="small"
+              disableRipple
+              style={{ padding: 4 }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleParentChange(section, option.id, option.children);
+              }}
+            />
+            <ListItemText 
+              primary={option.label} 
+              primaryTypographyProps={{ variant: 'body2', fontWeight: 500 }}
+            />
+            {expandedParents.includes(option.id) ? (
+              <ExpandLessIcon fontSize="small" />
+            ) : (
+              <ExpandMoreIcon fontSize="small" />
+            )}
+          </ParentItem>
+          
+          <Collapse in={expandedParents.includes(option.id)} timeout="auto">
+            <Box>
+              {option.children.map(child => (
+                <ChildItem
+                  key={child.id}
+                  button
+                  dense
+                  onClick={() => handleFilterChange(section, child.id)}
+                >
+                  <Checkbox
+                    edge="start"
+                    checked={isChildSelected(section, child.id)}
+                    size="small"
+                    disableRipple
+                    style={{ padding: 4 }}
+                  />
+                  <ListItemText 
+                    primary={child.label} 
+                    primaryTypographyProps={{ variant: 'body2' }}
+                  />
+                </ChildItem>
+              ))}
+            </Box>
+          </Collapse>
+        </React.Fragment>
+      );
+    } else {
+      return (
+        <ListItem 
+          key={option.id}
+          button 
+          dense
+          onClick={() => handleFilterChange(section, option.id)}
+          style={{ 
+            paddingTop: 2, 
+            paddingBottom: 2,
+            paddingLeft: 16 
+          }}
+        >
+          <Checkbox
+            edge="start"
+            checked={isChildSelected(section, option.id)}
+            size="small"
+            disableRipple
+            style={{ padding: 4 }}
+          />
+          <ListItemText 
+            primary={option.label} 
+            primaryTypographyProps={{ variant: 'body2' }}
+          />
+        </ListItem>
+      );
+    }
   };
 
   return (
@@ -336,6 +575,7 @@ const FilterMenu: React.FC<{
             borderRadius: '8px',
             boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
             overflow: 'hidden',
+            backgroundColor: 'transparent',
           } 
         }}
       >
@@ -361,7 +601,7 @@ const FilterMenu: React.FC<{
                 >
                   <ListItemText 
                     primary={getSectionDisplayName(section)}
-                    secondary={`${filters[section as keyof Filters].length}/${options.length}`}
+                    secondary={`${(filters[section as keyof Filters]?.length || 0)}/${getTotalOptionsCount(options)}`}
                     secondaryTypographyProps={{ variant: 'caption' }}
                   />
                   <Box display="flex" alignItems="center" style={{ gap: 8 }}>
@@ -374,32 +614,11 @@ const FilterMenu: React.FC<{
                 </FilterSectionHeader>
 
                 <Collapse in={openSections.includes(section)} timeout="auto">
-                  <Box pl={2} pr={1} pb={1}>
-                    {options.map(option => (
-                      <ListItem 
-                        key={option} 
-                        button 
-                        onClick={() => handleFilterChange(section, option)}
-                        dense
-                        style={{ 
-                          paddingTop: 2, 
-                          paddingBottom: 2,
-                          paddingLeft: 16 
-                        }}
-                      >
-                        <Checkbox
-                          edge="start"
-                          checked={filters[section as keyof Filters].includes(option)}
-                          size="small"
-                          disableRipple
-                          style={{ padding: 4 }}
-                        />
-                        <ListItemText 
-                          primary={option} 
-                          primaryTypographyProps={{ variant: 'body2' }}
-                        />
-                      </ListItem>
-                    ))}
+                  <Box>
+                    {section === 'approvalStatus' || section === 'workStatus'
+                      ? renderOptionsWithPhaseDividers(section, options)
+                      : options.map(option => renderFilterItem(section, option))
+                    }
                   </Box>
                 </Collapse>
               </FilterSection>
@@ -434,6 +653,16 @@ const FilterMenu: React.FC<{
       </Drawer>
     </>
   );
+};
+
+// Helper function to count total options including children
+const getTotalOptionsCount = (options: FilterOption[]): number => {
+  return options.reduce((count, option) => {
+    if (option.children) {
+      return count + 1 + option.children.length;
+    }
+    return count + 1;
+  }, 0);
 };
 
 /* ------------------------------
@@ -486,19 +715,21 @@ const DEFAULT_COLUMN_STATE: ColumnState = ALL_COLUMNS.reduce((acc, col) => {
 Styles for Column Selector Drawer
 ----------------------------- */
 
-const DrawerContainer = styled(Box)({
+const DrawerContainer = styled(Box)(({ theme }) => ({
   width: '100%',
   height: '100%',
   display: 'flex',
   flexDirection: 'column',
   overflow: 'hidden',
-});
+  backgroundColor: theme.palette.background.paper,
+}));
 
 const ScrollArea = styled(Box)(({ theme }) => ({
   flex: 1,
   overflowY: 'auto',
   minHeight: 0,
   padding: theme.spacing(1, 0),
+  backgroundColor: 'transparent',
   
   '&::-webkit-scrollbar': {
     width: 6,
@@ -519,7 +750,7 @@ const ScrollArea = styled(Box)(({ theme }) => ({
 const Footer = styled(Box)(({ theme }) => ({
   padding: theme.spacing(1.5, 2),
   borderTop: `1px solid ${theme.palette.divider}`,
-  backgroundColor: '#fff',
+  backgroundColor: 'transparent',
   flexShrink: 0,
   display: 'flex',
   justifyContent: 'flex-end',
@@ -590,6 +821,7 @@ const ColumnSelector: React.FC<{
             borderRadius: '8px',
             boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
             overflow: 'hidden',
+            backgroundColor: 'transparent',
           } 
         }}
       >
@@ -734,7 +966,7 @@ const ShotDataTableToolbar: React.FC<Props> = ({
 }) => {
 
   const DEFAULT_FILTERS: Filters = {
-    assetGroups: [],
+    shotGroups: [],
     approvalStatus: [],
     workStatus: [],
   };
