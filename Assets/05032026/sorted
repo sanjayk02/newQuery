@@ -1,0 +1,1 @@
+Global sorting is currently not possible for MDLREND, BLDANM, BLDREND, and LDVMDL columns because their values come from MongoDB and are merged after the SQL query has already sorted and paginated the results. Since the database performing the sort does not have access to these Mongo values, it cannot sort the full dataset based on them.
