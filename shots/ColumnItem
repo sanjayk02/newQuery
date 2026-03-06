@@ -1,0 +1,205 @@
+import React from "react";
+import {
+  Drawer,
+  Box,
+  Typography,
+  Divider,
+  ListItem,
+  ListItemText,
+  Checkbox,
+  Collapse,
+  Button,
+} from "@material-ui/core";
+import { styled } from "@material-ui/core/styles";
+import ExpandLessIcon from "@material-ui/icons/ExpandLess";
+import ExpandMoreIcon from "@material-ui/icons/ExpandMore";
+
+/* -----------------------------
+Types
+----------------------------- */
+
+type ColumnItem = {
+  id: string;
+  label: string;
+  group: string;
+};
+
+type ColumnState = {
+  [key: string]: boolean;
+};
+
+/* -----------------------------
+Columns
+----------------------------- */
+
+const ALL_COLUMNS: ColumnItem[] = [
+  { id: "thumbnail", label: "Thumbnail", group: "Main Columns" },
+  { id: "group_1_name", label: "Name 1", group: "Main Columns" },
+  { id: "group_2_name", label: "Name 2", group: "Main Columns" },
+  { id: "group_3_name", label: "Name 3", group: "Main Columns" },
+
+  { id: "lay_work_status", label: "LAY WORK", group: "Lay Columns" },
+  { id: "lay_approval_status", label: "LAY APPR", group: "Lay Columns" },
+  { id: "lay_submitted_at", label: "LAY Submitted", group: "Lay Columns" },
+
+  { id: "anm_work_status", label: "ANM WORK", group: "ANM Columns" },
+  { id: "anm_approval_status", label: "ANM APPR", group: "ANM Columns" },
+  { id: "anm_submitted_at", label: "ANM Submitted", group: "ANM Columns" },
+
+  { id: "gnz_work_status", label: "GNZ WORK", group: "GNZ Columns" },
+  { id: "gnz_approval_status", label: "GNZ APPR", group: "GNZ Columns" },
+  { id: "gnz_submitted_at", label: "GNZ Submitted", group: "GNZ Columns" },
+
+  { id: "mat_work_status", label: "MAT WORK", group: "MAT Columns" },
+  { id: "mat_approval_status", label: "MAT APPR", group: "MAT Columns" },
+  { id: "mat_submitted_at", label: "MAT Submitted", group: "MAT Columns" },
+
+  { id: "fx_work_status", label: "FX WORK", group: "FX Columns" },
+  { id: "fx_approval_status", label: "FX APPR", group: "FX Columns" },
+  { id: "fx_submitted_at", label: "FX Submitted", group: "FX Columns" },
+
+  { id: "cmp_work_status", label: "CMP WORK", group: "CMP Columns" },
+  { id: "cmp_approval_status", label: "CMP APPR", group: "CMP Columns" },
+  { id: "cmp_submitted_at", label: "CMP Submitted", group: "CMP Columns" },
+
+  { id: "relation", label: "Relation", group: "Relation Columns" },
+];
+
+/* -----------------------------
+Default Column State
+----------------------------- */
+
+const DEFAULT_COLUMN_STATE: ColumnState = ALL_COLUMNS.reduce((acc, col) => {
+  acc[col.id] = true;
+  return acc;
+}, {} as ColumnState);
+
+/* -----------------------------
+Styles
+----------------------------- */
+
+const DrawerContainer = styled(Box)(({ theme }) => ({
+  width: 320,
+  height: "100vh",
+  display: "flex",
+  flexDirection: "column",
+}));
+
+const Header = styled(Box)(({ theme }) => ({
+  padding: theme.spacing(2),
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  borderBottom: `1px solid ${theme.palette.divider}`,
+}));
+
+const ScrollArea = styled(Box)(({ theme }) => ({
+  flex: 1,
+  overflowY: "auto",
+
+  "&::-webkit-scrollbar": {
+    width: 6,
+  },
+  "&::-webkit-scrollbar-thumb": {
+    background: "#999",
+    borderRadius: 4,
+  },
+}));
+
+/* -----------------------------
+Component
+----------------------------- */
+
+const ColumnSelector: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  columnState: ColumnState;
+  onChange: (state: ColumnState) => void;
+}> = ({ open, onClose, columnState, onChange }) => {
+
+  const [openGroups, setOpenGroups] = React.useState<string[]>([]);
+
+  const grouped = React.useMemo(() => {
+    return ALL_COLUMNS.reduce((acc, col) => {
+      if (!acc[col.group]) acc[col.group] = [];
+      acc[col.group].push(col);
+      return acc;
+    }, {} as Record<string, ColumnItem[]>);
+  }, []);
+
+  const handleReset = () => {
+    onChange(DEFAULT_COLUMN_STATE);
+  };
+
+  return (
+    <Drawer anchor="right" open={open} onClose={onClose}>
+      <DrawerContainer>
+
+        {/* HEADER */}
+        <Header>
+          <Typography variant="h6">Show Columns</Typography>
+          <Button size="small" onClick={handleReset}>
+            RESET
+          </Button>
+        </Header>
+
+        {/* SCROLLABLE COLUMN LIST */}
+        <ScrollArea>
+
+          {Object.entries(grouped).map(([group, cols], index) => (
+            <React.Fragment key={group}>
+
+              {index !== 0 && <Divider />}
+
+              <ListItem
+                button
+                onClick={() =>
+                  setOpenGroups(prev =>
+                    prev.includes(group)
+                      ? prev.filter(g => g !== group)
+                      : [...prev, group]
+                  )
+                }
+              >
+                <ListItemText primary={group} />
+                {openGroups.includes(group)
+                  ? <ExpandLessIcon />
+                  : <ExpandMoreIcon />}
+              </ListItem>
+
+              <Collapse in={openGroups.includes(group)}>
+
+                <Box pl={2}>
+                  {cols.map(col => (
+                    <ListItem
+                      key={col.id}
+                      button
+                      onClick={() =>
+                        onChange({
+                          ...columnState,
+                          [col.id]: !columnState[col.id],
+                        })
+                      }
+                    >
+                      <Checkbox
+                        checked={!!columnState[col.id]}
+                        size="small"
+                      />
+                      <ListItemText primary={col.label} />
+                    </ListItem>
+                  ))}
+                </Box>
+
+              </Collapse>
+
+            </React.Fragment>
+          ))}
+
+        </ScrollArea>
+
+      </DrawerContainer>
+    </Drawer>
+  );
+};
+
+export default ColumnSelector;
