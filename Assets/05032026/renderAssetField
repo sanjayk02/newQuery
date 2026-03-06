@@ -1,0 +1,121 @@
+// In AssetsGroupedDataTable.tsx, update the renderAssetField function
+
+function renderAssetField(
+  asset: any,
+  col: Column,
+  dateTimeFormat: Intl.DateTimeFormat,
+  latestComponents?: Record<string, any>
+) {
+  {/* THUMBNAIL */}
+  if (col.id === "thumbnail") return renderThumbnail(asset);
+
+  {/* GROUP 1 NAME */}
+  if (col.id === "group_1_name") {
+    return (
+      <Typography noWrap style={{ 
+        fontSize: UI.FONT_SIZE_CONTENT, 
+        fontWeight: 500 
+      }}>
+        {formatForDisplay(asset.group_1 || asset.group_1_name)}
+      </Typography>
+    );
+  }
+
+  {/* RELATION */}
+  if (col.id === "relation") {
+    return (
+      <Typography style={{ 
+        fontSize: UI.FONT_SIZE_CONTENT, 
+        fontWeight: 500 
+      }}>
+        {formatForDisplay(asset.relation)}
+      </Typography>
+    );
+  }
+
+  {/* ✅ FIXED: Component columns (MDLREND/BLDANM/BLDREND/LDVMDL) */}
+  if (["mdlRend", "bldAnm", "bldRend", "ldvMdl"].includes(col.id)) {
+    
+    // Debug log to see what's happening
+    console.log(`Rendering ${col.id} for asset:`, {
+      group_1: asset.group_1,
+      relation: asset.relation,
+      assetKey: `${asset.group_1}-${asset.relation}`,
+      latestComponentsAvailable: !!latestComponents,
+      componentData: latestComponents ? latestComponents[`${asset.group_1}-${asset.relation}`] : null
+    });
+
+    // Create asset key - this must match how it's stored in latestComponents
+    const cleanRelation = (asset.relation || "").toString().trim();
+    const assetKey = `${asset.group_1}-${cleanRelation}`;
+
+    // Get component list for this asset
+    const componentList = latestComponents && latestComponents[assetKey] 
+      ? latestComponents[assetKey] 
+      : [];
+
+    // Map component column → expected phase
+    const PHASE_COMPONENT_MAP: Record<string, string> = {
+      mdlRend: "mdl",
+      bldAnm: "bld",
+      bldRend: "bld",
+      ldvMdl: "ldv",
+    };
+
+    const expectedPhase = PHASE_COMPONENT_MAP[col.id];
+
+    // Try multiple strategies to find the component data
+    let componentData = null;
+    
+    // Strategy 1: Match by phase in latest_document
+    componentData = componentList.find((item: any) =>
+      item && item.latest_document && item.latest_document.phase && 
+      item.latest_document.phase.toLowerCase() === expectedPhase
+    );
+    
+    // Strategy 2: If not found, try matching by component name
+    if (!componentData) {
+      componentData = componentList.find((item: any) =>
+        item && item.component && item.component.toLowerCase().includes(expectedPhase)
+      );
+    }
+    
+    // Strategy 3: Use index-based fallback (0 for mdlRend, etc.)
+    if (!componentData && componentList.length > 0) {
+      const indexMap: Record<string, number> = {
+        mdlRend: 0,
+        bldAnm: 1,
+        bldRend: 2,
+        ldvMdl: 3
+      };
+      const index = indexMap[col.id];
+      if (index !== undefined && componentList[index]) {
+        componentData = componentList[index];
+      }
+    }
+
+    // Get the submitted date
+    const submittedAt = componentData && componentData.latest_document 
+      ? componentData.latest_document.submitted_at_utc 
+      : null;
+    
+    const submittedText = submittedAt 
+      ? formatSubmitted(submittedAt, dateTimeFormat)
+      : "—";
+
+    return (
+      <Typography
+        style={{
+          fontSize: UI.FONT_SIZE_CONTENT,
+          whiteSpace: "normal",
+          lineHeight: 1.2,
+        }}
+      >
+        {submittedText}
+      </Typography>
+    );
+  }
+
+  {/* Rest of the function remains the same... */}
+  // ... phase columns handling
+}
