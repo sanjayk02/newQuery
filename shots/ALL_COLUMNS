@@ -1,0 +1,32 @@
+const ALL_COLUMNS: ColumnItem[] = [
+  { id: "thumbnail", label: "Thumbnail", group: "Main Columns" },
+  { id: "group_1_name", label: "Name 1", group: "Main Columns" },
+  { id: "group_2_name", label: "Name 2", group: "Main Columns" },
+  { id: "group_3_name", label: "Name 3", group: "Main Columns" },
+
+  { id: "lay_work_status", label: "LAY WORK", group: "Lay Columns" },
+  { id: "lay_approval_status", label: "LAY APPR", group: "Lay Columns" },
+  { id: "lay_submitted_at", label: "LAY Submitted At", group: "Lay Columns" },
+
+  { id: "anm_work_status", label: "ANM WORK", group: "ANM Columns" },
+  { id: "anm_approval_status", label: "ANM APPR", group: "ANM Columns" },
+  { id: "anm_submitted_at", label: "ANM Submitted At", group: "ANM Columns" },
+
+  { id: "gnz_work_status", label: "GNZ WORK", group: "GNZ Columns" },
+  { id: "gnz_approval_status", label: "GNZ APPR", group: "GNZ Columns" },
+  { id: "gnz_submitted_at", label: "GNZ Submitted At", group: "GNZ Columns" },
+
+  { id: "mat_work_status", label: "MAT WORK", group: "MAT Columns" },
+  { id: "mat_approval_status", label: "MAT APPR", group: "MAT Columns" },
+  { id: "mat_submitted_at", label: "MAT Submitted At", group: "MAT Columns" },
+
+  { id: "fx_work_status", label: "FX WORK", group: "FX Columns" },
+  { id: "fx_approval_status", label: "FX APPR", group: "FX Columns" },
+  { id: "fx_submitted_at", label: "FX Submitted At", group: "FX Columns" },
+
+  { id: "cmp_work_status", label: "CMP WORK", group: "CMP Columns" },
+  { id: "cmp_approval_status", label: "CMP APPR", group: "CMP Columns" },
+  { id: "cmp_submitted_at", label: "CMP Submitted At", group: "CMP Columns" },
+
+  { id: "relation", label: "Relation", group: "Main Columns" },
+];
