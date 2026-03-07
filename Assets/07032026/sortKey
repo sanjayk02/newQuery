@@ -1,7 +1,6 @@
-const sortKey = pageProps.sortKey;
-const sortDir = pageProps.sortDir;
-const phase = filterProps.phase;
-const assetNameKey = filterProps.assetNameKey;
-const approvalStatuses = filterProps.approvalStatuses;
-const workStatuses = filterProps.workStatuses;
-const viewMode = pageProps.viewMode;
+const allAssets = useMemo(() => {
+  if (viewMode === 'grouped') {
+    return (groups || []).flatMap((g: any) => g.items || []);
+  }
+  return assets || rawAssets || [];
+}, [viewMode, groups, assets, rawAssets]);
