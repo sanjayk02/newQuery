@@ -1,6 +1,17 @@
 const allAssets = useMemo(() => {
-  if (viewMode === 'grouped') {
-    return (groups || []).flatMap((g: any) => g.items || []);
+  let list = [];
+
+  if (viewMode === "grouped") {
+    list = (groups || []).flatMap((g: any) => g.items || []);
+  } else {
+    list = assets || rawAssets || [];
   }
-  return assets || rawAssets || [];
+
+  // remove duplicates
+  const map = new Map();
+  list.forEach(a => {
+    map.set(`${a.group_1}-${a.relation}`, a);
+  });
+
+  return Array.from(map.values());
 }, [viewMode, groups, assets, rawAssets]);
