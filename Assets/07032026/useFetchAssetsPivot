@@ -1,0 +1,25 @@
+const { assets: pivotAssets, total: pivotTotal, groups: pivotgroups } =
+  useFetchAssetsPivot(
+    currentProject,
+    pageProps.page,
+    pageProps.rowsPerPage,
+    sortKey,
+    sortDir,
+    phase,
+    assetNameKey,
+    approvalStatuses,
+    workStatuses,
+    viewMode
+);
+
+const allAssets =
+  viewMode === "grouped"
+    ? pivotgroups.flatMap(g => g.items)
+    : rawAssets;
+
+const { latestComponents } =
+  useFetchLatestAssetComponents(
+    currentProject,
+    allAssets,
+    phaseComponents
+);
