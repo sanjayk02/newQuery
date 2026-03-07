@@ -1,0 +1,93 @@
+const sortedGroupsWithItems = React.useMemo(() => {
+
+  const componentColumns = ['mdlRend','bldAnm','bldRend','ldvMdl'];
+
+  // 1️⃣ flatten all items
+  const flat: any[] = [];
+  sortedGroups.forEach(g=>{
+    (g.items || []).forEach((item:any)=>{
+      flat.push({...item,__group:g});
+    });
+  });
+
+  // 2️⃣ global sort
+  if(uiSortKey && uiSortDir!=='none'){
+    flat.sort((a,b)=>{
+
+      if(componentColumns.includes(uiSortKey)){
+        const aKey=`${a.group_1}-${a.relation}`;
+        const bKey=`${b.group_1}-${b.relation}`;
+
+        const aComponentList=latestComponents[aKey]||[];
+        const bComponentList=latestComponents[bKey]||[];
+
+        const aItem=findComponentData(aComponentList,uiSortKey);
+        const bItem=findComponentData(bComponentList,uiSortKey);
+
+        const aDate=aItem?.latest_document?.submitted_at_utc || null;
+        const bDate=bItem?.latest_document?.submitted_at_utc || null;
+
+        return enhancedCompareDates(aDate,bDate,uiSortDir);
+      }
+
+      if(uiSortKey==='group_1'){
+        return enhancedCompareStrings(a.group_1,b.group_1,uiSortDir);
+      }
+
+      const m=uiSortKey.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted|take)$/i);
+
+      if(m){
+        const phase=m[1].toLowerCase();
+        const field=m[2].toLowerCase();
+
+        if(field==='submitted'){
+          return enhancedCompareDates(
+            a[`${phase}_submitted_at_utc`],
+            b[`${phase}_submitted_at_utc`],
+            uiSortDir
+          );
+        }
+
+        if(field==='take'){
+          return enhancedCompareTake(
+            a[`${phase}_take`],
+            b[`${phase}_take`],
+            uiSortDir
+          );
+        }
+
+        const key=field==='appr'
+          ?`${phase}_approval_status`
+          :`${phase}_work_status`;
+
+        return enhancedCompareStrings(a[key],b[key],uiSortDir);
+      }
+
+      return 0;
+    });
+  }
+
+  // 3️⃣ rebuild groups
+  const map=new Map();
+
+  flat.forEach(row=>{
+    const name=row.__group.top_group_node;
+
+    if(!map.has(name)){
+      map.set(name,{...row.__group,items:[]});
+    }
+
+    map.get(name).items.push(row);
+  });
+
+  return Array.from(map.values());
+
+},[
+  sortedGroups,
+  uiSortKey,
+  uiSortDir,
+  latestComponents,
+  enhancedCompareTake,
+  enhancedCompareStrings,
+  enhancedCompareDates
+]);
