@@ -622,11 +622,20 @@ const saveHiddenColumnsToPipelineSetting = async (cols: Set<string>) => {
     viewMode,
   );
 
-  // ✅ FIX: useFetchLatestAssetComponents now uses pivotAssets (all assets in view)
-  // instead of rawAssets (only current page), so grouped view gets full component data
+  // ✅ FIX: Choose the correct asset list based on view mode.
+  // - grouped view: pivotAssets has all 10000 assets → full component data for all groups
+  // - list view: pivotAssets has the current page (15 rows), same as rawAssets
+  // - fallback to rawAssets if pivot hasn't loaded yet (empty on first render)
+  const assetsForComponents = React.useMemo(() => {
+    if (viewMode === 'grouped') {
+      return pivotAssets.length > 0 ? pivotAssets : rawAssets;
+    }
+    return pivotAssets.length > 0 ? pivotAssets : rawAssets;
+  }, [viewMode, pivotAssets, rawAssets]);
+
   const { latestComponents } = useFetchLatestAssetComponents(
     currentProject,
-    pivotAssets,
+    assetsForComponents,
     phaseComponents,
   );
 
