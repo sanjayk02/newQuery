@@ -1,0 +1,53 @@
+const loadLatestAssetComponents = async () => {
+  const fetchPromises = assets.map(asset =>
+    fetchLatestAssetComponents(
+      project.key_name,
+      asset.name || asset.group_1,
+      asset.relation,
+      _components,
+      controller.signal,
+    )
+  );
+
+  try {
+    const results = await Promise.all(fetchPromises);
+
+    const _latestComponents: LatestComponents = {};
+
+    results.forEach((res, index) => {
+      if (res.length > 0) {
+
+        const relation = (assets[index].relation || "")
+          .toString()
+          .trim()
+          .replace(/\s+/g, "_");
+
+        // SUPPORT BOTH LIST VIEW AND GROUP VIEW
+        const assetName =
+          assets[index].name ||
+          assets[index].group_1 ||
+          "";
+
+        const assetKey = `${assetName}-${relation}`;
+
+        _latestComponents[assetKey] = res;
+
+        // Debug log
+        console.log("Saving latestComponents:", {
+          assetName,
+          relation,
+          assetKey,
+          resultLength: res.length
+        });
+      }
+    });
+
+    setLatestComponents(_latestComponents);
+
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      return;
+    }
+    console.error('Failed to fetch latest asset components:', err);
+  }
+};
