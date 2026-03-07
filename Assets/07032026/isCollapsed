@@ -1,0 +1,15 @@
+{/* Data rows */}
+{!isCollapsed &&
+  sortedItems.map((asset: any, idx: number) => (
+    <TableRow key={groupName + "-" + idx} hover>
+      {visibleColumns.map((col) => (
+        <TableCell
+          key={col.id}
+          align={col.id === "group_1_name" || col.id === "thumbnail" ? "left" : "center"}
+          style={buildCellStyle(col, phaseMeta)}
+        >
+          {renderAssetField(asset, col, dateTimeFormat, latestComponents)}
+        </TableCell>
+      ))}
+    </TableRow>
+  ))}
