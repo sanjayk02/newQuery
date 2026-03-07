@@ -1,0 +1,9 @@
+const aDate =
+  aItem && aItem.latest_document
+    ? aItem.latest_document.submitted_at_utc
+    : null;
+
+const bDate =
+  bItem && bItem.latest_document
+    ? bItem.latest_document.submitted_at_utc
+    : null;
