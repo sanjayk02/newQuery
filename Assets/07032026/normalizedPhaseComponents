@@ -1,0 +1,28 @@
+/**
+ * Normalizes raw phaseComponents from the API into consistent camelCase column IDs.
+ * This single source of truth is then passed to BOTH the table and the filter drawer,
+ * so the IDs always match and column hide/show works correctly.
+ *
+ * Example: { mdl: ["Rend"] } → { mdl: ["mdlRend"] }
+ */
+const normalizedPhaseComponents = useMemo(() => {
+  if (!phaseComponents) return phaseComponents;
+
+  const normalize = (phase: string, comp: string): string => {
+    const p = phase.toLowerCase();
+    const c = comp.toLowerCase();
+    if (p === 'mdl' && c === 'rend') return 'mdlRend';
+    if (p === 'bld' && c === 'anm')  return 'bldAnm';
+    if (p === 'bld' && c === 'rend') return 'bldRend';
+    if (p === 'ldv' && c === 'mdl')  return 'ldvMdl';
+    // Generic fallback: phase + Capitalized component
+    return `${p}${comp.charAt(0).toUpperCase() + comp.slice(1)}`;
+  };
+
+  return Object.fromEntries(
+    Object.entries(phaseComponents).map(([phase, comps]) => [
+      phase,
+      (comps as string[]).map((comp) => normalize(phase, comp)),
+    ])
+  );
+}, [phaseComponents]);
