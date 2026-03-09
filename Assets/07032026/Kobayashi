@@ -1,0 +1,16 @@
+Hi Kobayashi-san,
+
+Thank you for your review.
+
+I have addressed the two points you mentioned:
+
+Updated the implementation so the displayed components are now based on the values from PipelineSetting and removed the unused/hardcoded component data.
+
+Removed the unnecessary front/main.go file from the commit.
+
+Please let me know if any further changes are needed. I will wait for the rest of your review.
+
+Thank you.
+
+Best regards,
+Sanjay
