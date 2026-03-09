@@ -1,0 +1,15 @@
+{/* PIPELINE SETTING COMPONENTS */}
+{componentIds.map((componentId) =>
+  !isHidden(componentId) && (
+    <MultiLineTooltipTableCell
+      key={`${asset.group_1}-${asset.relation}-${componentId}`}
+      tooltipText={getComponentTooltip(asset, componentId)}
+      status={undefined}
+      leftBorderStyle={firstId === componentId ? rail : "none"}
+      rightBorderStyle={lastId === componentId ? rail : "none"}
+      bottomBorderStyle={isLastRow ? rail : "none"}
+    >
+      {getComponentDisplayText(asset, componentId)}
+    </MultiLineTooltipTableCell>
+  )
+)}
