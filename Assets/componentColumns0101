@@ -1,0 +1,61 @@
+// COMPONENT COLUMNS
+const componentColumns = useMemo(() => {
+  if (!phaseComponents) return [];
+
+  return Object.entries(phaseComponents).flatMap(([phase, components]) =>
+    components.map((c: string) => ({
+      id: c,
+      label: `${c.toUpperCase()} Submitted`,
+    }))
+  );
+}, [phaseComponents]);
+
+// COLUMN META
+const COLUMN_META = useMemo<{ id: string; label: string }[]>(() => [
+  { id: 'thumbnail', label: 'Thumbnail' },
+  { id: 'group_1_name', label: 'Name' },
+
+  { id: 'mdl_work_status', label: 'MDL WORK' },
+  { id: 'mdl_approval_status', label: 'MDL APPR' },
+  { id: 'mdl_take', label: 'MDL Take' },
+
+  ...componentColumns,
+
+  { id: 'rig_work_status', label: 'RIG WORK' },
+  { id: 'rig_approval_status', label: 'RIG APPR' },
+  { id: 'rig_take', label: 'RIG Take' },
+
+  { id: 'bld_work_status', label: 'BLD WORK' },
+  { id: 'bld_approval_status', label: 'BLD APPR' },
+  { id: 'bld_take', label: 'BLD Take' },
+
+  { id: 'dsn_work_status', label: 'DSN WORK' },
+  { id: 'dsn_approval_status', label: 'DSN APPR' },
+  { id: 'dsn_take', label: 'DSN Take' },
+
+  { id: 'ldv_work_status', label: 'LDV WORK' },
+  { id: 'ldv_approval_status', label: 'LDV APPR' },
+  { id: 'ldv_take', label: 'LDV Take' },
+
+  { id: 'relation', label: 'Relation' },
+], [componentColumns]);
+
+// FIXED COLUMNS
+const FIXED_VISIBLE = useMemo(
+  () => new Set(['thumbnail','group_1_name']),
+  []
+);
+
+// visible column count
+const visibleCount = useMemo(() => {
+  const togglable = COLUMN_META
+    .map((c) => c.id)
+    .filter((id) => !FIXED_VISIBLE.has(id));
+
+  let c = 0;
+  togglable.forEach((id) => {
+    if (!hiddenColumns.has(id)) c += 1;
+  });
+
+  return c;
+}, [COLUMN_META, hiddenColumns, FIXED_VISIBLE]);
