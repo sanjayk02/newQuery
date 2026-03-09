@@ -1,0 +1,9 @@
+useEffect(() => {
+  console.log('Current hiddenColumns:', Array.from(hiddenColumns));
+  
+  // Specifically check if component columns are in the set
+  const componentColumns = ['mdlRend', 'bldAnm', 'bldRend', 'ldvMdl'];
+  componentColumns.forEach(col => {
+    console.log(`Column "${col}" is ${hiddenColumns.has(col) ? 'HIDDEN' : 'VISIBLE'}`);
+  });
+}, [hiddenColumns]);
