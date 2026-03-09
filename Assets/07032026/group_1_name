@@ -1,0 +1,44 @@
+const buildComponentColumns = (phase: string, colors: Colors) =>
+  (phaseComponents?.[phase] || []).map((comp) => ({
+    id: comp,
+    label: `${comp.toUpperCase()} SUBMITTED`,
+    colors,
+    sortable: true,
+    sortKey: comp,
+  }));
+
+
+const columns: Column[] = [
+  { id: "thumbnail", label: "Thumbnail" },
+  { id: "group_1_name", label: "Name", sortable: true, sortKey: "group_1" },
+
+  // MDL
+  { id: "mdl_work_status", label: "MDL WORK", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_work" },
+  { id: "mdl_approval_status", label: "MDL APPR", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_appr" },
+  { id: "mdl_take", label: "MDL TAKE", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_take" },
+  ...buildComponentColumns("mdl", ASSET_PHASES.mdl),
+
+  // RIG
+  { id: "rig_work_status", label: "RIG WORK", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_work" },
+  { id: "rig_approval_status", label: "RIG APPR", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_appr" },
+  { id: "rig_take", label: "RIG TAKE", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_take" },
+
+  // BLD
+  { id: "bld_work_status", label: "BLD WORK", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_work" },
+  { id: "bld_approval_status", label: "BLD APPR", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_appr" },
+  { id: "bld_take", label: "BLD TAKE", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_take" },
+  ...buildComponentColumns("bld", ASSET_PHASES.bld),
+
+  // DSN
+  { id: "dsn_work_status", label: "DSN WORK", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_work" },
+  { id: "dsn_approval_status", label: "DSN APPR", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_appr" },
+  { id: "dsn_take", label: "DSN TAKE", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_take" },
+
+  // LDV
+  { id: "ldv_work_status", label: "LDV WORK", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_work" },
+  { id: "ldv_approval_status", label: "LDV APPR", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_appr" },
+  { id: "ldv_take", label: "LDV TAKE", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_take" },
+  ...buildComponentColumns("ldv", ASSET_PHASES.ldv),
+
+  { id: "relation", label: "Relation", sortable: true, sortKey: "relation" },
+];
