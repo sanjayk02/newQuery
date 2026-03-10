@@ -1,0 +1,15 @@
+{col.headerMode === "label" ? (
+  <>
+    {col.label.replace(" Submitted", "")}
+    <br />
+    Submitted
+  </>
+) : col.phase ? (
+  <>
+    {col.phase.toUpperCase()}
+    <br />
+    {col.kind ? col.kind.toUpperCase() : ""}
+  </>
+) : (
+  col.label
+)}
