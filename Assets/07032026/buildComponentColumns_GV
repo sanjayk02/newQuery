@@ -1,0 +1,56 @@
+function buildComponentColumns(
+  phase: string,
+  phaseComponents?: { [phase: string]: string[] }
+): Column[] {
+  const componentIds = phaseComponents?.[phase] ?? [];
+
+  return componentIds.map((id) => ({
+    id: id as ColumnId,
+    label: `${id.toUpperCase()} Submitted`,
+    sortable: true,
+    phase: phase as keyof typeof COLORS.PHASE,
+    headerMode: "label",
+  }));
+}
+
+
+function buildColumns(
+  phaseComponents?: { [phase: string]: string[] }
+): Column[] {
+  return [
+    { id: "thumbnail", label: "THUMB" },
+    { id: "group_1_name", label: "NAME", sortable: true },
+
+    // MDL
+    { id: "mdl_work", label: "MDL Work", sortable: true, phase: "mdl", kind: "work" },
+    { id: "mdl_appr", label: "MDL Appr", sortable: true, phase: "mdl", kind: "appr" },
+    { id: "mdl_take", label: "MDL TAKE", sortable: true, phase: "mdl", kind: "take" },
+    ...buildComponentColumns("mdl", phaseComponents),
+
+    // RIG
+    { id: "rig_work", label: "RIG Work", sortable: true, phase: "rig", kind: "work" },
+    { id: "rig_appr", label: "RIG Appr", sortable: true, phase: "rig", kind: "appr" },
+    { id: "rig_take", label: "RIG TAKE", sortable: true, phase: "rig", kind: "take" },
+    ...buildComponentColumns("rig", phaseComponents),
+
+    // BLD
+    { id: "bld_work", label: "BLD Work", sortable: true, phase: "bld", kind: "work" },
+    { id: "bld_appr", label: "BLD Appr", sortable: true, phase: "bld", kind: "appr" },
+    { id: "bld_take", label: "BLD TAKE", sortable: true, phase: "bld", kind: "take" },
+    ...buildComponentColumns("bld", phaseComponents),
+
+    // DSN
+    { id: "dsn_work", label: "DSN Work", sortable: true, phase: "dsn", kind: "work" },
+    { id: "dsn_appr", label: "DSN Appr", sortable: true, phase: "dsn", kind: "appr" },
+    { id: "dsn_take", label: "DSN TAKE", sortable: true, phase: "dsn", kind: "take" },
+    ...buildComponentColumns("dsn", phaseComponents),
+
+    // LDV
+    { id: "ldv_work", label: "LDV Work", sortable: true, phase: "ldv", kind: "work" },
+    { id: "ldv_appr", label: "LDV Appr", sortable: true, phase: "ldv", kind: "appr" },
+    { id: "ldv_take", label: "LDV TAKE", sortable: true, phase: "ldv", kind: "take" },
+    ...buildComponentColumns("ldv", phaseComponents),
+
+    { id: "relation", label: "Relation", sortable: true },
+  ];
+}
