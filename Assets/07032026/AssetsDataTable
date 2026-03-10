@@ -194,41 +194,72 @@ const WORK_STATUS: { [key: string]: Status } = {
  *
  * @param phaseComponents - Map of phase → component ID array, e.g. { mdl: ['mdlRend', 'mdlAnm'], bld: ['bldAnm'] }
  */
+/**
+ * Returns the dynamic component columns for a given phase, based on the
+ * project's pipeline configuration. Spread this into the columns array
+ * after the fixed phase columns (WORK / APPR / TAKE).
+ *
+ * @param phase           - Phase key, e.g. "mdl"
+ * @param colors          - Phase colour config (lineColor + backgroundColor)
+ * @param phaseComponents - Map of phase → component ID array from pipeline settings
+ */
+function buildComponentColumns(
+  phase: string,
+  colors: Colors,
+  phaseComponents: { [phase: string]: string[] } | undefined,
+): Column[] {
+  const componentIds = (phaseComponents && phaseComponents[phase]) || [];
+  return componentIds.map((id) => ({
+    id,
+    label: `${id.toUpperCase()} Submitted`,
+    colors,
+    sortable: true,
+    sortKey: id,
+  }));
+}
+
+/**
+ * Builds the full column list. Fixed columns are declared explicitly so they
+ * stay readable; only the per-phase component columns are dynamic via
+ * buildComponentColumns().
+ */
 function buildColumns(phaseComponents: { [phase: string]: string[] } | undefined): Column[] {
-  const cols: Column[] = [
-    { id: "thumbnail", label: "Thumbnail" },
+  return [
+    { id: "thumbnail",    label: "Thumbnail" },
     { id: "group_1_name", label: "Name", sortable: true, sortKey: "group_1" },
+
+    // MDL Phase
+    { id: "mdl_work_status",     label: "MDL WORK", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_work" },
+    { id: "mdl_approval_status", label: "MDL APPR", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_appr" },
+    { id: "mdl_take",            label: "MDL TAKE", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_take" },
+    ...buildComponentColumns("mdl", ASSET_PHASES.mdl, phaseComponents), // Dynamic component columns
+
+    // RIG Phase
+    { id: "rig_work_status",     label: "RIG WORK", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_work" },
+    { id: "rig_approval_status", label: "RIG APPR", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_appr" },
+    { id: "rig_take",            label: "RIG TAKE", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_take" },
+    ...buildComponentColumns("rig", ASSET_PHASES.rig, phaseComponents), // Dynamic component columns
+
+    // BLD Phase
+    { id: "bld_work_status",     label: "BLD WORK", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_work" },
+    { id: "bld_approval_status", label: "BLD APPR", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_appr" },
+    { id: "bld_take",            label: "BLD TAKE", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_take" },
+    ...buildComponentColumns("bld", ASSET_PHASES.bld, phaseComponents), // Dynamic component columns
+
+    // DSN Phase
+    { id: "dsn_work_status",     label: "DSN WORK", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_work" },
+    { id: "dsn_approval_status", label: "DSN APPR", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_appr" },
+    { id: "dsn_take",            label: "DSN TAKE", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_take" },
+    ...buildComponentColumns("dsn", ASSET_PHASES.dsn, phaseComponents), // Dynamic component columns
+
+    // LDV Phase
+    { id: "ldv_work_status",     label: "LDV WORK", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_work" },
+    { id: "ldv_approval_status", label: "LDV APPR", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_appr" },
+    { id: "ldv_take",            label: "LDV TAKE", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_take" },
+    ...buildComponentColumns("ldv", ASSET_PHASES.ldv, phaseComponents), // Dynamic component columns
+
+    { id: "relation", label: "Relation", sortable: true, sortKey: "relation" },
   ];
-
-  const phases = ["mdl", "rig", "bld", "dsn", "ldv"] as const;
-
-  for (const phase of phases) {
-    const phaseColors = ASSET_PHASES[phase];
-    if (!phaseColors) continue;
-
-    // Fixed phase columns — always present when the phase exists
-    cols.push(
-      { id: `${phase}_work_status`,     label: `${phase.toUpperCase()} WORK`, colors: phaseColors, sortable: true, sortKey: `${phase}_work` },
-      { id: `${phase}_approval_status`, label: `${phase.toUpperCase()} APPR`, colors: phaseColors, sortable: true, sortKey: `${phase}_appr` },
-      { id: `${phase}_take`,            label: `${phase.toUpperCase()} TAKE`, colors: phaseColors, sortable: true, sortKey: `${phase}_take` },
-    );
-
-    // Dynamic component columns — only those configured for this project's phase
-    const componentIds = (phaseComponents && phaseComponents[phase]) || [];
-    for (const componentId of componentIds) {
-      cols.push({
-        id: componentId,
-        label: `${componentId.toUpperCase()} Submitted`,
-        colors: phaseColors,
-        sortable: true,
-        sortKey: componentId,
-      });
-    }
-  }
-
-  cols.push({ id: "relation", label: "Relation", sortable: true, sortKey: "relation" });
-
-  return cols;
 }
 
 const FIXED_IDS = new Set(["thumbnail", "group_1_name"]);
