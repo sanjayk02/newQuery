@@ -1,0 +1,31 @@
+if (col.headerMode === "label") {
+
+  const cleanRelation = (asset.relation || "").toString().trim();
+  const assetKey = `${asset.group_1}-${cleanRelation}`;
+
+  const componentList = latestComponents?.[assetKey] ?? [];
+
+  const componentData = componentList.find(
+    (item: any) =>
+      item?.component?.toLowerCase() === col.id.toLowerCase() ||
+      item?.latest_document?.component?.toLowerCase() === col.id.toLowerCase()
+  );
+
+  const submittedAt = componentData?.latest_document?.submitted_at_utc;
+
+  const submittedText = submittedAt
+    ? formatSubmitted(submittedAt, dateTimeFormat)
+    : "—";
+
+  return (
+    <Typography
+      style={{
+        fontSize: UI.FONT_SIZE_CONTENT,
+        whiteSpace: "normal",
+        lineHeight: 1.2,
+      }}
+    >
+      {submittedText}
+    </Typography>
+  );
+}
