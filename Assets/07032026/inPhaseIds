@@ -1,0 +1,3 @@
+const inPhaseIds = columns
+  .filter(c => c.id.startsWith(`${phase}_`) || c.id.startsWith(phase))
+  .map(c => c.id);
