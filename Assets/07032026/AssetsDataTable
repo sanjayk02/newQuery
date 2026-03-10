@@ -569,7 +569,6 @@ const AssetRow: React.FC<AssetRowProps & { hiddenColumns: Set<string>; compact: 
             const ids = {
               work: `${phase}_work_status`,
               appr: `${phase}_approval_status`,
-              subm: `${phase}_submitted_at`,
               take: `${phase}_take`,
             };
 
@@ -578,15 +577,12 @@ const AssetRow: React.FC<AssetRowProps & { hiddenColumns: Set<string>; compact: 
             const visibleIds = [
               ids.work,
               ids.appr,
-              ids.subm,
               ids.take,
               ...componentIds
             ]
               .filter((id): id is string => typeof id === "string" && !!id)
               .filter((id) => !isHidden(id));
 
-            // print phase conmonent get name for debug
-            console.log(`Phase: ${phase}, Component IDs: ${componentIds.join(", ")}`);
             if (visibleIds.length === 0) return null;
 
             const firstId = visibleIds[0];
