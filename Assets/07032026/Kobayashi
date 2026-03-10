@@ -1,16 +1,12 @@
 Hi Kobayashi-san,
 
-Thank you for your review.
+Thank you for checking and for sharing the screenshot.
 
-I have addressed the two points you mentioned:
+I checked the layout on my side, and the columns appear aligned correctly. I’ve attached a screenshot from my environment for reference.
 
-Updated the implementation so the displayed components are now based on the values from PipelineSetting and removed the unused/hardcoded component data.
+Could you please let me know which browser and screen resolution you are using? I will try to reproduce the issue on my side and investigate further.
 
-Removed the unnecessary front/main.go file from the commit.
+Thank you for your support.
 
-Please let me know if any further changes are needed. I will wait for the rest of your review.
-
-Thank you.
-
-Best regards,
+Best,
 Sanjay
