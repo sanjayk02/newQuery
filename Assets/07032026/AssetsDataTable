@@ -360,17 +360,18 @@ const RecordTableHead: React.FC<RecordTableHeadProps & {
     <TableHead>
       <TableRow>
         {columns.map((column) => {
-          // Determine "first/last visible" within a phase to draw borders
-          const phase = ["mdl", "rig", "bld", "dsn", "ldv"].find(p => column.id.startsWith(p));
-          const inPhaseIds = phase
+          // Group columns by phase using the colors reference — more reliable than
+          // string-prefix matching, since component column IDs like "bldAnm" don't
+          // follow the "phase_field" naming convention.
+          const inPhaseIds = column.colors
             ? columns
-                .filter(c => c.id.startsWith(phase))  // Only consider non-take columns for borders
+                .filter(c => c.colors === column.colors)
                 .map(c => c.id)
             : [];
           const firstId = inPhaseIds[0];
           const lastId  = inPhaseIds[inPhaseIds.length - 1];
 
-          const hasPhase = Boolean(phase && column.colors);
+          const hasPhase = Boolean(column.colors);
           const rail = hasPhase ? `solid 3px ${column.colors!.lineColor}` : "none";
 
           const sortKey = column.sortKey || column.id;
