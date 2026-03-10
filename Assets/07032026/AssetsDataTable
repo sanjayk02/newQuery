@@ -432,26 +432,19 @@ const AssetRow: React.FC<AssetRowProps & { hiddenColumns: Set<string>; compact: 
     componentName: string
   ) => {
     const assetKey = `${asset.group_1}-${asset.relation}`;
-    const componentList = latestComponents && latestComponents[assetKey] || [];
+    const componentList: any[] = latestComponents && latestComponents[assetKey] || [];
 
-    // Map component names to expected phases
-    const phaseMap: { [key: string]: string } = {
-      'mdlRend': 'mdl',
-      'bldAnm': 'bld',
-      'bldRend': 'bld',
-      'ldvMdl': 'ldv'
-    };
-    
-    const expectedPhase = phaseMap[componentName];
-    
-    // Find the item that matches the phase
-    const item = componentList.find((x: any) => 
-      x.latest_document && x.latest_document.phase && x.latest_document.phase.toLowerCase() === expectedPhase
-    );
+    // Match by component name directly — this works for any component ID regardless
+    // of how many components share the same phase (e.g. bldAnm + bldRend both in bld).
+    // Falls back to a case-insensitive check in case casing differs between
+    // the pipeline config and the data returned by the API.
+    const item =
+      componentList.find((x) => x.component === componentName) ||
+      componentList.find((x) => x.component?.toLowerCase() === componentName.toLowerCase());
 
     if (item && item.latest_document) {
       return {
-        component: componentName,
+        component: item.component,
         phase: item.latest_document.phase,
         submittedAt: item.latest_document.submitted_at_utc,
       };
