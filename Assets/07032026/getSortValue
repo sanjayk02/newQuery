@@ -1,0 +1,66 @@
+const getSortValue = (
+  asset: any,
+  key: string,
+  latestComponents?: Record<string, any>
+) => {
+
+  /* ----------------------------------------
+     TAKE columns (numeric)
+  ---------------------------------------- */
+  const takeMatch = key.match(/^(mdl|rig|bld|dsn|ldv)_take$/i);
+
+  if (takeMatch) {
+    const val = asset[key];
+    return val ? parseInt(String(val).replace(/\D/g, ""), 10) : 0;
+  }
+
+
+  /* ----------------------------------------
+     Phase Submitted columns
+     mdl_submitted, rig_submitted etc
+  ---------------------------------------- */
+  if (key.endsWith("_submitted")) {
+    const date = new Date(asset[key + "_at_utc"] || asset[key]);
+    return isNaN(date.getTime()) ? 0 : date.getTime();
+  }
+
+
+  /* ----------------------------------------
+     Dynamic Component Submitted columns
+     mdlRend, bldAnm, bldRend, dsnImg etc
+  ---------------------------------------- */
+  if (latestComponents) {
+
+    const cleanRelation = (asset.relation || "")
+      .toString()
+      .trim()
+      .replace(/^_+|_+$/g, "");
+
+    const assetKey = `${asset.group_1}-${cleanRelation}`;
+
+    const componentList = latestComponents?.[assetKey] || [];
+
+    const componentData =
+      componentList.find((item: any) => item.component === key) ||
+      componentList.find(
+        (item: any) =>
+          item.component &&
+          item.component.toLowerCase() === key.toLowerCase()
+      );
+
+    if (componentData?.latest_document?.submitted_at_utc) {
+
+      const date = new Date(
+        componentData.latest_document.submitted_at_utc
+      );
+
+      return isNaN(date.getTime()) ? 0 : date.getTime();
+    }
+  }
+
+
+  /* ----------------------------------------
+     Default fallback
+  ---------------------------------------- */
+  return asset[key] || "";
+};
