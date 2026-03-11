@@ -1,0 +1,11 @@
+Hi Kobayashi-san,
+
+Thank you for the explanation.
+
+I checked the Potoo project and the PipelineSetting configuration. The issue was related to the project-specific component settings, which caused the columns to shift compared to the Common configuration.
+
+I have updated the column handling so that it correctly reflects the PipelineSetting for the project, and the alignment should now be correct.
+
+Could you please check again on your side?
+
+Thank you for your support.
