@@ -1,0 +1,147 @@
+const ShotRow: React.FC<ShotRowProps> = ({
+  shot,
+  reviewInfos,
+  thumbnails,
+  phaseComponents,
+  latestComponents,
+  dateTimeFormat,
+  isLastRow,
+  columnsState,
+}) => {
+
+  const shotPath = shot.groups.join('/');
+
+  return (
+    <TableRow>
+
+      {/* Thumbnail */}
+      {columnsState["thumbnail"] && (
+        <TableCell>
+          {thumbnails[`${shotPath}-${shot.relation}`] ? (
+            <img
+              src={thumbnails[`${shotPath}-${shot.relation}`]}
+              alt={`${shotPath} thumbnail`}
+              style={{ width: '100px', height: 'auto' }}
+            />
+          ) : (
+            <span>No Thumbnail</span>
+          )}
+        </TableCell>
+      )}
+
+      {/* Name Columns */}
+      {columnsState["group_1_name"] && (
+        <TableCell>{shot.groups[0]}</TableCell>
+      )}
+
+      {columnsState["group_2_name"] && (
+        <TableCell>{shot.groups[1]}</TableCell>
+      )}
+
+      {columnsState["group_3_name"] && (
+        <TableCell>{shot.groups[2]}</TableCell>
+      )}
+
+      {/* Phase Columns */}
+      {Object.entries(SHOT_PHASES).map(([phase, { lineColor }]) => {
+
+        const workColumn = `${phase}_work_status`;
+        const approvalColumn = `${phase}_approval_status`;
+        const submittedColumn = `${phase}_submitted_at`;
+
+        if (
+          !columnsState[workColumn] &&
+          !columnsState[approvalColumn] &&
+          !columnsState[submittedColumn]
+        ) {
+          return null;
+        }
+
+        const reviewInfoName =
+          `${shot.groups[0]}-${shot.groups[1]}-${shot.groups[2]}-${phase}`;
+
+        const info = reviewInfos[reviewInfoName];
+
+        const workStatus =
+          info && WORK_STATUS[info.work_status];
+
+        const approvalStatus =
+          info && APPROVAL_STATUS[info.approval_status];
+
+        const tooltipText =
+          info && info.review_comments
+            .filter(reviewComment => reviewComment.text !== '')
+            .map(reviewComment =>
+              `${reviewComment.language}:\n${reviewComment.text}`)
+            .join('\n') || '';
+
+        const borderLineStyle = `solid 3px ${lineColor}`;
+
+        const shotsKey =
+          `${shot.groups[0]}-${shot.groups[1]}-${shot.groups[2]}-${shot.relation}`;
+
+        const latestDocuments =
+          latestComponents[shotsKey] || [];
+
+        return (
+          <React.Fragment key={phase}>
+
+            {/* Work Status */}
+            {columnsState[workColumn] && (
+              <MultiLineTooltipTableCell
+                tooltipText={tooltipText}
+                status={workStatus}
+                leftBorderStyle={borderLineStyle}
+                rightBorderStyle={'none'}
+                bottomBorderStyle={isLastRow ? borderLineStyle : 'none'}
+              />
+            )}
+
+            {/* Approval Status */}
+            {columnsState[approvalColumn] && (
+              <MultiLineTooltipTableCell
+                tooltipText={tooltipText}
+                status={approvalStatus}
+                leftBorderStyle={'none'}
+                rightBorderStyle={borderLineStyle}
+                bottomBorderStyle={isLastRow ? borderLineStyle : 'none'}
+              />
+            )}
+
+            {/* Submitted Columns */}
+            {columnsState[submittedColumn] &&
+              (phase in phaseComponents
+                ? phaseComponents[phase]
+                : []
+              ).map(component => {
+
+                const latestDocument =
+                  latestDocuments.find(
+                    doc => doc.component === component
+                  );
+
+                return (
+                  <TableCell key={`${phase}-${component}`}>
+                    {latestDocument
+                      ? dateTimeFormat.format(
+                          new Date(
+                            latestDocument.latest_document.submitted_at_utc
+                          )
+                        )
+                      : '-'}
+                  </TableCell>
+                );
+              })}
+          </React.Fragment>
+        );
+
+      })}
+
+      {/* Relation */}
+      {columnsState["relation"] && (
+        <TableCell>{shot.relation}</TableCell>
+      )}
+
+    </TableRow>
+  );
+};
