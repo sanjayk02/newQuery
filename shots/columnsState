@@ -1,0 +1,11 @@
+{columnsState["group_1_name"] && (
+  <TableCell style={{ whiteSpace: 'nowrap', width: 'auto' }}>{shot.groups[0]}</TableCell>
+)}
+
+{columnsState["group_2_name"] && (
+  <TableCell style={{ whiteSpace: 'nowrap', width: 'auto' }}>{shot.groups[1]}</TableCell>
+)}
+
+{columnsState["group_3_name"] && (
+  <TableCell style={{ whiteSpace: 'nowrap', width: 'auto' }}>{shot.groups[2]}</TableCell>
+)}
