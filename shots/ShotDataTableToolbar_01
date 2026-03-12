@@ -220,14 +220,7 @@ const ParentItem = styled(ListItem)(({ theme }) => ({
   },
 }));
 
-const ChildItem = styled(ListItem)(({ theme }) => ({
-  paddingLeft: 32,
-  paddingTop: 2,
-  paddingBottom: 2,
-  '&:hover': {
-    backgroundColor: theme.palette.action.hover,
-  },
-}));
+
 
 const PhaseDivider = styled(Divider)(({ theme }) => ({
   margin: theme.spacing(1, 0),
@@ -843,12 +836,12 @@ const ColumnSelector: React.FC<{
                         onClick={() =>
                           onChange({
                             ...columnState,
-                            [col.id]: !columnState[col.id],
+                            [col.id]: columnState[col.id] !== false ? false : true,
                           })
                         }
                       >
                         <Checkbox
-                          checked={!!columnState[col.id]}
+                          checked={columnState[col.id] !== false}
                           size="small"
                           edge="start"
                           disableRipple
