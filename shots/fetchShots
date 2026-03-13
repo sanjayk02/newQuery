@@ -1,0 +1,117 @@
+export const fetchShots = async (
+  project: string,
+  page: number,
+  rowsPerPage: number,
+  search?: string,
+  approvalStatus?: string[],
+  workStatus?: string[],
+  signal?: AbortSignal | null,
+): Promise<ShotsResponse> => {
+  const headers = getAuthHeader();
+  let url: string | null = `/api/projects/${project}/publishOperationInfo/shots`;
+  const params = new URLSearchParams();
+  params.set('per_page', String(rowsPerPage));
+  params.set('page', String(page + 1));
+  if (search && search.trim().length >= 3) {
+    params.set('search', search.trim());
+  }
+  if (approvalStatus && approvalStatus.length > 0) {
+    approvalStatus.forEach(s => params.append('approval_status', s));
+  }
+  if (workStatus && workStatus.length > 0) {
+    workStatus.forEach(s => params.append('work_status', s));
+  }
+  url += `?${params}`;
+  const res = await fetch(
+    url,
+    {
+      method: 'GET',
+      headers,
+      mode: 'cors',
+      signal,
+    },
+  );
+  if (res.status === 401) {
+    throw new AuthorizationError();
+  }
+  if (!res.ok) {
+    throw new Error('Failed to fetch parameters.');
+  }
+  setNewToken(res);
+  const json: ShotsResponse = await res.json();
+  return json;
+};
+
+export function useFetchShots(
+  project: Project | null | undefined,
+  page: number,
+  rowsPerPage: number,
+  search?: string,
+  approvalStatus?: string[],
+  workStatus?: string[],
+): { shots: Shot[], total: number } {
+  const [shots, setShots] = useState<Shot[]>([]);
+  const [total, setTotal] = useState(0);
+
+  useEffect(() => {
+    if (project == null) {
+      return;
+    }
+    const controller = new AbortController();
+
+    (async () => {
+      const res = await fetchShots(
+        project.key_name,
+        page,
+        rowsPerPage,
+        search,
+        approvalStatus,
+        workStatus,
+        controller.signal,
+      ).catch((err) => {
+        if (err.name === 'AbortError') {
+          return;
+        }
+        console.error(err);
+      });
+      if (res != null) {
+        setShots(res.shots);
+        setTotal(res.total);
+      }
+    })();
+    return () => controller.abort();
+  }, [project, page, rowsPerPage, search, approvalStatus, workStatus]);
+
+  return { shots, total };
+};
+
+
+const { shots, total } = useFetchShots(
+  currentProject,
+  pageProps.page,
+  pageProps.rowsPerPage,
+  searchValue,
+  filters.approvalStatus,
+  filters.workStatus,
+);
+
+useEffect(() => {
+  setPageProps(prev => ({ ...prev, page: 0 }));
+}, [searchValue, filters.approvalStatus, filters.workStatus]);
+
+<TableBody>
+  {shots.map((shot, index) => (
+    <ShotRow
+      key={`${shot.groups.join('/')}-${shot.relation}-${index}`}
+      shot={shot}
+      reviewInfos={reviewInfos}
+      thumbnails={thumbnails}
+      phaseComponents={phaseComponents}
+      latestComponents={latestComponents}
+      dateTimeFormat={dateTimeFormat}
+      isLastRow={(index === shots.length - 1)}
+      columnsState={columnsState}
+    />
+  ))}
+</TableBody>
+
