@@ -1,0 +1,25 @@
+const filteredShots = shots.filter(shot => {
+  // Search filter
+  if (searchValue.trim() !== '') {
+    const search = searchValue.toLowerCase();
+    const matchesSearch = shot.groups.some(group =>
+      group.toLowerCase().includes(search)
+    );
+    if (!matchesSearch) return false;
+  }
+
+  // Approval/Work status filter
+  if (filters.approvalStatus.length === 0 && filters.workStatus.length === 0) return true;
+
+  return Object.keys(SHOT_PHASES).some(phase => {
+    const key = `${shot.groups[0]}-${shot.groups[1]}-${shot.groups[2]}-${phase}`;
+    const info = reviewInfos[key];
+    if (!info) return false;
+
+    const matchesApproval = filters.approvalStatus.length === 0 ||
+      filters.approvalStatus.includes(info.approval_status);
+    const matchesWork = filters.workStatus.length === 0 ||
+      filters.workStatus.includes(info.work_status);
+    return matchesApproval && matchesWork;
+  });
+});
