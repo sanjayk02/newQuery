@@ -1,0 +1,33 @@
+approvalStatus: [
+  { id: "check", label: "Check", phase: "Review",
+    children: [
+      { id: "clientReview", label: "Client Review", phase: "Review" },
+      { id: "dirReview", label: "Dir Review", phase: "Review" },
+      { id: "epdReview", label: "EPD Review", phase: "Review" },
+    ]
+  },
+  { id: "onHold", label: "On Hold", phase: "Hold",
+    children: [
+      { id: "clientOnHold", label: "Client On Hold", phase: "Hold" },
+      { id: "dirOnHold", label: "Dir On Hold", phase: "Hold" },
+      { id: "epdOnHold", label: "EPD On Hold", phase: "Hold" },
+    ]
+  },
+  { id: "retake", label: "Retake", phase: "Retake",
+    children: [
+      { id: "execRetake", label: "Exec Retake", phase: "Retake" },
+      { id: "clientRetake", label: "Client Retake", phase: "Retake" },
+      { id: "dirRetake", label: "Dir Retake", phase: "Retake" },
+      { id: "epdRetake", label: "EPD Retake", phase: "Retake" },
+    ]
+  },
+  { id: "approved", label: "Approved", phase: "Approved",
+    children: [
+      { id: "clientApproved", label: "Client Approved", phase: "Approved" },
+      { id: "dirApproved", label: "Dir Approved", phase: "Approved" },
+      { id: "epdApproved", label: "EPD Approved", phase: "Approved" },
+    ]
+  },
+  { id: "other", label: "Other", phase: "Other" },
+  { id: "omit", label: "Omit", phase: "Other" },
+],
