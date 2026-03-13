@@ -1,0 +1,8 @@
+// Replace these two separate deps with stringified versions
+useEffect(() => {
+  setPageProps(prev => ({ ...prev, page: 0 }));
+}, [searchValue, JSON.stringify(filters.approvalStatus), JSON.stringify(filters.workStatus)]);
+
+
+// Stringify arrays in dependency array
+  }, [project, page, rowsPerPage, search, JSON.stringify(approvalStatus), JSON.stringify(workStatus)]);
