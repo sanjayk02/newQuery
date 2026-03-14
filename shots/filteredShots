@@ -1,47 +1,26 @@
 const filteredShots = shots.filter(shot => {
-  const group1 = shot.groups[0]?.toLowerCase() || "";
-  const group2 = shot.groups[1]?.toLowerCase() || "";
-  const group3 = shot.groups[2]?.toLowerCase() || "";
-  const shotName = `${group1}-${group2}-${group3}`;
 
-  const search = searchValue.trim().toLowerCase();
+  const key = `${shot.groups[0]}-${shot.groups[1]}-${shot.groups[2]}`
 
-  /* ---------------- SEARCH FILTER ---------------- */
+  const infos = Object.values(reviewInfos).filter(info =>
+    info.groups.join('-') === key
+  )
 
-  if (search.length > 0) {
-    if (
-      !shotName.includes(search) &&
-      !group1.includes(search) &&
-      !group2.includes(search) &&
-      !group3.includes(search)
-    ) {
-      return false;
+  if (filters.approvalStatus.length > 0) {
+    if (!infos.some(info =>
+      filters.approvalStatus.includes(info.approval_status)
+    )) {
+      return false
     }
   }
 
-  /* ---------------- STATUS FILTER ---------------- */
-
-  if (filters.approvalStatus.length === 0 && filters.workStatus.length === 0) {
-    return true;
+  if (filters.workStatus.length > 0) {
+    if (!infos.some(info =>
+      filters.workStatus.includes(info.work_status)
+    )) {
+      return false
+    }
   }
 
-  const hasMatchingPhase = Object.keys(SHOT_PHASES).some(phase => {
-
-    const key = `${shot.groups[0]}-${shot.groups[1]}-${shot.groups[2]}-${phase}`;
-    const info = reviewInfos[key];
-
-    if (!info) return false;
-
-    const approvalMatch =
-      filters.approvalStatus.length === 0 ||
-      filters.approvalStatus.includes(info.approval_status);
-
-    const workMatch =
-      filters.workStatus.length === 0 ||
-      filters.workStatus.includes(info.work_status);
-
-    return approvalMatch && workMatch;
-  });
-
-  return hasMatchingPhase;
-});
+  return true
+})
