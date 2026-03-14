@@ -1,25 +1,48 @@
-const filteredShots = shots.filter(shot => {
+const filteredShots = shots.filter((shot) => {
 
-  const key = `${shot.groups[0]}-${shot.groups[1]}-${shot.groups[2]}`
+  const search = searchValue.trim().toLowerCase()
 
-  const infos = Object.values(reviewInfos).filter(info =>
-    info.groups.join('-') === key
-  )
+  const group1 = shot.groups[0]?.toLowerCase() || ""
+  const group2 = shot.groups[1]?.toLowerCase() || ""
+  const group3 = shot.groups[2]?.toLowerCase() || ""
 
-  if (filters.approvalStatus.length > 0) {
-    if (!infos.some(info =>
-      filters.approvalStatus.includes(info.approval_status)
-    )) {
+  const shotName = `${group1}-${group2}-${group3}`
+
+  // SEARCH FILTER
+  if (search.length > 0) {
+    if (
+      !shotName.includes(search) &&
+      !group1.includes(search) &&
+      !group2.includes(search) &&
+      !group3.includes(search)
+    ) {
       return false
     }
   }
 
+  // Find all reviewInfos for this shot
+  const shotKeyPrefix = `${shot.groups[0]}-${shot.groups[1]}-${shot.groups[2]}-`
+
+  const shotInfos = Object.entries(reviewInfos)
+    .filter(([key]) => key.startsWith(shotKeyPrefix))
+    .map(([, info]) => info)
+
+  // APPROVAL STATUS FILTER
+  if (filters.approvalStatus.length > 0) {
+    const hasApproval = shotInfos.some(info =>
+      filters.approvalStatus.includes(info.approval_status)
+    )
+
+    if (!hasApproval) return false
+  }
+
+  // WORK STATUS FILTER
   if (filters.workStatus.length > 0) {
-    if (!infos.some(info =>
+    const hasWork = shotInfos.some(info =>
       filters.workStatus.includes(info.work_status)
-    )) {
-      return false
-    }
+    )
+
+    if (!hasWork) return false
   }
 
   return true
