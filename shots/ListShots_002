@@ -1,0 +1,126 @@
+func (poi *PublishOperationInfo) ListShots(
+	ctx context.Context,
+	params *entity.ShotListParams,
+) (documents []*entity.ShotDocument, total int64, err error) {
+
+	col := poi.db.Collection("pc_publishOperationInfo")
+
+	// Base filter
+	filter := bson.D{
+		{"_central.project", params.Project},
+		{"root", "shots"},
+	}
+
+	// Global Search
+	if params.Search != nil && *params.Search != "" {
+		search := *params.Search
+
+		filter = append(filter, bson.E{
+			Key: "$or",
+			Value: bson.A{
+				bson.D{{"groups.0", bson.D{{"$regex", "^" + search}, {"$options", "i"}}}},
+				bson.D{{"groups.1", bson.D{{"$regex", "^" + search}, {"$options", "i"}}}},
+				bson.D{{"groups.2", bson.D{{"$regex", "^" + search}, {"$options", "i"}}}},
+			},
+		})
+	}
+
+	// Approval Status Filter
+	if len(params.ApprovalStatus) > 0 {
+		filter = append(filter, bson.E{
+			Key: "approval_status",
+			Value: bson.D{
+				{"$in", params.ApprovalStatus},
+			},
+		})
+	}
+
+	// Work Status Filter
+	if len(params.WorkStatus) > 0 {
+		filter = append(filter, bson.E{
+			Key: "work_status",
+			Value: bson.D{
+				{"$in", params.WorkStatus},
+			},
+		})
+	}
+
+	// Pagination offset
+	offset := (params.GetPage() - 1) * params.GetPerPage()
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Optimized aggregation pipeline
+	pipeline := mongo.Pipeline{
+
+		// 1️⃣ Filter
+		{{"$match", filter}},
+
+		// 2️⃣ Reduce document size (performance improvement)
+		{{"$project", bson.D{
+			{"groups", 1},
+			{"relation", 1},
+		}}},
+
+		// 3️⃣ Group unique shots
+		{{"$group", bson.D{
+			{"_id", bson.D{
+				{"groups", "$groups"},
+				{"relation", "$relation"},
+			}},
+		}}},
+
+		// 4️⃣ Sort
+		{{"$sort", bson.D{
+			{"_id.groups", 1},
+		}}},
+
+		// 5️⃣ Pagination + total count
+		{{"$facet", bson.D{
+			{"total", bson.A{
+				bson.D{{"$count", "totalCount"}},
+			}},
+			{"documents", bson.A{
+				bson.D{{"$skip", offset}},
+				bson.D{{"$limit", params.PerPage}},
+				bson.D{{"$project", bson.D{
+					{"_id", 0},
+					{"groups", "$_id.groups"},
+					{"relation", "$_id.relation"},
+				}}},
+			}},
+		}}},
+	}
+
+	cursor, err := col.Aggregate(ctx, pipeline)
+	if err != nil {
+		return
+	}
+	defer cursor.Close(ctx)
+
+	var result struct {
+		Total []struct {
+			TotalCount int64 `bson:"totalCount"`
+		} `bson:"total"`
+		Documents []*entity.ShotDocument `bson:"documents"`
+	}
+
+	if cursor.Next(ctx) {
+		if err = cursor.Decode(&result); err != nil {
+			return
+		}
+	}
+
+	if len(result.Total) > 0 {
+		total = result.Total[0].TotalCount
+	}
+
+	documents = result.Documents
+
+	if documents == nil {
+		documents = []*entity.ShotDocument{}
+	}
+
+	return
+}
