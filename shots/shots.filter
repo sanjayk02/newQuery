@@ -1,0 +1,18 @@
+const filteredShots = shots.filter(shot => {
+  if (searchValue.trim().length === 0) return true;
+
+  const search = searchValue.toLowerCase();
+
+  const group1 = shot.groups[0]?.toLowerCase() || "";
+  const group2 = shot.groups[1]?.toLowerCase() || "";
+  const group3 = shot.groups[2]?.toLowerCase() || "";
+
+  const shotName = `${group1}-${group2}-${group3}`;
+
+  return (
+    shotName.includes(search) ||
+    group1.includes(search) ||
+    group2.includes(search) ||
+    group3.includes(search)
+  );
+});
