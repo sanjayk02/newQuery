@@ -6,8 +6,8 @@ const ShotsDataTable: React.FC<ShotsDataTableProps> = ({
   tableFooter,
   dateTimeFormat,
   columnsState,
-  filters, // Still receive but don't use for filtering
-  searchValue, // Still receive but don't use for filtering
+  filters,
+  searchValue,
 }) => {
   if (project == null) {
     return null;
@@ -18,8 +18,33 @@ const ShotsDataTable: React.FC<ShotsDataTableProps> = ({
     column.fixed || columnsState[column.id] !== false
   );
 
-  // REMOVE the filteredShots logic - use shots directly from props
-  // These are already filtered by the backend
+  // Apply filters on the frontend (temporary solution)
+  const filteredShots = shots.filter(shot => {
+    // Get the review info for this shot
+    const shotReviewInfos = Object.entries(reviewInfos)
+      .filter(([key]) => key.startsWith(shot.groups.join('-')))
+      .map(([, info]) => info);
+
+    // Check if any phase matches the approval status filters
+    if (filters.approvalStatus.length > 0) {
+      const matchesApproval = shotReviewInfos.some(info => 
+        filters.approvalStatus.includes(info.approval_status)
+      );
+      if (!matchesApproval) return false;
+    }
+
+    // Check if any phase matches the work status filters
+    if (filters.workStatus.length > 0) {
+      const matchesWork = shotReviewInfos.some(info => 
+        filters.workStatus.includes(info.work_status)
+      );
+      if (!matchesWork) return false;
+    }
+
+    return true;
+  });
+
+  console.log('Filtered shots:', filteredShots.length, 'out of', shots.length);
 
   return (
     <Table 
@@ -37,7 +62,7 @@ const ShotsDataTable: React.FC<ShotsDataTableProps> = ({
         columnsState={columnsState}
       />
       <TableBody>
-        {shots.map((shot, index) => ( // Use shots directly, not filteredShots
+        {filteredShots.map((shot, index) => (
           <ShotRow
             key={`${shot.groups.join('/')}-${shot.relation}-${index}`}
             shot={shot}
@@ -46,7 +71,7 @@ const ShotsDataTable: React.FC<ShotsDataTableProps> = ({
             phaseComponents={phaseComponents}
             latestComponents={latestComponents}
             dateTimeFormat={dateTimeFormat}
-            isLastRow={(index === shots.length - 1)}
+            isLastRow={(index === filteredShots.length - 1)}
             columnsState={columnsState}
           />
         ))}
