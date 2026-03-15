@@ -1,0 +1,34 @@
+// These should ideally come from an API or configuration
+const APPROVAL_STATUS_OPTIONS = [
+  { id: "check", label: "Check", phase: "Review" },
+  { id: "clientReview", label: "Client Review", phase: "Review" },
+  { id: "dirReview", label: "Dir Review", phase: "Review" },
+  { id: "epdReview", label: "EPD Review", phase: "Review" },
+  { id: "clientOnHold", label: "Client On Hold", phase: "Hold" },
+  { id: "dirOnHold", label: "Dir On Hold", phase: "Hold" },
+  { id: "epdOnHold", label: "EPD On Hold", phase: "Hold" },
+  { id: "execRetake", label: "Exec Retake", phase: "Retake" },
+  { id: "clientRetake", label: "Client Retake", phase: "Retake" },
+  { id: "dirRetake", label: "Dir Retake", phase: "Retake" },
+  { id: "epdRetake", label: "EPD Retake", phase: "Retake" },
+  { id: "clientApproved", label: "Client Approved", phase: "Approved" },
+  { id: "dirApproved", label: "Dir Approved", phase: "Approved" },
+  { id: "epdApproved", label: "EPD Approved", phase: "Approved" },
+  { id: "other", label: "Other", phase: "Other" },
+  { id: "omit", label: "Omit", phase: "Other" },
+];
+
+const WORK_STATUS_OPTIONS = [
+  { id: "check", label: "Check", phase: "Review" },
+  { id: "cgsvOnHold", label: "CGSV On Hold", phase: "Hold" },
+  { id: "svOnHold", label: "SV On Hold", phase: "Hold" },
+  { id: "leadOnHold", label: "Lead On Hold", phase: "Hold" },
+  { id: "cgsvRetake", label: "CGSV Retake", phase: "Retake" },
+  { id: "svRetake", label: "SV Retake", phase: "Retake" },
+  { id: "leadRetake", label: "Lead Retake", phase: "Retake" },
+  { id: "cgsvApproved", label: "CGSV Approved", phase: "Approved" },
+  { id: "svApproved", label: "SV Approved", phase: "Approved" },
+  { id: "leadApproved", label: "Lead Approved", phase: "Approved" },
+  { id: "svOther", label: "SV Other", phase: "Other" },
+  { id: "leadOther", label: "Lead Other", phase: "Other" },
+];
