@@ -8,12 +8,10 @@ export const fetchShots = async (
   signal?: AbortSignal | null,
 ): Promise<ShotsResponse> => {
   const headers = getAuthHeader();
-  let url: string | null = `/api/projects/${project}/publishOperationInfo/shots`;
   const params = new URLSearchParams();
   params.set('per_page', String(rowsPerPage));
   params.set('page', String(page + 1));
 
-  // Always send search if it exists (no minimum length requirement on frontend)
   if (search && search.trim().length > 0) {
     params.set('search', search.trim());
   }
@@ -28,25 +26,14 @@ export const fetchShots = async (
     workStatus.forEach(s => params.append('work_status', s));
   }
   
-  url += `?${params}`;
+  const url = `/api/projects/${project}/publishOperationInfo/shots?${params}`;
   
-  const res = await fetch(
-    url,
-    {
-      method: 'GET',
-      headers,
-      mode: 'cors',
-      signal,
-    },
-  );
+  const res = await fetch(url, {
+    method: 'GET',
+    headers,
+    mode: 'cors',
+    signal,
+  });
   
-  if (res.status === 401) {
-    throw new AuthorizationError();
-  }
-  if (!res.ok) {
-    throw new Error('Failed to fetch parameters.');
-  }
-  setNewToken(res);
-  const json: ShotsResponse = await res.json();
-  return json;
+  // ... handle response
 };
