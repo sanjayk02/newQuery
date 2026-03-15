@@ -3,77 +3,46 @@ const FilterMenu: React.FC<{
   onChange: (newFilters: Filters) => void;
 }> = ({ filters, onChange }) => {
   const [open, setOpen] = React.useState(false);
-  const [tempFilters, setTempFilters] = React.useState<Filters>({
-    shotGroups: [],
-    approvalStatus: [],
-    workStatus: []
-  });
   const [openSections, setOpenSections] = React.useState<string[]>(['approvalStatus', 'workStatus']);
-
-  // Reset temp filters when drawer opens
-  React.useEffect(() => {
-    if (open) {
-      console.log('📂 Drawer opened, copying parent filters:', filters);
-      setTempFilters({
-        shotGroups: [...(filters.shotGroups || [])],
-        approvalStatus: [...(filters.approvalStatus || [])],
-        workStatus: [...(filters.workStatus || [])]
-      });
-    }
-  }, [open, filters]);
 
   const handleFilterChange = (section: keyof Filters, optionId: string) => {
     console.log(`🔧 Toggle filter - Section: ${section}, Option: ${optionId}`);
     
-    setTempFilters(prev => {
-      // Get current array for this section, ensuring it's an array
-      const currentArray = prev[section] as string[] || [];
-      console.log(`📊 Current ${section} array:`, currentArray);
-      
-      // Toggle the value
-      const newArray = currentArray.includes(optionId)
-        ? currentArray.filter(v => v !== optionId)
-        : [...currentArray, optionId];
-      
-      console.log(`📊 New ${section} array:`, newArray);
-      
-      // Create the updated state
-      const updatedState = {
-        ...prev,
-        [section]: newArray
-      };
-      
-      console.log('📊 Updated tempFilters state:', updatedState);
-      return updatedState;
-    });
-  };
-
-  const handleSave = () => {
-    console.log('🔵 SAVING FILTERS - tempFilters:', tempFilters);
-    console.log('🔵 Approval Status being sent:', tempFilters.approvalStatus);
-    console.log('🔵 Work Status being sent:', tempFilters.workStatus);
+    // Get current array for this section
+    const currentArray = filters[section] as string[] || [];
+    console.log(`📊 Current ${section} array:`, currentArray);
     
-    // Make sure we're sending the tempFilters to the parent
-    onChange({
-      shotGroups: tempFilters.shotGroups || [],
-      approvalStatus: tempFilters.approvalStatus || [],
-      workStatus: tempFilters.workStatus || []
-    });
+    // Toggle the value
+    const newArray = currentArray.includes(optionId)
+      ? currentArray.filter(v => v !== optionId)
+      : [...currentArray, optionId];
     
-    setOpen(false);
+    console.log(`📊 New ${section} array:`, newArray);
+    
+    // Create updated filters object
+    const updatedFilters = {
+      ...filters,
+      [section]: newArray
+    };
+    
+    console.log('📊 Applying filters immediately:', updatedFilters);
+    
+    // Apply filters immediately
+    onChange(updatedFilters);
   };
 
   const handleClearAll = () => {
     console.log('🧹 Clearing all filters');
-    setTempFilters({
+    const clearedFilters = {
       shotGroups: [],
       approvalStatus: [],
       workStatus: [],
-    });
+    };
+    onChange(clearedFilters);
   };
 
   const handleHideAll = () => {
-    console.log('👻 Hiding drawer without saving');
+    console.log('👻 Hiding drawer');
     setOpen(false);
   };
 
@@ -95,9 +64,7 @@ const FilterMenu: React.FC<{
   };
 
   const isChildSelected = (section: string, childId: string) => {
-    const selected = (tempFilters[section as keyof Filters] as string[] || []).includes(childId);
-    console.log(`🔍 Checking if ${childId} is selected in ${section}: ${selected}`);
-    return selected;
+    return (filters[section as keyof Filters] as string[] || []).includes(childId);
   };
 
   // Approval Status options organized by phase
@@ -301,25 +268,14 @@ const FilterMenu: React.FC<{
         <FilterContainer>
           <FilterHeader>
             <Typography variant="h6">Filters</Typography>
-            <Box display="flex" alignItems="center">
-              <Button
-                size="small"
-                onClick={() => {
-                  console.log('📋 CURRENT TEMP FILTERS:', tempFilters);
-                }}
-                style={{ marginRight: 8 }}
-              >
-                DEBUG
-              </Button>
-              <Button
-                size="small"
-                onClick={handleClearAll}
-                disabled={Object.values(tempFilters).flat().length === 0}
-                style={{ minWidth: 'auto' }}
-              >
-                CLEAR ALL
-              </Button>
-            </Box>
+            <Button
+              size="small"
+              onClick={handleClearAll}
+              disabled={activeFilterCount === 0}
+              style={{ minWidth: 'auto' }}
+            >
+              CLEAR ALL
+            </Button>
           </FilterHeader>
 
           <FilterScrollArea>
@@ -331,7 +287,7 @@ const FilterMenu: React.FC<{
               >
                 <ListItemText
                   primary="Shot Groups"
-                  secondary={`${tempFilters.shotGroups.length}/${shotGroupsOptions.length}`}
+                  secondary={`${filters.shotGroups.length}/${shotGroupsOptions.length}`}
                   secondaryTypographyProps={{ variant: 'caption' }}
                 />
                 {openSections.includes('shotGroups') ? (
@@ -357,7 +313,7 @@ const FilterMenu: React.FC<{
               >
                 <ListItemText
                   primary="Approval Status"
-                  secondary={`${tempFilters.approvalStatus.length}/${approvalStatusOptions.length}`}
+                  secondary={`${filters.approvalStatus.length}/${approvalStatusOptions.length}`}
                   secondaryTypographyProps={{ variant: 'caption' }}
                 />
                 {openSections.includes('approvalStatus') ? (
@@ -383,7 +339,7 @@ const FilterMenu: React.FC<{
               >
                 <ListItemText
                   primary="Work Status"
-                  secondary={`${tempFilters.workStatus.length}/${workStatusOptions.length}`}
+                  secondary={`${filters.workStatus.length}/${workStatusOptions.length}`}
                   secondaryTypographyProps={{ variant: 'caption' }}
                 />
                 {openSections.includes('workStatus') ? (
@@ -411,18 +367,6 @@ const FilterMenu: React.FC<{
               }}
             >
               HIDE ALL
-            </Button>
-            <Button
-              size="small"
-              onClick={handleSave}
-              variant="contained"
-              style={{
-                backgroundColor: '#1976d2',
-                color: '#fff',
-                marginLeft: 8
-              }}
-            >
-              SAVE
             </Button>
           </FilterFooter>
         </FilterContainer>
