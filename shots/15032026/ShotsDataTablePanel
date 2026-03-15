@@ -1,0 +1,58 @@
+const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
+  const [searchValue, setSearchValue] = useState<string>('');
+  const [columnsState, setColumnsState] = useState<ColumnState>(DEFAULT_COLUMN_STATE);
+
+  const [filters, setFilters] = useState<Filters>({
+    assetGroups: [],
+    shotGroups: [],
+    approvalStatus: [],
+    workStatus: [],
+  });
+
+  const initPageProps = {
+    page: 0,
+    rowsPerPage: 15,
+  };
+  const [pageProps, setPageProps] = useState<PageProps>(initPageProps);
+
+  // Track filter changes to reset to page 0
+  const prevSearchRef = useRef(searchValue);
+  const prevApprovalRef = useRef(JSON.stringify(filters.approvalStatus));
+  const prevWorkRef = useRef(JSON.stringify(filters.workStatus));
+
+  const searchOrFilterChanged = 
+    prevSearchRef.current !== searchValue ||
+    prevApprovalRef.current !== JSON.stringify(filters.approvalStatus) ||
+    prevWorkRef.current !== JSON.stringify(filters.workStatus);
+
+  const effectivePage = searchOrFilterChanged ? 0 : pageProps.page;
+
+  // Reset page when filters change
+  useEffect(() => {
+    if (searchOrFilterChanged) {
+      prevSearchRef.current = searchValue;
+      prevApprovalRef.current = JSON.stringify(filters.approvalStatus);
+      prevWorkRef.current = JSON.stringify(filters.workStatus);
+      setPageProps(prev => ({ ...prev, page: 0 }));
+    }
+  }, [searchValue, JSON.stringify(filters.approvalStatus), JSON.stringify(filters.workStatus)]);
+
+  const { currentProject } = useCurrentProject();
+  
+  // Pass ALL filters to the backend
+  const { shots, total } = useFetchShots(
+    currentProject,
+    effectivePage,
+    pageProps.rowsPerPage,
+    searchValue,              // Pass search to backend
+    filters.approvalStatus,   // Pass approval filters to backend
+    filters.workStatus,       // Pass work status filters to backend
+  );
+
+  const { phaseComponents } = useFetchPipelineSettingShotComponents(currentProject);
+  const { currentStudio } = useCurrentStudio();
+  const [timeZone, setTimeZone] = useState<string | undefined>();
+  const { latestComponents } = useFetchLatestShotComponents(currentProject, shots, phaseComponents);
+
+  // ... rest of the component
