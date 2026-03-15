@@ -1,0 +1,49 @@
+func (r *ReviewInfo) ListFilteredShots(
+	db *gorm.DB,
+	project string,
+	approvalStatus []string,
+	workStatus []string,
+) ([]*entity.ShotDocument, error) {
+
+	stmt := db.Model(&model.ReviewInfo{}).
+		Select("group_1, group_2, group_3, relation").
+		Where("project = ?", project).
+		Where("root = ?", "shots").
+		Where("deleted = 0")
+
+	if len(approvalStatus) > 0 {
+		stmt = stmt.Where("approval_status IN ?", approvalStatus)
+	}
+
+	if len(workStatus) > 0 {
+		stmt = stmt.Where("work_status IN ?", workStatus)
+	}
+
+	stmt = stmt.Group("group_1, group_2, group_3, relation")
+
+	var rows []struct {
+		Group1   string `gorm:"column:group_1"`
+		Group2   string `gorm:"column:group_2"`
+		Group3   string `gorm:"column:group_3"`
+		Relation string `gorm:"column:relation"`
+	}
+
+	if err := stmt.Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	var shots []*entity.ShotDocument
+
+	for _, r := range rows {
+		shots = append(shots, &entity.ShotDocument{
+			Groups: []string{
+				r.Group1,
+				r.Group2,
+				r.Group3,
+			},
+			Relation: r.Relation,
+		})
+	}
+
+	return shots, nil
+}
