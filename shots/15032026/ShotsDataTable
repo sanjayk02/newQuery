@@ -1,13 +1,12 @@
 const ShotsDataTable: React.FC<ShotsDataTableProps> = ({
   project,
   shots,
+  allShotsCount,
   phaseComponents,
   latestComponents,
   tableFooter,
   dateTimeFormat,
   columnsState,
-  filters,
-  searchValue,
 }) => {
   if (project == null) {
     return null;
@@ -18,59 +17,8 @@ const ShotsDataTable: React.FC<ShotsDataTableProps> = ({
     column.fixed || columnsState[column.id] !== false
   );
 
-  // Store filtered shots in state to persist across re-renders
-  const [filteredShots, setFilteredShots] = React.useState<Shot[]>([]);
-
-  // Apply filters whenever shots, reviewInfos, or filters change
-  React.useEffect(() => {
-    if (!shots.length) {
-      setFilteredShots([]);
-      return;
-    }
-
-    console.log('🔍 Applying local filters:', filters);
-    console.log('📊 Total shots from backend:', shots.length);
-    
-    const filtered = shots.filter(shot => {
-      const shotKey = `${shot.groups[0]}-${shot.groups[1]}-${shot.groups[2]}`;
-      
-      // Get all review infos for this shot across all phases
-      const shotReviewInfos = Object.entries(reviewInfos)
-        .filter(([key]) => key.startsWith(shotKey))
-        .map(([, info]) => info);
-      
-      // Check approval status filter
-      if (filters.approvalStatus && filters.approvalStatus.length > 0) {
-        const hasMatchingApproval = shotReviewInfos.some(info => 
-          filters.approvalStatus.includes(info.approval_status)
-        );
-        if (!hasMatchingApproval) {
-          console.log(`❌ Shot ${shotKey} filtered out - no matching approval status`);
-          return false;
-        }
-      }
-      
-      // Check work status filter
-      if (filters.workStatus && filters.workStatus.length > 0) {
-        const hasMatchingWork = shotReviewInfos.some(info => 
-          filters.workStatus.includes(info.work_status)
-        );
-        if (!hasMatchingWork) {
-          console.log(`❌ Shot ${shotKey} filtered out - no matching work status`);
-          return false;
-        }
-      }
-      
-      console.log(`✅ Shot ${shotKey} passed filters`);
-      return true;
-    });
-
-    console.log('📊 Filtered shots:', filtered.length, 'out of', shots.length);
-    setFilteredShots(filtered);
-  }, [shots, reviewInfos, filters]);
-
   // Debug logging
-  React.useEffect(() => {
+  useEffect(() => {
     if (shots.length > 0 && Object.keys(reviewInfos).length > 0) {
       const allApprovalStatuses = new Set();
       const allWorkStatuses = new Set();
@@ -84,8 +32,8 @@ const ShotsDataTable: React.FC<ShotsDataTableProps> = ({
         }
       });
       
-      console.log('📊 Available approval statuses in data:', Array.from(allApprovalStatuses));
-      console.log('📊 Available work statuses in data:', Array.from(allWorkStatuses));
+      console.log('📊 Available approval statuses:', Array.from(allApprovalStatuses));
+      console.log('📊 Available work statuses:', Array.from(allWorkStatuses));
     }
   }, [shots, reviewInfos]);
 
@@ -105,7 +53,7 @@ const ShotsDataTable: React.FC<ShotsDataTableProps> = ({
         columnsState={columnsState}
       />
       <TableBody>
-        {filteredShots.map((shot, index) => (
+        {shots.map((shot, index) => (
           <ShotRow
             key={`${shot.groups.join('/')}-${shot.relation}-${index}`}
             shot={shot}
@@ -114,7 +62,7 @@ const ShotsDataTable: React.FC<ShotsDataTableProps> = ({
             phaseComponents={phaseComponents}
             latestComponents={latestComponents}
             dateTimeFormat={dateTimeFormat}
-            isLastRow={(index === filteredShots.length - 1)}
+            isLastRow={(index === shots.length - 1)}
             columnsState={columnsState}
           />
         ))}
