@@ -3,6 +3,7 @@ import React, {
     useEffect,
     useRef,
     useState,
+    useCallback,
 } from 'react';
 import { RouteComponentProps } from "react-router-dom";
 import { Container, Paper, styled, Box, Divider } from '@material-ui/core';
@@ -12,7 +13,7 @@ import {
     useFetchLatestShotComponents,
     useFetchPipelineSettingShotComponents,
 } from './hooks';
-import { PageProps } from './types';
+import { PageProps, Shot } from './types';
 import ShotsDataTable from './ShotsDataTable'
 import ShotsDataTableFooter from './ShotsDataTableFooter';
 import { useCurrentProject } from '../../hooks';
@@ -60,11 +61,6 @@ const StyledTableDiv = styled('div')(({
     width: '100%',
 }));
 
-const Separator = styled('div')(({ theme }) => ({
-    height: 4,
-    backgroundColor: 'transparent',
-}));
-
 const ToolBarWrapper = styled('div')(({ theme }) => ({
     display: 'flex',
     flexDirection: 'column',
@@ -72,10 +68,10 @@ const ToolBarWrapper = styled('div')(({ theme }) => ({
 }));
 
 /* ------------------------------
-   Main Component
+   Types
 -------------------------------- */
 type Filters = {
-    shotGroups: string[];      // Add this
+    shotGroups: string[];
     approvalStatus: string[];
     workStatus: string[];
 };
@@ -86,10 +82,13 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
     const [columnsState, setColumnsState] = useState<ColumnState>(DEFAULT_COLUMN_STATE);
 
     const [filters, setFilters] = useState<Filters>({
-        shotGroups: [],          // Initialize with empty array
+        shotGroups: [],
         approvalStatus: [],
         workStatus: [],
     });
+
+    // Track filtered count from the table
+    const [filteredCount, setFilteredCount] = useState<number>(0);
 
     const initPageProps = {
         page: 0,
@@ -102,7 +101,7 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
     const prevApprovalRef = useRef(JSON.stringify(filters.approvalStatus));
     const prevWorkRef = useRef(JSON.stringify(filters.workStatus));
 
-    const searchOrFilterChanged =
+    const searchOrFilterChanged = 
         prevSearchRef.current !== searchValue ||
         prevApprovalRef.current !== JSON.stringify(filters.approvalStatus) ||
         prevWorkRef.current !== JSON.stringify(filters.workStatus);
@@ -112,14 +111,17 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
     // Keep refs and pageProps in sync after the render
     useEffect(() => {
         if (searchOrFilterChanged) {
+            console.log('📊 Search or filters changed, resetting to page 0');
             prevSearchRef.current = searchValue;
             prevApprovalRef.current = JSON.stringify(filters.approvalStatus);
             prevWorkRef.current = JSON.stringify(filters.workStatus);
             setPageProps(prev => ({ ...prev, page: 0 }));
         }
-    }, [searchValue, JSON.stringify(filters.approvalStatus), JSON.stringify(filters.workStatus)]);
+    }, [searchValue, filters.approvalStatus, filters.workStatus]);
 
     const { currentProject } = useCurrentProject();
+    
+    // Fetch shots from backend with filters
     const { shots, total } = useFetchShots(
         currentProject,
         effectivePage,
@@ -129,6 +131,8 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
         filters.workStatus,
     );
 
+    console.log('📦 Panel received shots:', shots.length, 'total:', total);
+
     const { phaseComponents } = useFetchPipelineSettingShotComponents(currentProject);
     const { currentStudio } = useCurrentStudio();
     const [timeZone, setTimeZone] = useState<string | undefined>();
@@ -136,7 +140,7 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
 
     useEffect(() => {
         if (currentStudio == null) {
-            return
+            return;
         }
         const controller = new AbortController();
         (async () => {
@@ -164,18 +168,32 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
     }, [currentStudio]);
 
     const handleRowsPerPageChange: TablePaginationProps['onChangeRowsPerPage'] = event => {
+        console.log('📊 Rows per page changed:', event.target.value);
         setPageProps({
             page: 0,
-            rowsPerPage: parseInt(event.target.value),
+            rowsPerPage: parseInt(event.target.value, 10),
         });
     };
 
     const handlePageChange: TablePaginationProps['onChangePage'] = (event, newPage) => {
+        console.log('📊 Page changed:', newPage);
         setPageProps({
             ...pageProps,
             page: newPage,
         });
     };
+
+    const handleFilterChange = useCallback((newFilters: Filters) => {
+        console.log('🎯 Panel received filter change:', newFilters);
+        console.log('🎯 Approval Status:', newFilters.approvalStatus);
+        console.log('🎯 Work Status:', newFilters.workStatus);
+        setFilters(newFilters);
+    }, []);
+
+    const handleFilteredCountChange = useCallback((count: number) => {
+        console.log('📊 Filtered count changed:', count);
+        setFilteredCount(count);
+    }, []);
 
     const dateTimeFormat = new Intl.DateTimeFormat(
         undefined,
@@ -186,9 +204,12 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
         }
     );
 
+    // Use filtered count if available, otherwise use total from backend
+    const displayCount = filteredCount > 0 ? filteredCount : total;
+
     const tableFooter = (
         <ShotsDataTableFooter
-            count={total}
+            count={displayCount}
             page={pageProps.page}
             rowsPerPage={pageProps.rowsPerPage}
             onChangePage={handlePageChange}
@@ -205,7 +226,7 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
                     searchValue={searchValue}
                     onSearchChange={(value: string) => setSearchValue(value)}
                     filters={filters}
-                    onFilterChange={(newFilters: Filters) => setFilters(newFilters)}
+                    onFilterChange={handleFilterChange}
                     columnsState={columnsState}
                     onColumnsChange={setColumnsState}
                 />
@@ -224,6 +245,7 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
                             columnsState={columnsState}
                             filters={filters}
                             searchValue={searchValue}
+                            onFilteredCountChange={handleFilteredCountChange}
                         />
                     </StyledContentDiv>
                 </StyledPaper>
