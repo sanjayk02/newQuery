@@ -1,9 +1,87 @@
+import React, {
+    FC,
+    useEffect,
+    useRef,
+    useState,
+    useCallback,
+    useMemo,
+} from 'react';
+import { RouteComponentProps } from "react-router-dom";
+import { Container, Paper, styled, Box, Divider } from '@material-ui/core';
+import { TablePaginationProps } from '@material-ui/core/TablePagination';
+import {
+    useFetchShots,
+    useFetchLatestShotComponents,
+    useFetchPipelineSettingShotComponents,
+} from './hooks';
+import { PageProps, Shot } from './types';
+import ShotsDataTable from './ShotsDataTable'
+import ShotsDataTableFooter from './ShotsDataTableFooter';
+import { useCurrentProject } from '../../hooks';
+import { useCurrentStudio } from '../../../studio/hooks';
+import { queryConfig } from '../../../new-pipeline-setting/api';
+
+/* import shotsDataTablebar */
+import ShotDataTableToolbar, { ViewMode, ColumnState, DEFAULT_COLUMN_STATE } from './ShotDataTableToolbar';
+
+const StyledContainer = styled(Container)(({ theme }) => ({
+    position: 'relative',
+    display: 'flex',
+    flexDirection: 'column',
+    padding: 0,
+    '& > *': {
+        display: 'flex',
+        overflow: 'hidden',
+        padding: theme.spacing(1),
+        paddingBottom: 0,
+    },
+    '& > *:last-child': {
+        paddingBottom: theme.spacing(1),
+    },
+}));
+
+const StyledPaper = styled(Paper)({
+    width: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'auto',
+});
+
+const StyledContentDiv = styled('div')(({ theme }) => ({
+    backgroundColor: theme.palette.background.paper,
+    display: 'flex',
+    flexDirection: 'row',
+    gap: theme.spacing(2),
+    width: 'fit-content',
+    minWidth: '100%',
+}));
+
+const StyledTableDiv = styled('div')(({
+    paddingBottom: 8,
+    overflowX: 'auto',
+    width: '100%',
+}));
+
+const ToolBarWrapper = styled('div')(({ theme }) => ({
+    display: 'flex',
+    flexDirection: 'column',
+    gap: theme.spacing(1),
+}));
+
+/* ------------------------------
+   Types
+-------------------------------- */
+type Filters = {
+    shotGroups: string[];
+    approvalStatus: string[];
+    workStatus: string[];
+};
+
 const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
     const [viewMode, setViewMode] = useState<ViewMode>('list');
     const [searchValue, setSearchValue] = useState<string>('');
     const [columnsState, setColumnsState] = useState<ColumnState>(DEFAULT_COLUMN_STATE);
-    const [allShots, setAllShots] = useState<Shot[]>([]); // Store all fetched shots
-    const [isLoading, setIsLoading] = useState(false);
+    const [allShots, setAllShots] = useState<Shot[]>([]);
 
     const [filters, setFilters] = useState<Filters>({
         shotGroups: [],
@@ -19,14 +97,37 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
     };
     const [pageProps, setPageProps] = useState<PageProps>(initPageProps);
 
+    // Track the last search/filter values
+    const prevSearchRef = useRef(searchValue);
+    const prevApprovalRef = useRef(JSON.stringify(filters.approvalStatus));
+    const prevWorkRef = useRef(JSON.stringify(filters.workStatus));
+
+    const searchOrFilterChanged = 
+        prevSearchRef.current !== searchValue ||
+        prevApprovalRef.current !== JSON.stringify(filters.approvalStatus) ||
+        prevWorkRef.current !== JSON.stringify(filters.workStatus);
+
+    const effectivePage = searchOrFilterChanged ? 0 : pageProps.page;
+
+    // Reset page when filters change
+    useEffect(() => {
+        if (searchOrFilterChanged) {
+            console.log('📊 Search or filters changed, resetting to page 0');
+            prevSearchRef.current = searchValue;
+            prevApprovalRef.current = JSON.stringify(filters.approvalStatus);
+            prevWorkRef.current = JSON.stringify(filters.workStatus);
+            setPageProps(prev => ({ ...prev, page: 0 }));
+        }
+    }, [searchValue, filters.approvalStatus, filters.workStatus]);
+
     const { currentProject } = useCurrentProject();
     
-    // Always fetch a larger batch when filters change
+    // Fetch ALL shots when component mounts or filters change
     const { shots, total } = useFetchShots(
         currentProject,
-        0, // Always fetch from page 0 when filters change
-        1000, // Fetch a large number to get all matching shots
-        searchValue,
+        0, // Always fetch from page 0
+        1000, // Fetch a large number to get all shots
+        '', // Don't use backend search
         [], // Don't send status filters to backend
         [], // Don't send status filters to backend
     );
@@ -39,49 +140,105 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
         }
     }, [shots]);
 
-    // Apply filters locally to all shots
-    const filteredShots = React.useMemo(() => {
+    // Apply search filter locally
+    const searchFilteredShots = useMemo(() => {
         if (!allShots.length) return [];
         
-        console.log('🔍 Applying local filters to all shots:', allShots.length);
-        
-        // Apply search filter first
-        let filtered = allShots;
-        if (searchValue && searchValue.trim().length > 0) {
-            const search = searchValue.trim().toLowerCase();
-            filtered = filtered.filter(shot => {
-                const group1 = shot.groups[0]?.toLowerCase() || '';
-                const group2 = shot.groups[1]?.toLowerCase() || '';
-                const group3 = shot.groups[2]?.toLowerCase() || '';
-                const shotName = `${group1}-${group2}-${group3}`;
-                return shotName.includes(search) || 
-                       group1.includes(search) || 
-                       group2.includes(search) || 
-                       group3.includes(search);
-            });
+        if (!searchValue || searchValue.trim().length === 0) {
+            return allShots;
         }
         
-        return filtered;
+        const search = searchValue.trim().toLowerCase();
+        return allShots.filter(shot => {
+            const group1 = shot.groups[0]?.toLowerCase() || '';
+            const group2 = shot.groups[1]?.toLowerCase() || '';
+            const group3 = shot.groups[2]?.toLowerCase() || '';
+            const shotName = `${group1}-${group2}-${group3}`;
+            return shotName.includes(search) || 
+                   group1.includes(search) || 
+                   group2.includes(search) || 
+                   group3.includes(search);
+        });
     }, [allShots, searchValue]);
-
-    // Then paginate the filtered results
-    const paginatedShots = React.useMemo(() => {
-        const start = pageProps.page * pageProps.rowsPerPage;
-        const end = start + pageProps.rowsPerPage;
-        return filteredShots.slice(start, end);
-    }, [filteredShots, pageProps.page, pageProps.rowsPerPage]);
 
     // Update filtered count
     useEffect(() => {
-        setFilteredCount(filteredShots.length);
-    }, [filteredShots]);
+        setFilteredCount(searchFilteredShots.length);
+    }, [searchFilteredShots]);
+
+    // Paginate the filtered results
+    const paginatedShots = useMemo(() => {
+        const start = pageProps.page * pageProps.rowsPerPage;
+        const end = start + pageProps.rowsPerPage;
+        return searchFilteredShots.slice(start, end);
+    }, [searchFilteredShots, pageProps.page, pageProps.rowsPerPage]);
 
     const { phaseComponents } = useFetchPipelineSettingShotComponents(currentProject);
     const { currentStudio } = useCurrentStudio();
     const [timeZone, setTimeZone] = useState<string | undefined>();
     const { latestComponents } = useFetchLatestShotComponents(currentProject, paginatedShots, phaseComponents);
 
-    // ... rest of the component ...
+    useEffect(() => {
+        if (currentStudio == null) {
+            return;
+        }
+        const controller = new AbortController();
+        (async () => {
+            try {
+                const res: string | null = await queryConfig(
+                    'studio',
+                    currentStudio.key_name,
+                    'timezone',
+                ).catch(e => {
+                    if (e.name === 'AbortError') {
+                        return;
+                    }
+                    throw e;
+                });
+                if (res != null) {
+                    setTimeZone(res);
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        })();
+        return () => {
+            controller.abort();
+        };
+    }, [currentStudio]);
+
+    const handleRowsPerPageChange: TablePaginationProps['onChangeRowsPerPage'] = event => {
+        console.log('📊 Rows per page changed:', event.target.value);
+        setPageProps({
+            page: 0,
+            rowsPerPage: parseInt(event.target.value, 10),
+        });
+    };
+
+    const handlePageChange: TablePaginationProps['onChangePage'] = (event, newPage) => {
+        console.log('📊 Page changed:', newPage);
+        setPageProps({
+            ...pageProps,
+            page: newPage,
+        });
+    };
+
+    const handleFilterChange = useCallback((newFilters: Filters) => {
+        console.log('🎯 Panel received filter change:', newFilters);
+        setFilters(newFilters);
+    }, []);
+
+    // Create date formatter
+    const dateTimeFormat = useMemo(() => {
+        return new Intl.DateTimeFormat(
+            undefined,
+            {
+                timeZone: timeZone,
+                dateStyle: 'medium',
+                timeStyle: 'medium'
+            }
+        );
+    }, [timeZone]);
 
     const tableFooter = (
         <ShotsDataTableFooter
@@ -102,7 +259,7 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
                     searchValue={searchValue}
                     onSearchChange={setSearchValue}
                     filters={filters}
-                    onFilterChange={setFilters}
+                    onFilterChange={handleFilterChange}
                     columnsState={columnsState}
                     onColumnsChange={setColumnsState}
                 />
@@ -114,7 +271,6 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
                         <ShotsDataTable
                             project={currentProject}
                             shots={paginatedShots}
-                            allShotsCount={filteredCount}
                             phaseComponents={phaseComponents}
                             latestComponents={latestComponents}
                             tableFooter={tableFooter}
@@ -129,3 +285,5 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
         </StyledContainer>
     );
 };
+
+export default ShotsDataTablePanel;
