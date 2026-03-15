@@ -1,0 +1,22 @@
+type shotListParams struct {
+    Studio          *string   `form:"studio"`
+    Search          *string   `form:"search"`
+    ApprovalStatus  []string  `form:"approval_status"`
+    WorkStatus      []string  `form:"work_status"`
+    PerPage         *int      `form:"per_page"`
+    Page            *int      `form:"page"`
+}
+
+func (p *shotListParams) Entity(project string) *entity.ShotListParams {
+    return &entity.ShotListParams{
+        Project:         project,
+        Studio:          p.Studio,
+        Search:          p.Search,
+        ApprovalStatus:  p.ApprovalStatus,
+        WorkStatus:      p.WorkStatus,
+        BaseListParams: &entity.BaseListParams{
+            PerPage: p.PerPage,
+            Page:    p.Page,
+        },
+    }
+}
