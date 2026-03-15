@@ -1,0 +1,57 @@
+const ShotsDataTable: React.FC<ShotsDataTableProps> = ({
+  project,
+  shots,
+  phaseComponents,
+  latestComponents,
+  tableFooter,
+  dateTimeFormat,
+  columnsState,
+  filters, // Still receive but don't use for filtering
+  searchValue, // Still receive but don't use for filtering
+}) => {
+  if (project == null) {
+    return null;
+  }
+  const { reviewInfos } = useFetchShotReviewInfos(project, shots);
+  const { thumbnails }  = useFetchShotThumbnails(project, shots);
+  const visibleColumns  = columns.filter(column => 
+    column.fixed || columnsState[column.id] !== false
+  );
+
+  // REMOVE the filteredShots logic - use shots directly from props
+  // These are already filtered by the backend
+
+  return (
+    <Table 
+      stickyHeader
+      style={{
+        tableLayout: 'fixed',
+        width: 'auto',
+      }}
+    >
+      <RecordTableHead
+        key='shot-data-table-head'
+        columns={visibleColumns}
+        phaseComponents={phaseComponents}
+        latestComponents={latestComponents}
+        columnsState={columnsState}
+      />
+      <TableBody>
+        {shots.map((shot, index) => ( // Use shots directly, not filteredShots
+          <ShotRow
+            key={`${shot.groups.join('/')}-${shot.relation}-${index}`}
+            shot={shot}
+            reviewInfos={reviewInfos}
+            thumbnails={thumbnails}
+            phaseComponents={phaseComponents}
+            latestComponents={latestComponents}
+            dateTimeFormat={dateTimeFormat}
+            isLastRow={(index === shots.length - 1)}
+            columnsState={columnsState}
+          />
+        ))}
+      </TableBody>
+      {tableFooter || null}
+    </Table>
+  );
+};
