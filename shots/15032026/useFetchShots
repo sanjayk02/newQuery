@@ -1,0 +1,42 @@
+export function useFetchShots(
+  project: Project | null | undefined,
+  page: number,
+  rowsPerPage: number,
+  search?: string,
+  approvalStatus?: string[],
+  workStatus?: string[],
+): { shots: Shot[], total: number } {
+  const [shots, setShots] = useState<Shot[]>([]);
+  const [total, setTotal] = useState(0);
+
+  useEffect(() => {
+    if (project == null) {
+      return;
+    }
+    const controller = new AbortController();
+
+    (async () => {
+      const res = await fetchShots(
+        project.key_name,
+        page,
+        rowsPerPage,
+        search,
+        approvalStatus,    // These are passed correctly
+        workStatus,        // These are passed correctly
+        controller.signal,
+      ).catch((err) => {
+        if (err.name === 'AbortError') {
+          return;
+        }
+        console.error(err);
+      });
+      if (res != null) {
+        setShots(res.shots);
+        setTotal(res.total);
+      }
+    })();
+    return () => controller.abort();
+  }, [project, page, rowsPerPage, search, JSON.stringify(approvalStatus), JSON.stringify(workStatus)]);
+
+  return { shots, total };
+};
