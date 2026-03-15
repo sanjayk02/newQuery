@@ -5,39 +5,123 @@ func (poi *PublishOperationInfo) ListShots(
 
     col := poi.db.Collection("pc_publishOperationInfo")
 
-    filter := bson.D{
-        {"_central.project", params.Project},
-        {"root", "shots"},
+    // Build the aggregation pipeline
+    pipeline := mongo.Pipeline{}
+
+    // Match stage with filters
+    matchStage := bson.D{
+        {"$match", bson.D{
+            {"_central.project", params.Project},
+            {"root", "shots"},
+        }},
     }
 
-    // Global Search
+    // Add search filter if provided
     if params.Search != nil && *params.Search != "" {
         search := *params.Search
-        filter = append(filter, bson.E{
-            Key: "$or",
-            Value: bson.A{
+        searchCondition := bson.D{
+            {"$or", bson.A{
                 bson.D{{"groups.0", bson.D{{"$regex", search}, {"$options", "i"}}}},
                 bson.D{{"groups.1", bson.D{{"$regex", search}, {"$options", "i"}}}},
                 bson.D{{"groups.2", bson.D{{"$regex", search}, {"$options", "i"}}}},
-            },
-        })
+            }},
+        }
+        // Merge with existing match stage
+        matchStage[0].Value = append(matchStage[0].Value.(bson.D), searchCondition...)
     }
 
-    // Approval Status filter
+    pipeline = append(pipeline, matchStage)
+
+    // You might need to unwind phases if status is per phase
+    // pipeline = append(pipeline, bson.D{{"$unwind", "$phases"}})
+
+    // Add approval status filter
     if len(params.ApprovalStatus) > 0 {
-        filter = append(filter, bson.E{
-            Key: "approval_status",
-            Value: bson.D{{"$in", params.ApprovalStatus}},
+        pipeline = append(pipeline, bson.D{
+            {"$match", bson.D{
+                {"approval_status", bson.D{{"$in", params.ApprovalStatus}}},
+            }},
         })
     }
 
-    // Work Status filter
+    // Add work status filter
     if len(params.WorkStatus) > 0 {
-        filter = append(filter, bson.E{
-            Key: "work_status",
-            Value: bson.D{{"$in", params.WorkStatus}},
+        pipeline = append(pipeline, bson.D{
+            {"$match", bson.D{
+                {"work_status", bson.D{{"$in", params.WorkStatus}}},
+            }},
         })
     }
 
-    // ... rest of the function
+    // Group back if you unwound
+    // pipeline = append(pipeline, bson.D{
+    //     {"$group", bson.D{
+    //         {"_id", "$_id"},
+    //         {"groups", bson.D{{"$first", "$groups"}}},
+    //         {"relation", bson.D{{"$first", "$relation"}}},
+    //         // ... other fields
+    //     }},
+    // })
+
+    // Group unique shots
+    pipeline = append(pipeline, bson.D{
+        {"$group", bson.D{
+            {"_id", bson.D{
+                {"groups", "$groups"},
+                {"relation", "$relation"},
+            }},
+        }},
+    })
+
+    // Sort
+    pipeline = append(pipeline, bson.D{
+        {"$sort", bson.D{
+            {"_id.groups", 1},
+        }},
+    })
+
+    // Pagination with facet
+    offset := (params.GetPage() - 1) * params.GetPerPage()
+    pipeline = append(pipeline, bson.D{
+        {"$facet", bson.D{
+            {"total", bson.A{
+                bson.D{{"$count", "totalCount"}},
+            }},
+            {"documents", bson.A{
+                bson.D{{"$skip", offset}},
+                bson.D{{"$limit", params.PerPage}},
+                bson.D{{"$project", bson.D{
+                    {"_id", 0},
+                    {"groups", "$_id.groups"},
+                    {"relation", "$_id.relation"},
+                }}},
+            }},
+        }},
+    })
+
+    cursor, err := col.Aggregate(ctx, pipeline)
+    if err != nil {
+        return
+    }
+    defer cursor.Close(ctx)
+
+    var result struct {
+        Total []struct {
+            TotalCount int64 `bson:"totalCount"`
+        } `bson:"total"`
+        Documents []*entity.ShotDocument `bson:"documents"`
+    }
+
+    if cursor.Next(ctx) {
+        if err = cursor.Decode(&result); err != nil {
+            return
+        }
+    }
+
+    if len(result.Total) > 0 {
+        total = result.Total[0].TotalCount
+    }
+
+    documents = result.Documents
+    return
 }
