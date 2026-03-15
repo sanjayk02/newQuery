@@ -42,6 +42,7 @@ func (poi *PublishOperationInfo) ListShots(
             }},
             {"approval_status", bson.D{{"$first", "$approval_status"}}},
             {"work_status", bson.D{{"$first", "$work_status"}}},
+            {"phase", bson.D{{"$first", "$phase"}}}, // Add phase if needed
         }},
     })
 
@@ -63,13 +64,20 @@ func (poi *PublishOperationInfo) ListShots(
         })
     }
 
-    // 7. Group again to get unique shots
+    // 7. Group by shot to get unique shots, but KEEP the status info
     pipeline = append(pipeline, bson.D{
         {"$group", bson.D{
             {"_id", bson.D{
                 {"groups", "$_id.groups"},
                 {"relation", "$_id.relation"},
             }},
+            // Collect all components with their statuses
+            {"components", bson.D{{"$push", bson.D{
+                {"component", "$_id.component"},
+                {"approval_status", "$approval_status"},
+                {"work_status", "$work_status"},
+                {"phase", "$phase"},
+            }}}},
         }},
     })
 
@@ -92,9 +100,35 @@ func (poi *PublishOperationInfo) ListShots(
                     {"_id", 0},
                     {"groups", "$_id.groups"},
                     {"relation", "$_id.relation"},
+                    {"components", 1}, // Include the components with statuses
                 }}},
             }},
         }},
     })
 
-    // ... rest of cursor handling stays the same
+    cursor, err := col.Aggregate(ctx, pipeline)
+    if err != nil {
+        return
+    }
+    defer cursor.Close(ctx)
+
+    var result struct {
+        Total []struct {
+            TotalCount int64 `bson:"totalCount"`
+        } `bson:"total"`
+        Documents []*entity.ShotDocument `bson:"documents"`
+    }
+
+    if cursor.Next(ctx) {
+        if err = cursor.Decode(&result); err != nil {
+            return
+        }
+    }
+
+    if len(result.Total) > 0 {
+        total = result.Total[0].TotalCount
+    }
+
+    documents = result.Documents
+    return
+}
