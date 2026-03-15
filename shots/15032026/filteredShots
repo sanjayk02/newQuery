@@ -1,25 +1,11 @@
 const filteredShots = shots.filter((shot) => {
-    if (filters.approvalStatus.length === 0 && filters.workStatus.length === 0) {
-        return true;
-    }
+  if (!reviewInfos) return true;
 
-    const shotKey = `${shot.groups[0]}-${shot.groups[1]}-${shot.groups[2]}`;
+  const shotKey = `${shot.groups[0]}-${shot.groups[1]}-${shot.groups[2]}`;
 
-    const reviewInfosForShot = Object.values(reviewInfos || {}).filter((info) =>
-        info?.name?.startsWith(shotKey)
-    );
+  const reviewInfosForShot = Object.entries(reviewInfos)
+    .filter(([key]) => key.startsWith(shotKey))
+    .map(([, value]) => value);
 
-    const matchApproval =
-        filters.approvalStatus.length === 0 ||
-        reviewInfosForShot.some((info) =>
-            filters.approvalStatus.includes(info.approval_status)
-        );
-
-    const matchWork =
-        filters.workStatus.length === 0 ||
-        reviewInfosForShot.some((info) =>
-            filters.workStatus.includes(info.work_status)
-        );
-
-    return matchApproval && matchWork;
+  return reviewInfosForShot.length > 0;
 });
