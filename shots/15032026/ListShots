@@ -1,158 +1,92 @@
 func (poi *PublishOperationInfo) ListShots(
 	ctx context.Context,
 	params *entity.ShotListParams,
+	filteredShots []*entity.ShotDocument,
 ) (documents []*entity.ShotDocument, total int64, err error) {
 
 	col := poi.db.Collection("pc_publishOperationInfo")
 
-	//-----------------------------------
-	// Build base filter
-	//-----------------------------------
 	filter := bson.D{
 		{"_central.project", params.Project},
 		{"root", "shots"},
 	}
 
-	// Global search
+	// Search filter
 	if params.Search != nil && *params.Search != "" {
 		search := *params.Search
 
 		filter = append(filter, bson.E{
 			Key: "$or",
 			Value: bson.A{
-				bson.D{{"groups.0", bson.D{{"$regex", search}, {"$options", "i"}}}},
-				bson.D{{"groups.1", bson.D{{"$regex", search}, {"$options", "i"}}}},
-				bson.D{{"groups.2", bson.D{{"$regex", search}, {"$options", "i"}}}},
+				bson.D{{"groups.0", bson.D{{"$regex", "^" + search}, {"$options", "i"}}}},
+				bson.D{{"groups.1", bson.D{{"$regex", "^" + search}, {"$options", "i"}}}},
+				bson.D{{"groups.2", bson.D{{"$regex", "^" + search}, {"$options", "i"}}}},
 			},
 		})
 	}
 
-	pipeline := mongo.Pipeline{}
+	// Apply MySQL filtered shots
+	if len(filteredShots) > 0 {
 
-	//-----------------------------------
-	// 1️⃣ Match project + search
-	//-----------------------------------
-	pipeline = append(pipeline, bson.D{
-		{"$match", filter},
-	})
+		var orFilters bson.A
 
-	//-----------------------------------
-	// 2️⃣ Reduce document size
-	//-----------------------------------
-	pipeline = append(pipeline, bson.D{
-		{"$project", bson.D{
-			{"groups", 1},
-			{"relation", 1},
-			{"component", 1},
-			{"phase", 1},
-			{"approval_status", 1},
-			{"work_status", 1},
-			{"submitted_at_utc", 1},
-		}},
-	})
+		for _, shot := range filteredShots {
 
-	//-----------------------------------
-	// 3️⃣ Sort so $first gives latest
-	//-----------------------------------
-	pipeline = append(pipeline, bson.D{
-		{"$sort", bson.D{
-			{"submitted_at_utc", -1},
-		}},
-	})
+			orFilters = append(orFilters, bson.D{
+				{"groups.0", shot.Groups[0]},
+				{"groups.1", shot.Groups[1]},
+				{"groups.2", shot.Groups[2]},
+				{"relation", shot.Relation},
+			})
+		}
 
-	//-----------------------------------
-	// 4️⃣ Latest document per component
-	//-----------------------------------
-	pipeline = append(pipeline, bson.D{
-		{"$group", bson.D{
-			{"_id", bson.D{
-				{"groups", "$groups"},
-				{"relation", "$relation"},
-				{"component", "$component"},
-			}},
-			{"approval_status", bson.D{{"$first", "$approval_status"}}},
-			{"work_status", bson.D{{"$first", "$work_status"}}},
-			{"phase", bson.D{{"$first", "$phase"}}},
-		}},
-	})
-
-	//-----------------------------------
-	// 5️⃣ Approval filter
-	//-----------------------------------
-	if len(params.ApprovalStatus) > 0 {
-		pipeline = append(pipeline, bson.D{
-			{"$match", bson.D{
-				{"approval_status", bson.D{{"$in", params.ApprovalStatus}}},
-			}},
+		filter = append(filter, bson.E{
+			Key: "$or",
+			Value: orFilters,
 		})
 	}
 
-	//-----------------------------------
-	// 6️⃣ Work status filter
-	//-----------------------------------
-	if len(params.WorkStatus) > 0 {
-		pipeline = append(pipeline, bson.D{
-			{"$match", bson.D{
-				{"work_status", bson.D{{"$in", params.WorkStatus}}},
-			}},
-		})
-	}
-
-	//-----------------------------------
-	// 7️⃣ Group unique shots
-	//-----------------------------------
-	pipeline = append(pipeline, bson.D{
-		{"$group", bson.D{
-			{"_id", bson.D{
-				{"groups", "$_id.groups"},
-				{"relation", "$_id.relation"},
-			}},
-		}},
-	})
-
-	//-----------------------------------
-	// 8️⃣ Sort shots
-	//-----------------------------------
-	pipeline = append(pipeline, bson.D{
-		{"$sort", bson.D{
-			{"_id.groups", 1},
-		}},
-	})
-
-	//-----------------------------------
-	// 9️⃣ Pagination
-	//-----------------------------------
 	offset := (params.GetPage() - 1) * params.GetPerPage()
 	if offset < 0 {
 		offset = 0
 	}
 
-	pipeline = append(pipeline, bson.D{
-		{"$facet", bson.D{
+	pipeline := mongo.Pipeline{
+
+		{{"$match", filter}},
+
+		{{"$group", bson.D{
+			{"_id", bson.D{
+				{"groups", "$groups"},
+				{"relation", "$relation"},
+			}},
+		}}},
+
+		{{"$sort", bson.D{
+			{"_id.groups", 1},
+		}}},
+
+		{{"$facet", bson.D{
 			{"total", bson.A{
 				bson.D{{"$count", "totalCount"}},
 			}},
 			{"documents", bson.A{
 				bson.D{{"$skip", offset}},
-				bson.D{{"$limit", params.GetPerPage()}},
+				bson.D{{"$limit", params.PerPage}},
 				bson.D{{"$project", bson.D{
 					{"_id", 0},
 					{"groups", "$_id.groups"},
 					{"relation", "$_id.relation"},
 				}}},
 			}},
-		}},
-	})
+		}}},
+	}
 
-	//-----------------------------------
-	// Execute aggregation (FIX MEMORY ERROR)
-	//-----------------------------------
-	opts := options.Aggregate().SetAllowDiskUse(true)
-
-	cursor, err := col.Aggregate(ctx, pipeline, opts)
+	cursor, err := col.Aggregate(ctx, pipeline)
 	if err != nil {
 		return
 	}
+
 	defer cursor.Close(ctx)
 
 	var result struct {
@@ -173,10 +107,6 @@ func (poi *PublishOperationInfo) ListShots(
 	}
 
 	documents = result.Documents
-
-	if documents == nil {
-		documents = []*entity.ShotDocument{}
-	}
 
 	return
 }
