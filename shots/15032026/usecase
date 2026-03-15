@@ -1,0 +1,37 @@
+func (uc *PublishOperationInfo) ListShots(
+	ctx context.Context,
+	params *entity.ShotListParams,
+) ([]*entity.ShotDocument, int64, error) {
+
+	if err := binding.Validator.ValidateStruct(params); err != nil {
+		return nil, 0, err
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, uc.readTimeout)
+	defer cancel()
+
+	var filteredShots []*entity.ShotDocument
+	var err error
+
+	// Call MySQL filtering ONLY if filters exist
+	if len(params.ApprovalStatus) > 0 || len(params.WorkStatus) > 0 {
+
+		filteredShots, err = uc.reviewRepo.ListFilteredShots(
+			uc.mysqlDB,
+			params.Project,
+			params.ApprovalStatus,
+			params.WorkStatus,
+		)
+
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+
+	// Call Mongo repository
+	return uc.repo.ListShots(
+		timeoutCtx,
+		params,
+		filteredShots,
+	)
+}
