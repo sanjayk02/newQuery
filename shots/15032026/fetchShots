@@ -13,30 +13,38 @@ export const fetchShots = async (
   params.set('per_page', String(rowsPerPage));
   params.set('page', String(page + 1));
 
-  console.log('Sending filters to API:', { 
-    search, 
-    approvalStatus, 
-    workStatus 
-  });
+  console.log('=== FETCH SHOTS CALLED ===');
+  console.log('Project:', project);
+  console.log('Page:', page);
+  console.log('RowsPerPage:', rowsPerPage);
+  console.log('Search:', search);
+  console.log('Approval Status Filters:', approvalStatus);
+  console.log('Work Status Filters:', workStatus);
 
-  if (search && search.trim().length > 0) {
+  if (search && search.trim().length >= 3) {
     params.set('search', search.trim());
+    console.log('Search param added:', search.trim());
   }
   
-  // Send approval status filters
   if (approvalStatus && approvalStatus.length > 0) {
-    approvalStatus.forEach(s => params.append('approval_status', s));
-    console.log('Approval status params:', approvalStatus);
+    console.log('Adding approval_status params:', approvalStatus);
+    approvalStatus.forEach(s => {
+      params.append('approval_status', s);
+      console.log(`Added approval_status: ${s}`);
+    });
   }
   
-  // Send work status filters
   if (workStatus && workStatus.length > 0) {
-    workStatus.forEach(s => params.append('work_status', s));
-    console.log('Work status params:', workStatus);
+    console.log('Adding work_status params:', workStatus);
+    workStatus.forEach(s => {
+      params.append('work_status', s);
+      console.log(`Added work_status: ${s}`);
+    });
   }
   
   url += `?${params}`;
-  console.log('Full URL:', url);
+  console.log('Final URL:', url);
+  console.log('Final Params:', params.toString());
   
   const res = await fetch(
     url,
@@ -52,6 +60,8 @@ export const fetchShots = async (
     throw new AuthorizationError();
   }
   if (!res.ok) {
+    const errorText = await res.text();
+    console.error('API Error Response:', errorText);
     throw new Error('Failed to fetch parameters.');
   }
   setNewToken(res);
