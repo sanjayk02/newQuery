@@ -1,0 +1,16 @@
+export type ShotsDataTableProps = {
+  project: Project | null | undefined,
+  shots: Shot[],
+  phaseComponents: { [key: string]: string[] },
+  latestComponents: LatestComponents,
+  tableFooter: ReactElement,
+  dateTimeFormat: Intl.DateTimeFormat,
+  columnsState: ColumnState,
+  filters:{
+    approvalStatus: string[],
+    workStatus: string[],
+    shotGroups?: string[], // Made optional
+  },
+  searchValue: string,
+  onFilteredCountChange?: (count: number) => void, // Add this
+};
