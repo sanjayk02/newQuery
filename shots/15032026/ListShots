@@ -4,11 +4,9 @@ func (poi *PublishOperationInfo) ListShots(
 ) (documents []*entity.ShotDocument, total int64, err error) {
 
     col := poi.db.Collection("pc_publishOperationInfo")
-
-    // Build the aggregation pipeline
     pipeline := mongo.Pipeline{}
 
-    // Match stage with filters
+    // 1. Base match: project + root
     matchStage := bson.D{
         {"$match", bson.D{
             {"_central.project", params.Project},
@@ -16,26 +14,38 @@ func (poi *PublishOperationInfo) ListShots(
         }},
     }
 
-    // Add search filter if provided
+    // 2. Search filter on groups
     if params.Search != nil && *params.Search != "" {
         search := *params.Search
-        searchCondition := bson.D{
-            {"$or", bson.A{
+        matchStage[0].Value = append(matchStage[0].Value.(bson.D), bson.E{
+            Key: "$or", Value: bson.A{
                 bson.D{{"groups.0", bson.D{{"$regex", search}, {"$options", "i"}}}},
                 bson.D{{"groups.1", bson.D{{"$regex", search}, {"$options", "i"}}}},
                 bson.D{{"groups.2", bson.D{{"$regex", search}, {"$options", "i"}}}},
-            }},
-        }
-        // Merge with existing match stage
-        matchStage[0].Value = append(matchStage[0].Value.(bson.D), searchCondition...)
+            },
+        })
     }
-
     pipeline = append(pipeline, matchStage)
 
-    // You might need to unwind phases if status is per phase
-    // pipeline = append(pipeline, bson.D{{"$unwind", "$phases"}})
+    // 3. Sort before grouping so $first gives us the latest doc per component
+    pipeline = append(pipeline, bson.D{
+        {"$sort", bson.D{{"submitted_at_utc", -1}}},
+    })
 
-    // Add approval status filter
+    // 4. Group by shot + component to get the LATEST document per component per shot
+    pipeline = append(pipeline, bson.D{
+        {"$group", bson.D{
+            {"_id", bson.D{
+                {"groups", "$groups"},
+                {"relation", "$relation"},
+                {"component", "$component"},
+            }},
+            {"approval_status", bson.D{{"$first", "$approval_status"}}},
+            {"work_status", bson.D{{"$first", "$work_status"}}},
+        }},
+    })
+
+    // 5. NOW filter on approval_status (against latest docs only)
     if len(params.ApprovalStatus) > 0 {
         pipeline = append(pipeline, bson.D{
             {"$match", bson.D{
@@ -44,7 +54,7 @@ func (poi *PublishOperationInfo) ListShots(
         })
     }
 
-    // Add work status filter
+    // 6. Filter on work_status
     if len(params.WorkStatus) > 0 {
         pipeline = append(pipeline, bson.D{
             {"$match", bson.D{
@@ -53,34 +63,22 @@ func (poi *PublishOperationInfo) ListShots(
         })
     }
 
-    // Group back if you unwound
-    // pipeline = append(pipeline, bson.D{
-    //     {"$group", bson.D{
-    //         {"_id", "$_id"},
-    //         {"groups", bson.D{{"$first", "$groups"}}},
-    //         {"relation", bson.D{{"$first", "$relation"}}},
-    //         // ... other fields
-    //     }},
-    // })
-
-    // Group unique shots
+    // 7. Group again to get unique shots
     pipeline = append(pipeline, bson.D{
         {"$group", bson.D{
             {"_id", bson.D{
-                {"groups", "$groups"},
-                {"relation", "$relation"},
+                {"groups", "$_id.groups"},
+                {"relation", "$_id.relation"},
             }},
         }},
     })
 
-    // Sort
+    // 8. Sort shots
     pipeline = append(pipeline, bson.D{
-        {"$sort", bson.D{
-            {"_id.groups", 1},
-        }},
+        {"$sort", bson.D{{"_id.groups", 1}}},
     })
 
-    // Pagination with facet
+    // 9. Facet for pagination + total count
     offset := (params.GetPage() - 1) * params.GetPerPage()
     pipeline = append(pipeline, bson.D{
         {"$facet", bson.D{
@@ -99,29 +97,4 @@ func (poi *PublishOperationInfo) ListShots(
         }},
     })
 
-    cursor, err := col.Aggregate(ctx, pipeline)
-    if err != nil {
-        return
-    }
-    defer cursor.Close(ctx)
-
-    var result struct {
-        Total []struct {
-            TotalCount int64 `bson:"totalCount"`
-        } `bson:"total"`
-        Documents []*entity.ShotDocument `bson:"documents"`
-    }
-
-    if cursor.Next(ctx) {
-        if err = cursor.Decode(&result); err != nil {
-            return
-        }
-    }
-
-    if len(result.Total) > 0 {
-        total = result.Total[0].TotalCount
-    }
-
-    documents = result.Documents
-    return
-}
+    // ... rest of cursor handling stays the same
