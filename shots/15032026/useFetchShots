@@ -10,6 +10,15 @@ export function useFetchShots(
   const [total, setTotal] = useState(0);
 
   useEffect(() => {
+    console.log('🔄 useFetchShots useEffect triggered with:', {
+      project,
+      page,
+      rowsPerPage,
+      search,
+      approvalStatus,
+      workStatus
+    });
+
     if (project == null) {
       return;
     }
@@ -21,8 +30,8 @@ export function useFetchShots(
         page,
         rowsPerPage,
         search,
-        approvalStatus,    // These are passed correctly
-        workStatus,        // These are passed correctly
+        approvalStatus,
+        workStatus,
         controller.signal,
       ).catch((err) => {
         if (err.name === 'AbortError') {
@@ -31,6 +40,7 @@ export function useFetchShots(
         console.error(err);
       });
       if (res != null) {
+        console.log('📦 Fetched shots with filters:', { approvalStatus, workStatus });
         setShots(res.shots);
         setTotal(res.total);
       }
@@ -39,4 +49,4 @@ export function useFetchShots(
   }, [project, page, rowsPerPage, search, JSON.stringify(approvalStatus), JSON.stringify(workStatus)]);
 
   return { shots, total };
-};
+}
