@@ -18,13 +18,20 @@ const ShotsDataTable: React.FC<ShotsDataTableProps> = ({
     column.fixed || columnsState[column.id] !== false
   );
 
-  // Apply filters locally using reviewInfos
-  const filteredShots = React.useMemo(() => {
+  // Store filtered shots in state to persist across re-renders
+  const [filteredShots, setFilteredShots] = React.useState<Shot[]>([]);
+
+  // Apply filters whenever shots, reviewInfos, or filters change
+  React.useEffect(() => {
+    if (!shots.length) {
+      setFilteredShots([]);
+      return;
+    }
+
     console.log('🔍 Applying local filters:', filters);
+    console.log('📊 Total shots from backend:', shots.length);
     
-    if (!shots.length) return [];
-    
-    return shots.filter(shot => {
+    const filtered = shots.filter(shot => {
       const shotKey = `${shot.groups[0]}-${shot.groups[1]}-${shot.groups[2]}`;
       
       // Get all review infos for this shot across all phases
@@ -37,7 +44,10 @@ const ShotsDataTable: React.FC<ShotsDataTableProps> = ({
         const hasMatchingApproval = shotReviewInfos.some(info => 
           filters.approvalStatus.includes(info.approval_status)
         );
-        if (!hasMatchingApproval) return false;
+        if (!hasMatchingApproval) {
+          console.log(`❌ Shot ${shotKey} filtered out - no matching approval status`);
+          return false;
+        }
       }
       
       // Check work status filter
@@ -45,14 +55,39 @@ const ShotsDataTable: React.FC<ShotsDataTableProps> = ({
         const hasMatchingWork = shotReviewInfos.some(info => 
           filters.workStatus.includes(info.work_status)
         );
-        if (!hasMatchingWork) return false;
+        if (!hasMatchingWork) {
+          console.log(`❌ Shot ${shotKey} filtered out - no matching work status`);
+          return false;
+        }
       }
       
+      console.log(`✅ Shot ${shotKey} passed filters`);
       return true;
     });
+
+    console.log('📊 Filtered shots:', filtered.length, 'out of', shots.length);
+    setFilteredShots(filtered);
   }, [shots, reviewInfos, filters]);
 
-  console.log('📊 Original shots:', shots.length, 'Filtered shots:', filteredShots.length);
+  // Debug logging
+  React.useEffect(() => {
+    if (shots.length > 0 && Object.keys(reviewInfos).length > 0) {
+      const allApprovalStatuses = new Set();
+      const allWorkStatuses = new Set();
+      
+      Object.values(reviewInfos).forEach(info => {
+        if (info && info.approval_status) {
+          allApprovalStatuses.add(info.approval_status);
+        }
+        if (info && info.work_status) {
+          allWorkStatuses.add(info.work_status);
+        }
+      });
+      
+      console.log('📊 Available approval statuses in data:', Array.from(allApprovalStatuses));
+      console.log('📊 Available work statuses in data:', Array.from(allWorkStatuses));
+    }
+  }, [shots, reviewInfos]);
 
   return (
     <Table 
