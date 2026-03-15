@@ -1,0 +1,43 @@
+func (poi *PublishOperationInfo) ListShots(
+    ctx context.Context,
+    params *entity.ShotListParams,
+) (documents []*entity.ShotDocument, total int64, err error) {
+
+    col := poi.db.Collection("pc_publishOperationInfo")
+
+    filter := bson.D{
+        {"_central.project", params.Project},
+        {"root", "shots"},
+    }
+
+    // Global Search
+    if params.Search != nil && *params.Search != "" {
+        search := *params.Search
+        filter = append(filter, bson.E{
+            Key: "$or",
+            Value: bson.A{
+                bson.D{{"groups.0", bson.D{{"$regex", search}, {"$options", "i"}}}},
+                bson.D{{"groups.1", bson.D{{"$regex", search}, {"$options", "i"}}}},
+                bson.D{{"groups.2", bson.D{{"$regex", search}, {"$options", "i"}}}},
+            },
+        })
+    }
+
+    // Approval Status filter
+    if len(params.ApprovalStatus) > 0 {
+        filter = append(filter, bson.E{
+            Key: "approval_status",
+            Value: bson.D{{"$in", params.ApprovalStatus}},
+        })
+    }
+
+    // Work Status filter
+    if len(params.WorkStatus) > 0 {
+        filter = append(filter, bson.E{
+            Key: "work_status",
+            Value: bson.D{{"$in", params.WorkStatus}},
+        })
+    }
+
+    // ... rest of the function
+}
