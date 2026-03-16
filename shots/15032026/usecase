@@ -13,25 +13,51 @@ func (uc *PublishOperationInfo) ListShots(
 	var filteredShots []*entity.ShotDocument
 	var err error
 
-	// Call MySQL filtering ONLY if filters exist
-	if len(params.ApprovalStatus) > 0 || len(params.WorkStatus) > 0 {
+	// Get filtered shots from MySQL
+	filteredShots, err = uc.reviewRepo.ListFilteredShots(
+		uc.mysqlDB,
+		params.Project,
+		params.ApprovalStatus,
+		params.WorkStatus,
+	)
 
-		filteredShots, err = uc.reviewRepo.ListFilteredShots(
-			uc.mysqlDB,
-			params.Project,
-			params.ApprovalStatus,
-			params.WorkStatus,
-		)
+	if err != nil {
+		return nil, 0, err
+	}
 
-		if err != nil {
-			return nil, 0, err
+	total := int64(len(filteredShots))
+
+	// Pagination before Mongo query ONLY if search is empty
+	if params.Search == nil || *params.Search == "" {
+
+		start := (params.GetPage() - 1) * params.GetPerPage()
+		end := start + params.GetPerPage()
+
+		if start > len(filteredShots) {
+			filteredShots = []*entity.ShotDocument{}
+		} else {
+			if end > len(filteredShots) {
+				end = len(filteredShots)
+			}
+			filteredShots = filteredShots[start:end]
 		}
 	}
 
-	// Call Mongo repository
-	return uc.repo.ListShots(
+	// Query Mongo
+	documents, _, err := uc.repo.ListShots(
 		timeoutCtx,
 		params,
 		filteredShots,
 	)
+
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// If search is used, Mongo already filtered results
+	if params.Search != nil && *params.Search != "" {
+		total = int64(len(documents))
+	}
+
+	return documents, total, nil
 }
