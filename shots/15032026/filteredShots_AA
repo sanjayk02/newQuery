@@ -1,0 +1,25 @@
+filteredShots, err = uc.reviewRepo.ListFilteredShots(
+    uc.mysqlDB,
+    params.Project,
+    params.ApprovalStatus,
+    params.WorkStatus,
+)
+
+if err != nil {
+    return nil, 0, err
+}
+
+total := int64(len(filteredShots))
+
+// Pagination before Mongo query
+start := (params.GetPage() - 1) * params.GetPerPage()
+end := start + params.GetPerPage()
+
+if start > len(filteredShots) {
+    filteredShots = []*entity.ShotDocument{}
+} else {
+    if end > len(filteredShots) {
+        end = len(filteredShots)
+    }
+    filteredShots = filteredShots[start:end]
+}
