@@ -8,10 +8,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// ListFilteredShotsPaginated finds unique shots whose LATEST status per phase
-// matches the given approval/work status filters.
-// Uses a subquery to get the latest record per (group_1,group_2,group_3,relation,phase)
-// before applying status filters — so old statuses don't cause false matches.
+// ListFilteredShotsPaginated finds unique shots whose LATEST status per PHASE
+// matches the given filters — using the same grouping as ListShotReviewInfos
+// so filter results match exactly what the table displays.
 func (r *ReviewInfo) ListFilteredShotsPaginated(
 	db *gorm.DB,
 	project string,
@@ -22,39 +21,42 @@ func (r *ReviewInfo) ListFilteredShotsPaginated(
 	perPage int,
 ) ([]*entity.ShotDocument, int64, error) {
 
-	// Step 1: Subquery — get the latest modified_at_utc per
-	// (group_1, group_2, group_3, relation, phase)
-	// This ensures we only check CURRENT status, not historical ones
+	// Step 1: Get the latest modified_at_utc per (group_1,group_2,group_3,relation,phase)
+	// This matches exactly how ListShotReviewInfos determines the displayed status
 	latestPerPhase := db.Model(&model.ReviewInfo{}).
 		Select(
 			"group_1, group_2, group_3, relation, phase,"+
-				" MAX(modified_at_utc) AS modified_at_utc",
+				" MAX(modified_at_utc) AS max_modified",
 		).
 		Where("project = ?", project).
 		Where("root = ?", "shots").
 		Where("deleted = 0").
 		Group("group_1, group_2, group_3, relation, phase")
 
-	// Step 2: Join back to get the full row for each latest record
-	// then filter by status
-	latest := db.Select("b.group_1, b.group_2, b.group_3, b.relation,"+
-		" b.approval_status, b.work_status").
+	// Step 2: Join back to get the full row (approval_status, work_status)
+	// for each latest record per phase
+	latest := db.Select(
+		"b.group_1, b.group_2, b.group_3, b.relation,"+
+			" b.approval_status, b.work_status",
+	).
 		Table("(?) AS a", latestPerPhase).
 		Joins(
 			"JOIN t_review_info b ON"+
-				" a.group_1 = b.group_1"+
-				" AND a.group_2 = b.group_2"+
-				" AND a.group_3 = b.group_3"+
-				" AND a.relation = b.relation"+
-				" AND a.phase = b.phase"+
-				" AND a.modified_at_utc = b.modified_at_utc"+
+				" b.group_1 = a.group_1"+
+				" AND b.group_2 = a.group_2"+
+				" AND b.group_3 = a.group_3"+
+				" AND b.relation = a.relation"+
+				" AND b.phase = a.phase"+
+				" AND b.modified_at_utc = a.max_modified"+
 				" AND b.project = ?"+
 				" AND b.root = 'shots'"+
 				" AND b.deleted = 0",
 			project,
 		)
 
-	// Step 3: Apply status filters on latest records only
+	// Step 3: Apply status filters
+	// approvalStatus and workStatus use OR between them
+	// (show shot if approval matches OR work matches)
 	conditions := []string{}
 	args := []interface{}{}
 
@@ -67,19 +69,18 @@ func (r *ReviewInfo) ListFilteredShotsPaginated(
 		args = append(args, workStatus)
 	}
 
-	// OR between approval and work status filters
 	if len(conditions) > 0 {
 		latest = latest.Where(strings.Join(conditions, " OR "), args...)
 	}
 
-	// Step 4: Group unique shots and apply search
+	// Step 4: Deduplicate to unique shots + search
 	outer := db.Select("group_1, group_2, group_3, relation").
 		Table("(?) AS latest", latest).
 		Group("group_1, group_2, group_3, relation").
 		Order("group_1 ASC, group_2 ASC, group_3 ASC")
 
 	if search != nil && strings.TrimSpace(*search) != "" {
-		s := strings.TrimSpace(*search) + "%" // starts-with
+		s := strings.TrimSpace(*search) + "%"
 		outer = outer.Where(
 			"group_1 LIKE ? OR group_2 LIKE ? OR group_3 LIKE ?",
 			s, s, s,
@@ -100,7 +101,6 @@ func (r *ReviewInfo) ListFilteredShotsPaginated(
 
 	total := int64(len(rows))
 
-	// Paginate in Go
 	offset := (page - 1) * perPage
 	if offset >= len(rows) {
 		return []*entity.ShotDocument{}, total, nil
