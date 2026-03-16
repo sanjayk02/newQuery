@@ -1,49 +1,53 @@
-func (r *ReviewInfo) ListFilteredShots(
-	db *gorm.DB,
-	project string,
-	approvalStatus []string,
-	workStatus []string,
-) ([]*entity.ShotDocument, error) {
+func (uc *PublishOperationInfo) ListShots(
+    ctx context.Context,
+    params *entity.ShotListParams,
+) ([]*entity.ShotDocument, int64, error) {
 
-	stmt := db.Model(&model.ReviewInfo{}).
-		Select("group_1, group_2, group_3, relation").
-		Where("project = ?", project).
-		Where("root = ?", "shots").
-		Where("deleted = 0")
+    if err := binding.Validator.ValidateStruct(params); err != nil {
+        return nil, 0, err
+    }
 
-	if len(approvalStatus) > 0 {
-		stmt = stmt.Where("approval_status IN ?", approvalStatus)
-	}
+    timeoutCtx, cancel := context.WithTimeout(ctx, uc.readTimeout)
+    defer cancel()
 
-	if len(workStatus) > 0 {
-		stmt = stmt.Where("work_status IN ?", workStatus)
-	}
+    var filteredShots []*entity.ShotDocument
+    var err error
 
-	stmt = stmt.Group("group_1, group_2, group_3, relation")
+    filteredShots, err = uc.reviewRepo.ListFilteredShots(
+        uc.mysqlDB,
+        params.Project,
+        params.ApprovalStatus,
+        params.WorkStatus,
+    )
 
-	var rows []struct {
-		Group1   string `gorm:"column:group_1"`
-		Group2   string `gorm:"column:group_2"`
-		Group3   string `gorm:"column:group_3"`
-		Relation string `gorm:"column:relation"`
-	}
+    if err != nil {
+        return nil, 0, err
+    }
 
-	if err := stmt.Scan(&rows).Error; err != nil {
-		return nil, err
-	}
+    total := int64(len(filteredShots))
 
-	var shots []*entity.ShotDocument
+    // Pagination before Mongo query
+    start := (params.GetPage() - 1) * params.GetPerPage()
+    end := start + params.GetPerPage()
 
-	for _, r := range rows {
-		shots = append(shots, &entity.ShotDocument{
-			Groups: []string{
-				r.Group1,
-				r.Group2,
-				r.Group3,
-			},
-			Relation: r.Relation,
-		})
-	}
+    if start > len(filteredShots) {
+        filteredShots = []*entity.ShotDocument{}
+    } else {
+        if end > len(filteredShots) {
+            end = len(filteredShots)
+        }
+        filteredShots = filteredShots[start:end]
+    }
 
-	return shots, nil
+    documents, _, err := uc.repo.ListShots(
+        timeoutCtx,
+        params,
+        filteredShots,
+    )
+
+    if err != nil {
+        return nil, 0, err
+    }
+
+    return documents, total, nil
 }
