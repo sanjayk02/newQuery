@@ -1,38 +1,10 @@
-WITH latest_phase AS (
-  SELECT
-    project,
-    root,
-    group_1,
-    group_2,
-    group_3,
-    relation,
-    COALESCE(component, '') AS component,
-    phase,
-    work_status,
-    approval_status,
-    submitted_at_utc,
-    RIGHT(take, 4) AS take,
-    ROW_NUMBER() OVER (
-      PARTITION BY project, root, group_1, group_2, group_3, relation, component, phase
-      ORDER BY modified_at_utc DESC
-    ) AS rn
-  FROM t_review_info
-  WHERE project = 'drk' AND root = 'shots' AND deleted = 0
-)
-SELECT
-  project,
-  root,
-  group_1,
-  group_2,
-  group_3,
-  relation,
-  component,
+-- Check ALL phases that exist in DB for shots
+SELECT 
   phase,
-  work_status,
-  approval_status,
-  submitted_at_utc,
-  take
-FROM latest_phase
-WHERE rn = 1
-ORDER BY group_1, group_2, group_3, phase
-LIMIT 100;
+  COUNT(*) as count
+FROM t_review_info
+WHERE root = 'shots' 
+  AND project = 'drk'
+  AND deleted = 0
+GROUP BY phase
+ORDER BY phase;
