@@ -1,0 +1,63 @@
+WITH latest_phase AS (
+  SELECT
+    project,
+    root,
+    group_1,
+    group_2,
+    group_3,
+    relation,
+    COALESCE(component, '') AS component,
+    phase,
+    work_status,
+    approval_status,
+    submitted_at_utc,
+    RIGHT(take, 4) AS take,
+    ROW_NUMBER() OVER (
+      PARTITION BY project, root, group_1, group_2, group_3, relation, component, phase
+      ORDER BY modified_at_utc DESC
+    ) AS rn
+  FROM t_review_info
+  WHERE project = 'drk' AND root = 'shots' AND deleted = 0
+    AND (
+      (group_1 = 'DRK101' AND group_2 = '01' AND group_3 = '001_00' AND relation = 'com' AND COALESCE(component, '') = '_review')
+      OR (group_1 = 'DRK101' AND group_2 = '02' AND group_3 = '002_00' AND relation = 'com' AND COALESCE(component, '') = '_review')
+      OR (group_1 = 'DRK101' AND group_2 = '02' AND group_3 = '003_00' AND relation = 'com' AND COALESCE(component, '') = '_review')
+      OR (group_1 = 'DRK101' AND group_2 = '02' AND group_3 = '004_00' AND relation = 'com' AND COALESCE(component, '') = '_review')
+      OR (group_1 = 'DRK101' AND group_2 = '03' AND group_3 = '005_00' AND relation = 'com' AND COALESCE(component, '') = '_review')
+      OR (group_1 = 'DRK101' AND group_2 = '03' AND group_3 = '006_00' AND relation = 'com' AND COALESCE(component, '') = '_review')
+      OR (group_1 = 'DRK101' AND group_2 = '03' AND group_3 = '007_00' AND relation = 'com' AND COALESCE(component, '') = '_review')
+      OR (group_1 = 'DRK101' AND group_2 = '03' AND group_3 = '008_00' AND relation = 'com' AND COALESCE(component, '') = '_review')
+      OR (group_1 = 'DRK101' AND group_2 = '03' AND group_3 = '009_00' AND relation = 'com' AND COALESCE(component, '') = '_review')
+      OR (group_1 = 'DRK101' AND group_2 = '03' AND group_3 = '009_01' AND relation = 'com' AND COALESCE(component, '') = '_review')
+      OR (group_1 = 'DRK101' AND group_2 = '03' AND group_3 = '010_00' AND relation = 'com' AND COALESCE(component, '') = '_review')
+      OR (group_1 = 'DRK101' AND group_2 = '03' AND group_3 = '011_00' AND relation = 'com' AND COALESCE(component, '') = '_review')
+      OR (group_1 = 'DRK101' AND group_2 = '03' AND group_3 = '012_00' AND relation = 'com' AND COALESCE(component, '') = '_review')
+      OR (group_1 = 'DRK101' AND group_2 = '03' AND group_3 = '013_00' AND relation = 'com' AND COALESCE(component, '') = '_review')
+      OR (group_1 = 'DRK101' AND group_2 = '04' AND group_3 = '014_00' AND relation = 'com' AND COALESCE(component, '') = '_review')
+    )
+)
+SELECT
+  project,
+  root,
+  group_1,
+  group_2,
+  group_3,
+  relation,
+  component,
+  phase,
+  work_status,
+  approval_status,
+  submitted_at_utc,
+  take
+FROM latest_phase
+WHERE rn = 1
+ORDER BY group_1, group_2, group_3, phase;
+```
+
+---
+
+This should return **multiple rows per shot** (one per phase), like:
+```
+DRK101 | 03 | 005_00 | com | anm | svApproved | clientApproved | 0006
+DRK101 | 03 | 005_00 | com | cmp | svApproved | clientApproved | 0003
+DRK101 | 03 | 005_00 | com | fx  | svApproved | clientApproved | 0002
