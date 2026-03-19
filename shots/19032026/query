@@ -1,10 +1,8 @@
--- Check ALL phases that exist in DB for shots
-SELECT 
-  phase,
-  COUNT(*) as count
+SELECT DISTINCT phase
 FROM t_review_info
-WHERE root = 'shots' 
+WHERE root = 'shots'
   AND project = 'drk'
-  AND deleted = 0
-GROUP BY phase
+  AND phase LIKE '%cfx%'
+  OR phase LIKE '%hair%'
+  OR phase LIKE '%cloth%'
 ORDER BY phase;
