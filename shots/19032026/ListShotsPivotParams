@@ -1,0 +1,137 @@
+/* ──────────────────────────────────────────────────────────────────────────
+   ListShotsPivotParams defines the parameters for listing shot pivots.
+   ────────────────────────────────────────────────────────────────────────── */
+
+type ListShotsPivotParams struct {
+	Project          string
+	PreferredPhase   string
+	OrderKey         string
+	Direction        string
+	Page             int
+	PerPage          int
+	ShotNameKey      string
+	ApprovalStatuses []string
+	WorkStatuses     []string
+}
+
+type ListShotsPivotResult struct {
+	Shots    []repository.ShotPivot
+	Total    int64
+	Page     int
+	PerPage  int
+	PageLast int
+	HasNext  bool
+	HasPrev  bool
+	Sort     string
+	Dir      string
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   ListShotsPivot retrieves a paginated list of shot pivots for a given project.
+   ────────────────────────────────────────────────────────────────────────── */
+
+func (u *ReviewInfo) ListShotsPivot(ctx context.Context, p ListShotsPivotParams) (*ListShotsPivotResult, error) {
+	if p.Project == "" {
+		return nil, fmt.Errorf("project is required")
+	}
+	if p.PerPage <= 0 {
+		p.PerPage = 15
+	}
+	if p.Page <= 0 {
+		p.Page = 1
+	}
+
+	// normalize dir
+	dir := strings.ToUpper(strings.TrimSpace(p.Direction))
+	if dir != "ASC" && dir != "DESC" {
+		dir = "ASC"
+	}
+
+	limit  := p.PerPage
+	offset := (p.Page - 1) * p.PerPage
+
+	shots, total, err := u.repo.ListShotsPivot(
+		ctx,
+		p.Project,
+		p.PreferredPhase,
+		p.OrderKey,
+		strings.ToLower(dir),
+		limit,
+		offset,
+		p.ShotNameKey,
+		p.ApprovalStatuses,
+		p.WorkStatuses,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	pageLast := int((total + int64(p.PerPage) - 1) / int64(p.PerPage))
+
+	return &ListShotsPivotResult{
+		Shots:    shots,
+		Total:    total,
+		Page:     p.Page,
+		PerPage:  p.PerPage,
+		PageLast: pageLast,
+		HasNext:  offset+limit < int(total),
+		HasPrev:  p.Page > 1,
+		Sort:     p.OrderKey,
+		Dir:      strings.ToLower(dir),
+	}, nil
+}
+
+
+router.GET("/test/projects/:project/reviews/shots/pivot", func(c *gin.Context) {
+    project  := c.Param("project")
+    orderKey := c.DefaultQuery("orderKey",  "group1_only")
+    direction := c.DefaultQuery("direction", "ASC")
+    phase    := c.DefaultQuery("phase",     "")
+    nameKey  := c.DefaultQuery("nameKey",   "")
+
+    page, _    := strconv.Atoi(c.DefaultQuery("page",    "1"))
+    perPage, _ := strconv.Atoi(c.DefaultQuery("perPage", "15"))
+
+    approvalStatuses := c.QueryArray("approvalStatus")
+    workStatuses     := c.QueryArray("workStatus")
+
+    result, err := reviewInfoUsecase.ListShotsPivot(
+        c.Request.Context(),
+        usecase.ListShotsPivotParams{
+            Project:          project,
+            PreferredPhase:   phase,
+            OrderKey:         orderKey,
+            Direction:        direction,
+            Page:             page,
+            PerPage:          perPage,
+            ShotNameKey:      nameKey,
+            ApprovalStatuses: approvalStatuses,
+            WorkStatuses:     workStatuses,
+        },
+    )
+    if err != nil {
+        c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+            "message": err.Error(),
+        })
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "items":     result.Shots,
+        "total":     result.Total,
+        "page":      result.Page,
+        "perPage":   result.PerPage,
+        "pageLast":  result.PageLast,
+        "hasNext":   result.HasNext,
+        "hasPrev":   result.HasPrev,
+        "sort":      result.Sort,
+        "dir":       result.Dir,
+    })
+})
+```
+
+---
+
+### Test URL
+```
+http://localhost:4000/test/projects/drk/reviews/shots/pivot?page=1&perPage=15&orderKey=group1_only&direction=ASC
