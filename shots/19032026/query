@@ -1,8 +1,230 @@
-SELECT DISTINCT phase
-FROM t_review_info
-WHERE root = 'shots'
-  AND project = 'drk'
-  AND phase LIKE '%cfx%'
-  OR phase LIKE '%hair%'
-  OR phase LIKE '%cloth%'
-ORDER BY phase;
+WITH latest_phase AS (
+  SELECT
+    project,
+    root,
+    group_1,
+    group_2,
+    group_3,
+    relation,
+    COALESCE(component, '') AS component,
+    phase,
+    work_status,
+    approval_status,
+    submitted_at_utc,
+    RIGHT(take, 4)          AS take,
+    ROW_NUMBER() OVER (
+      PARTITION BY project, root, group_1, group_2, group_3, relation, component, phase
+      ORDER BY modified_at_utc DESC
+    ) AS rn
+  FROM t_review_info
+  WHERE project = 'drk'
+    AND root    = 'shots'
+    AND deleted = 0
+),
+filtered AS (
+  SELECT *
+  FROM latest_phase
+  WHERE rn = 1
+),
+ranked AS (
+  SELECT
+    *,
+    ROW_NUMBER() OVER (
+      PARTITION BY project, root, group_1, group_2, group_3, relation
+      ORDER BY
+        LOWER(group_1) ASC,
+        LOWER(group_2) ASC,
+        LOWER(group_3) ASC,
+        modified_at_utc DESC
+    ) AS _rank,
+    ROW_NUMBER() OVER (
+      ORDER BY
+        LOWER(group_1) ASC,
+        LOWER(group_2) ASC,
+        LOWER(group_3) ASC
+    ) AS _order
+  FROM filtered
+),
+page_keys AS (
+  SELECT
+    project,
+    root,
+    group_1,
+    group_2,
+    group_3,
+    relation,
+    component,
+    phase,
+    submitted_at_utc,
+    _order
+  FROM ranked
+  WHERE _rank = 1
+  ORDER BY _order ASC
+  LIMIT 15 OFFSET 0
+),
+phase_data AS (
+  SELECT
+    f.project,
+    f.root,
+    f.group_1,
+    f.group_2,
+    f.group_3,
+    f.relation,
+    f.component,
+    f.phase,
+    f.work_status,
+    f.approval_status,
+    f.submitted_at_utc,
+    f.take
+  FROM filtered f
+  INNER JOIN page_keys pk
+    ON  f.project   = pk.project
+    AND f.root      = pk.root
+    AND f.group_1   = pk.group_1
+    AND f.group_2   = pk.group_2
+    AND f.group_3   = pk.group_3
+    AND f.relation  = pk.relation
+    AND f.component = pk.component
+)
+SELECT
+  project,
+  root,
+  group_1,
+  group_2,
+  group_3,
+  relation,
+  component,
+
+  -- LAY
+  MAX(CASE WHEN phase = 'lay'        THEN work_status      END) AS lay_work,
+  MAX(CASE WHEN phase = 'lay'        THEN approval_status  END) AS lay_appr,
+  MAX(CASE WHEN phase = 'lay'        THEN take             END) AS lay_take,
+  MAX(CASE WHEN phase = 'lay'        THEN submitted_at_utc END) AS lay_submitted,
+
+  -- ANM
+  MAX(CASE WHEN phase = 'anm'        THEN work_status      END) AS anm_work,
+  MAX(CASE WHEN phase = 'anm'        THEN approval_status  END) AS anm_appr,
+  MAX(CASE WHEN phase = 'anm'        THEN take             END) AS anm_take,
+  MAX(CASE WHEN phase = 'anm'        THEN submitted_at_utc END) AS anm_submitted,
+
+  -- GNZ
+  MAX(CASE WHEN phase = 'gnz'        THEN work_status      END) AS gnz_work,
+  MAX(CASE WHEN phase = 'gnz'        THEN approval_status  END) AS gnz_appr,
+  MAX(CASE WHEN phase = 'gnz'        THEN take             END) AS gnz_take,
+  MAX(CASE WHEN phase = 'gnz'        THEN submitted_at_utc END) AS gnz_submitted,
+
+  -- CLOTH (cfxCloth)
+  MAX(CASE WHEN phase = 'cloth'      THEN work_status      END) AS cloth_work,
+  MAX(CASE WHEN phase = 'cloth'      THEN approval_status  END) AS cloth_appr,
+  MAX(CASE WHEN phase = 'cloth'      THEN take             END) AS cloth_take,
+  MAX(CASE WHEN phase = 'cloth'      THEN submitted_at_utc END) AS cloth_submitted,
+
+  -- DSP
+  MAX(CASE WHEN phase = 'dsp'        THEN work_status      END) AS dsp_work,
+  MAX(CASE WHEN phase = 'dsp'        THEN approval_status  END) AS dsp_appr,
+  MAX(CASE WHEN phase = 'dsp'        THEN take             END) AS dsp_take,
+  MAX(CASE WHEN phase = 'dsp'        THEN submitted_at_utc END) AS dsp_submitted,
+
+  -- CRD
+  MAX(CASE WHEN phase = 'crd'        THEN work_status      END) AS crd_work,
+  MAX(CASE WHEN phase = 'crd'        THEN approval_status  END) AS crd_appr,
+  MAX(CASE WHEN phase = 'crd'        THEN take             END) AS crd_take,
+  MAX(CASE WHEN phase = 'crd'        THEN submitted_at_utc END) AS crd_submitted,
+
+  -- DRW
+  MAX(CASE WHEN phase = 'drw'        THEN work_status      END) AS drw_work,
+  MAX(CASE WHEN phase = 'drw'        THEN approval_status  END) AS drw_appr,
+  MAX(CASE WHEN phase = 'drw'        THEN take             END) AS drw_take,
+  MAX(CASE WHEN phase = 'drw'        THEN submitted_at_utc END) AS drw_submitted,
+
+  -- MAT
+  MAX(CASE WHEN phase = 'mat'        THEN work_status      END) AS mat_work,
+  MAX(CASE WHEN phase = 'mat'        THEN approval_status  END) AS mat_appr,
+  MAX(CASE WHEN phase = 'mat'        THEN take             END) AS mat_take,
+  MAX(CASE WHEN phase = 'mat'        THEN submitted_at_utc END) AS mat_submitted,
+
+  -- MATNUKE
+  MAX(CASE WHEN phase = 'matNuke'    THEN work_status      END) AS matNuke_work,
+  MAX(CASE WHEN phase = 'matNuke'    THEN approval_status  END) AS matNuke_appr,
+  MAX(CASE WHEN phase = 'matNuke'    THEN take             END) AS matNuke_take,
+  MAX(CASE WHEN phase = 'matNuke'    THEN submitted_at_utc END) AS matNuke_submitted,
+
+  -- FX
+  MAX(CASE WHEN phase = 'fx'         THEN work_status      END) AS fx_work,
+  MAX(CASE WHEN phase = 'fx'         THEN approval_status  END) AS fx_appr,
+  MAX(CASE WHEN phase = 'fx'         THEN take             END) AS fx_take,
+  MAX(CASE WHEN phase = 'fx'         THEN submitted_at_utc END) AS fx_submitted,
+
+  -- CMP
+  MAX(CASE WHEN phase = 'cmp'        THEN work_status      END) AS cmp_work,
+  MAX(CASE WHEN phase = 'cmp'        THEN approval_status  END) AS cmp_appr,
+  MAX(CASE WHEN phase = 'cmp'        THEN take             END) AS cmp_take,
+  MAX(CASE WHEN phase = 'cmp'        THEN submitted_at_utc END) AS cmp_submitted,
+
+  -- RTCGNZ
+  MAX(CASE WHEN phase = 'rtcgnz'     THEN work_status      END) AS rtcgnz_work,
+  MAX(CASE WHEN phase = 'rtcgnz'     THEN approval_status  END) AS rtcgnz_appr,
+  MAX(CASE WHEN phase = 'rtcgnz'     THEN take             END) AS rtcgnz_take,
+  MAX(CASE WHEN phase = 'rtcgnz'     THEN submitted_at_utc END) AS rtcgnz_submitted,
+
+  -- RTCMAT
+  MAX(CASE WHEN phase = 'rtcMat'     THEN work_status      END) AS rtcMat_work,
+  MAX(CASE WHEN phase = 'rtcMat'     THEN approval_status  END) AS rtcMat_appr,
+  MAX(CASE WHEN phase = 'rtcMat'     THEN take             END) AS rtcMat_take,
+  MAX(CASE WHEN phase = 'rtcMat'     THEN submitted_at_utc END) AS rtcMat_submitted,
+
+  -- RTCMATNUKE
+  MAX(CASE WHEN phase = 'rtcMatNuke' THEN work_status      END) AS rtcMatNuke_work,
+  MAX(CASE WHEN phase = 'rtcMatNuke' THEN approval_status  END) AS rtcMatNuke_appr,
+  MAX(CASE WHEN phase = 'rtcMatNuke' THEN take             END) AS rtcMatNuke_take,
+  MAX(CASE WHEN phase = 'rtcMatNuke' THEN submitted_at_utc END) AS rtcMatNuke_submitted,
+
+  -- RTCDRW
+  MAX(CASE WHEN phase = 'rtcDrw'     THEN work_status      END) AS rtcDrw_work,
+  MAX(CASE WHEN phase = 'rtcDrw'     THEN approval_status  END) AS rtcDrw_appr,
+  MAX(CASE WHEN phase = 'rtcDrw'     THEN take             END) AS rtcDrw_take,
+  MAX(CASE WHEN phase = 'rtcDrw'     THEN submitted_at_utc END) AS rtcDrw_submitted,
+
+  -- REL
+  MAX(CASE WHEN phase = 'rel'        THEN work_status      END) AS rel_work,
+  MAX(CASE WHEN phase = 'rel'        THEN approval_status  END) AS rel_appr,
+  MAX(CASE WHEN phase = 'rel'        THEN take             END) AS rel_take,
+  MAX(CASE WHEN phase = 'rel'        THEN submitted_at_utc END) AS rel_submitted,
+
+  -- SND
+  MAX(CASE WHEN phase = 'snd'        THEN work_status      END) AS snd_work,
+  MAX(CASE WHEN phase = 'snd'        THEN approval_status  END) AS snd_appr,
+  MAX(CASE WHEN phase = 'snd'        THEN take             END) AS snd_take,
+  MAX(CASE WHEN phase = 'snd'        THEN submitted_at_utc END) AS snd_submitted,
+
+  -- CROWD
+  MAX(CASE WHEN phase = 'crowd'      THEN work_status      END) AS crowd_work,
+  MAX(CASE WHEN phase = 'crowd'      THEN approval_status  END) AS crowd_appr,
+  MAX(CASE WHEN phase = 'crowd'      THEN take             END) AS crowd_take,
+  MAX(CASE WHEN phase = 'crowd'      THEN submitted_at_utc END) AS crowd_submitted,
+
+  -- LGT
+  MAX(CASE WHEN phase = 'lgt'        THEN work_status      END) AS lgt_work,
+  MAX(CASE WHEN phase = 'lgt'        THEN approval_status  END) AS lgt_appr,
+  MAX(CASE WHEN phase = 'lgt'        THEN take             END) AS lgt_take,
+  MAX(CASE WHEN phase = 'lgt'        THEN submitted_at_utc END) AS lgt_submitted,
+
+  -- CFXHAIR (future — will show when data added to DB)
+  MAX(CASE WHEN phase = 'cfxHair'    THEN work_status      END) AS cfxHair_work,
+  MAX(CASE WHEN phase = 'cfxHair'    THEN approval_status  END) AS cfxHair_appr,
+  MAX(CASE WHEN phase = 'cfxHair'    THEN take             END) AS cfxHair_take,
+  MAX(CASE WHEN phase = 'cfxHair'    THEN submitted_at_utc END) AS cfxHair_submitted
+
+FROM phase_data
+GROUP BY
+  project,
+  root,
+  group_1,
+  group_2,
+  group_3,
+  relation,
+  component
+ORDER BY
+  LOWER(group_1) ASC,
+  LOWER(group_2) ASC,
+  LOWER(group_3) ASC;
