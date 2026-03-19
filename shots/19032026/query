@@ -1,0 +1,6 @@
+SELECT take, COUNT(*) 
+FROM t_review_info 
+WHERE root = 'shots' 
+AND project = 'your_project'
+GROUP BY take 
+LIMIT 20;
