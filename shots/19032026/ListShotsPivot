@@ -1,0 +1,201 @@
+/* ──────────────────────────────────────────────────────────────────────────
+   Known shot phases — used to fill missing phases with "-"
+   ────────────────────────────────────────────────────────────────────────── */
+
+var knownShotPhases = []string{
+	"lay",
+	"anm",
+	"gnz",
+	"cloth",
+	"dsp",
+	"crd",
+	"drw",
+	"mat",
+	"matNuke",
+	"fx",
+	"cmp",
+	"rtcgnz",
+	"rtcMat",
+	"rtcMatNuke",
+	"rtcDrw",
+	"rel",
+	"snd",
+	"crowd",
+	"lgt",
+	"cfxHair",
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   ListShotsPivot
+   ────────────────────────────────────────────────────────────────────────── */
+
+func (r *ReviewInfo) ListShotsPivot(
+	ctx context.Context,
+	project, preferredPhase, orderKey, direction string,
+	limit, offset int,
+	shotNameKey string,
+	approvalStatuses []string,
+	workStatuses []string,
+) ([]ShotPivot, int64, error) {
+	if project == "" {
+		return nil, 0, fmt.Errorf("project is required")
+	}
+
+	// 1) total count
+	total, err := r.CountShotSubmissions(
+		ctx, project, shotNameKey, approvalStatuses, workStatuses,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// 2) page keys — one row per shot in correct order
+	keys, err := r.ListLatestShotsDynamic(
+		ctx, project, preferredPhase,
+		orderKey, direction,
+		limit, offset,
+		shotNameKey, approvalStatuses, workStatuses,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(keys) == 0 {
+		return []ShotPivot{}, total, nil
+	}
+
+	// 3) fetch all phase rows for this page only
+	var sb strings.Builder
+	var params []any
+
+	sb.WriteString(`
+WITH latest_phase AS (
+  SELECT
+    project,
+    root,
+    group_1,
+    group_2,
+    group_3,
+    relation,
+    COALESCE(component, '') AS component,
+    phase,
+    work_status,
+    approval_status,
+    submitted_at_utc,
+    RIGHT(take, 4) AS take,
+    ROW_NUMBER() OVER (
+      PARTITION BY project, root, group_1, group_2, group_3, relation, component, phase
+      ORDER BY modified_at_utc DESC
+    ) AS rn
+  FROM t_review_info
+  WHERE project = ? AND root = 'shots' AND deleted = 0
+    AND (
+`)
+	params = append(params, project)
+
+	for i, k := range keys {
+		if i > 0 {
+			sb.WriteString("      OR ")
+		}
+		sb.WriteString("(group_1 = ? AND group_2 = ? AND group_3 = ? AND relation = ? AND COALESCE(component, '') = ?)\n")
+		params = append(params, k.Group1, k.Group2, k.Group3, k.Relation, k.Component)
+	}
+
+	sb.WriteString(`    )
+)
+SELECT
+  project,
+  root,
+  group_1,
+  group_2,
+  group_3,
+  relation,
+  component,
+  phase,
+  work_status,
+  approval_status,
+  submitted_at_utc,
+  take
+FROM latest_phase
+WHERE rn = 1;
+`)
+
+	var phases []shotPhaseRow
+	if err := r.db.WithContext(ctx).Raw(sb.String(), params...).Scan(&phases).Error; err != nil {
+		return nil, 0, fmt.Errorf("ListShotsPivot.phaseFetch: %w", err)
+	}
+
+	// 4) build pivot map preserving page order
+	type keyStruct struct {
+		p, r, g1, g2, g3, rel, comp string
+	}
+
+	ptrToString := func(s *string) string {
+		if s == nil {
+			return ""
+		}
+		return *s
+	}
+
+	strPtr := func(s string) *string {
+		return &s
+	}
+
+	// empty phase — used for missing phases
+	emptyPhase := PhaseData{
+		WorkStatus:     strPtr("-"),
+		ApprovalStatus: strPtr("-"),
+		SubmittedAtUTC: nil,
+		Take:           strPtr("-"),
+	}
+
+	m := make(map[keyStruct]*ShotPivot, len(keys))
+	orderedPtrs := make([]*ShotPivot, 0, len(keys))
+
+	for _, k := range keys {
+		id := keyStruct{k.Project, k.Root, k.Group1, k.Group2, k.Group3, k.Relation, k.Component}
+		sp := &ShotPivot{
+			Root:      k.Root,
+			Project:   k.Project,
+			Group1:    k.Group1,
+			Group2:    k.Group2,
+			Group3:    k.Group3,
+			Relation:  k.Relation,
+			Component: k.Component,
+			Phases:    make(map[string]PhaseData),
+		}
+		m[id] = sp
+		orderedPtrs = append(orderedPtrs, sp)
+	}
+
+	// stitch phases — dynamic, works for ALL phases
+	for _, pr := range phases {
+		id := keyStruct{pr.Project, pr.Root, pr.Group1, pr.Group2, pr.Group3, pr.Relation, ptrToString(pr.Component)}
+		sp, ok := m[id]
+		if !ok {
+			continue
+		}
+		sp.Phases[strings.ToLower(pr.Phase)] = PhaseData{
+			WorkStatus:     pr.WorkStatus,
+			ApprovalStatus: pr.ApprovalStatus,
+			SubmittedAtUTC: pr.SubmittedAtUTC,
+			Take:           pr.Take,
+		}
+	}
+
+	// fill missing phases with "-"
+	for _, sp := range orderedPtrs {
+		for _, phase := range knownShotPhases {
+			if _, exists := sp.Phases[phase]; !exists {
+				sp.Phases[phase] = emptyPhase
+			}
+		}
+	}
+
+	// 5) convert []*ShotPivot → []ShotPivot preserving order
+	ordered := make([]ShotPivot, len(orderedPtrs))
+	for i, sp := range orderedPtrs {
+		ordered[i] = *sp
+	}
+
+	return ordered, total, nil
+}
