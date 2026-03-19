@@ -1,0 +1,59 @@
+// add this BEFORE apiRouter group
+// only for testing — remove after testing is done
+router.GET("/test/projects/:project/reviews/shots/pivot", func(c *gin.Context) {
+    project := c.Param("project")
+
+    orderKey  := c.DefaultQuery("orderKey",  "group1_only")
+    direction := c.DefaultQuery("direction", "ASC")
+    phase     := c.DefaultQuery("phase",     "")
+    nameKey   := c.DefaultQuery("nameKey",   "")
+
+    limitStr  := c.DefaultQuery("limit",  "15")
+    offsetStr := c.DefaultQuery("offset", "0")
+
+    limit, _ := strconv.Atoi(limitStr)
+    offset, _ := strconv.Atoi(offsetStr)
+
+    if limit <= 0 {
+        limit = 15
+    }
+    if offset < 0 {
+        offset = 0
+    }
+
+    approvalStatuses := c.QueryArray("approvalStatus")
+    workStatuses     := c.QueryArray("workStatus")
+
+    rows, total, err := reviewInfoUsecase.ListShotsPivot(
+        c.Request.Context(),
+        project,
+        phase,
+        orderKey,
+        direction,
+        limit,
+        offset,
+        nameKey,
+        approvalStatuses,
+        workStatuses,
+    )
+    if err != nil {
+        c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+            "message": err.Error(),
+        })
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "items":  rows,
+        "total":  total,
+        "limit":  limit,
+        "offset": offset,
+    })
+})
+```
+
+---
+
+Then test in browser or curl:
+```
+http://localhost:4000/test/projects/drk/reviews/shots/pivot?limit=15&offset=0
