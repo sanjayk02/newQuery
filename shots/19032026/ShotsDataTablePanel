@@ -20,6 +20,8 @@ import ShotDataTableToolbar, {
     DEFAULT_COLUMN_STATE,
 } from './ShotDataTableToolbar';
 
+/* ── Styled Components ─────────────────────────────────────────────────── */
+
 const StyledContainer = styled(Container)(({ theme }) => ({
     position: 'relative',
     display: 'flex',
@@ -64,11 +66,21 @@ const ToolBarWrapper = styled('div')(({ theme }) => ({
     gap: theme.spacing(1),
 }));
 
+const FooterWrapper = styled('div')({
+    display:         'flex',
+    justifyContent:  'flex-end',
+    width:           '100%',
+});
+
+/* ── Types ─────────────────────────────────────────────────────────────── */
+
 type Filters = {
     shotGroups:     string[];
     approvalStatus: string[];
     workStatus:     string[];
 };
+
+/* ── Main Component ─────────────────────────────────────────────────────── */
 
 const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
     const [viewMode,     setViewMode]     = useState<ViewMode>('list');
@@ -80,9 +92,11 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
         workStatus:     [],
     });
     const [pageProps, setPageProps] = useState<PageProps>({
-        page: 0,
+        page:        0,
         rowsPerPage: 15,
     });
+
+    const { currentProject } = useCurrentProject();
 
     // reset page when search or filters change
     const prevSearchRef   = useRef(searchValue);
@@ -109,9 +123,7 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
         JSON.stringify(filters.workStatus),
     ]);
 
-    const { currentProject } = useCurrentProject();
-
-    // ── New pivot hook ──────────────────────────────────────────────────
+    // new pivot hook
     const { shots, total } = useShotsPivot({
         project:        currentProject,
         page:           effectivePage + 1,  // API is 1-based
@@ -194,13 +206,18 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
                         <ShotsDataTable
                             project={currentProject}
                             shots={shots}
-                            tableFooter={tableFooter}
+                            tableFooter={<></>}
                             dateTimeFormat={dateTimeFormat}
                             columnsState={columnsState}
                         />
                     </StyledContentDiv>
                 </StyledPaper>
             </StyledTableDiv>
+
+            <FooterWrapper>
+                {tableFooter}
+            </FooterWrapper>
+
         </StyledContainer>
     );
 };
