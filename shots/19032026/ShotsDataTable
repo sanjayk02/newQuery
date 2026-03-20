@@ -1,0 +1,360 @@
+import React from "react";
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableRow,
+    Tooltip,
+} from "@material-ui/core";
+import { ShotPivot, Colors, Column } from "./types";
+import { useFetchShotThumbnails } from './hooks';
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Phase Colors
+   ────────────────────────────────────────────────────────────────────────── */
+const SHOT_PHASES: { [key: string]: Colors } = {
+    // existing phases
+    lay:        { lineColor: '#3295FD', backgroundColor: '#004288' },
+    anm:        { lineColor: '#FD5E63', backgroundColor: '#5c0003' },
+    gnz:        { lineColor: '#C061FD', backgroundColor: '#340055' },
+    mat:        { lineColor: '#FE7DB3', backgroundColor: '#5f0028' },
+    matnuke:    { lineColor: '#FE7DB3', backgroundColor: '#3d0019' },
+    fx:         { lineColor: '#FDCD44', backgroundColor: '#CCA537' },
+    cmp:        { lineColor: '#D5F762', backgroundColor: '#4a6101' },
+    rel:        { lineColor: '#64B5F6', backgroundColor: '#1a3a5c' },
+    snd:        { lineColor: '#81C784', backgroundColor: '#1b5e20' },
+    crowd:      { lineColor: '#FFD54F', backgroundColor: '#7a5c00' },
+    lgt:        { lineColor: '#4DB6AC', backgroundColor: '#00363a' },
+    // new phases — colors from task list
+    dsp:        { lineColor: '#FFD35D', backgroundColor: '#FFB54C' },
+    cloth:      { lineColor: '#FE9880', backgroundColor: '#FE8359' },
+    cfxhair:    { lineColor: '#FDA342', backgroundColor: '#FD8D03' },
+    crd:        { lineColor: '#FF8C12', backgroundColor: '#E88600' },
+    drw:        { lineColor: '#FDC0FF', backgroundColor: '#FDAFFB' },
+    rtcgnz:     { lineColor: '#D38AFF', backgroundColor: '#C061FD' },
+    rtcmat:     { lineColor: '#FFA3C5', backgroundColor: '#FE7DB3' },
+    rtcmatnuke: { lineColor: '#FFC4B4', backgroundColor: '#FEAD92' },
+    rtcdrw:     { lineColor: '#FFC3FC', backgroundColor: '#FDAFFB' },
+};
+
+// display order
+const PHASE_ORDER = [
+    'lay', 'anm', 'gnz', 'cloth', 'dsp', 'crd', 'drw',
+    'mat', 'matnuke', 'fx', 'cmp',
+    'rtcgnz', 'rtcmat', 'rtcmatnuke', 'rtcdrw',
+    'rel', 'snd', 'crowd', 'lgt', 'cfxhair',
+];
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Status Maps
+   ────────────────────────────────────────────────────────────────────────── */
+type Status = Readonly<{ displayName: string; color: string }>;
+
+const APPROVAL_STATUS: { [key: string]: Status } = {
+    check:          { displayName: 'Check',           color: '#ca25ed' },
+    clientReview:   { displayName: 'Client Review',   color: '#005fbd' },
+    dirReview:      { displayName: 'Dir Review',      color: '#007fff' },
+    epdReview:      { displayName: 'EPD Review',      color: '#4fa7ff' },
+    clientOnHold:   { displayName: 'Client On Hold',  color: '#d69b00' },
+    dirOnHold:      { displayName: 'Dir On Hold',     color: '#ffcc00' },
+    epdOnHold:      { displayName: 'EPD On Hold',     color: '#ffdd55' },
+    execRetake:     { displayName: 'Exec Retake',     color: '#a60000' },
+    clientRetake:   { displayName: 'Client Retake',   color: '#c60000' },
+    dirRetake:      { displayName: 'Dir Retake',      color: '#ff0000' },
+    epdRetake:      { displayName: 'EPD Retake',      color: '#ff4f4f' },
+    clientApproved: { displayName: 'Client Approved', color: '#1d7c39' },
+    dirApproved:    { displayName: 'Dir Approved',    color: '#27ab4f' },
+    epdApproved:    { displayName: 'EPD Approved',    color: '#5cda82' },
+    svApproved:     { displayName: 'SV Approved',     color: '#83e29f' },
+    other:          { displayName: 'Other',           color: '#9a9a9a' },
+    omit:           { displayName: 'Omit',            color: '#646464' },
+};
+
+const WORK_STATUS: { [key: string]: Status } = {
+    check:        { displayName: 'Check',         color: '#e287f5' },
+    cgsvOnHold:   { displayName: 'CGSV On Hold',  color: '#ffdd55' },
+    svOnHold:     { displayName: 'SV On Hold',    color: '#ffe373' },
+    leadOnHold:   { displayName: 'Lead On Hold',  color: '#fff04f' },
+    cgsvRetake:   { displayName: 'CGSV Retake',   color: '#ff4f4f' },
+    svRetake:     { displayName: 'SV Retake',     color: '#ff8080' },
+    leadRetake:   { displayName: 'Lead Retake',   color: '#ffbbbb' },
+    cgsvApproved: { displayName: 'CGSV Approved', color: '#5cda82' },
+    svApproved:   { displayName: 'SV Approved',   color: '#83e29f' },
+    leadApproved: { displayName: 'Lead Approved', color: '#b9eec9' },
+    svOther:      { displayName: 'SV Other',      color: '#9a9a9a' },
+    leadOther:    { displayName: 'Lead Other',    color: '#dbdbdb' },
+};
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Build Columns
+   ────────────────────────────────────────────────────────────────────────── */
+const buildColumns = (): Column[] => {
+    const fixed: Column[] = [
+        { id: 'thumbnail',    label: 'THUMBNAIL', fixed: true },
+        { id: 'group_1_name', label: 'NAME 1',    fixed: true },
+        { id: 'group_2_name', label: 'NAME 2',    fixed: true },
+        { id: 'group_3_name', label: 'NAME 3',    fixed: true },
+    ];
+
+    const phase: Column[] = PHASE_ORDER.flatMap(p => {
+        const colors = SHOT_PHASES[p];
+        const label  = p.toUpperCase();
+        return [
+            { id: `${p}_work_status`,     label: `${label} WORK`,      colors },
+            { id: `${p}_approval_status`, label: `${label} APPR`,      colors },
+            { id: `${p}_take`,            label: `${label} TAKE`,      colors },
+            { id: `${p}_submitted_at`,    label: `${label} SUBMITTED`, colors },
+        ];
+    });
+
+    const tail: Column[] = [
+        { id: 'relation', label: 'RELATION' },
+    ];
+
+    return [...fixed, ...phase, ...tail];
+};
+
+const ALL_COLUMNS = buildColumns();
+
+/* ──────────────────────────────────────────────────────────────────────────
+   MultiLineTooltipTableCell
+   ────────────────────────────────────────────────────────────────────────── */
+type TooltipTableCellProps = {
+    status:            Status | undefined;
+    leftBorderStyle:   string;
+    rightBorderStyle:  string;
+    bottomBorderStyle: string;
+};
+
+const MultiLineTooltipTableCell: React.FC<TooltipTableCellProps> = ({
+    status,
+    leftBorderStyle,
+    rightBorderStyle,
+    bottomBorderStyle = 'none',
+}) => {
+    const statusText = status != null ? status.displayName : '-';
+
+    return (
+        <TableCell
+            style={{
+                color:        status != null ? status.color : '',
+                borderLeft:   leftBorderStyle,
+                borderRight:  rightBorderStyle,
+                borderBottom: bottomBorderStyle,
+                whiteSpace:   'nowrap',
+            }}
+        >
+            <span>{statusText}</span>
+        </TableCell>
+    );
+};
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Table Head
+   ────────────────────────────────────────────────────────────────────────── */
+const RecordTableHead: React.FC<{ columns: Column[] }> = ({ columns }) => (
+    <TableHead>
+        <TableRow>
+            {columns.map(col => {
+                const lineColor  = col.colors?.lineColor;
+                const borderLine = lineColor ? `solid 3px ${lineColor}` : 'none';
+                const isWork     = col.id.endsWith('_work_status');
+                const isAppr     = col.id.endsWith('_approval_status');
+                return (
+                    <TableCell
+                        key={col.id}
+                        style={{
+                            backgroundColor: col.colors?.backgroundColor ?? undefined,
+                            borderTop:   lineColor ? borderLine : 'none',
+                            borderLeft:  isWork    ? borderLine : 'none',
+                            borderRight: isAppr    ? borderLine : 'none',
+                            whiteSpace:  'nowrap',
+                        }}
+                    >
+                        {col.label}
+                    </TableCell>
+                );
+            })}
+        </TableRow>
+    </TableHead>
+);
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Shot Row
+   ────────────────────────────────────────────────────────────────────────── */
+type ShotRowProps = {
+    shot:           ShotPivot;
+    thumbnails:     { [key: string]: string };
+    dateTimeFormat: Intl.DateTimeFormat;
+    isLastRow:      boolean;
+    columnsState:   { [key: string]: boolean };
+};
+
+const ShotRow: React.FC<ShotRowProps> = ({
+    shot,
+    thumbnails,
+    dateTimeFormat,
+    isLastRow,
+    columnsState,
+}) => {
+    const thumbKey = `${shot.group_1}-${shot.group_2}-${shot.group_3}-${shot.relation}`;
+
+    return (
+        <TableRow>
+            {/* Thumbnail */}
+            <TableCell>
+                {thumbnails[thumbKey] ? (
+                    <img
+                        src={thumbnails[thumbKey]}
+                        alt={thumbKey}
+                        style={{ width: 100, height: 'auto' }}
+                    />
+                ) : (
+                    <span>No Thumbnail</span>
+                )}
+            </TableCell>
+
+            {/* Name columns */}
+            <TableCell>{shot.group_1}</TableCell>
+            <TableCell>{shot.group_2}</TableCell>
+            <TableCell>{shot.group_3}</TableCell>
+
+            {/* Phase columns */}
+            {PHASE_ORDER.map(phase => {
+                const colors     = SHOT_PHASES[phase];
+                const lineColor  = colors?.lineColor ?? '#fff';
+                const borderLine = `solid 3px ${lineColor}`;
+                const bottomLine = isLastRow ? borderLine : 'none';
+                const phaseData  = shot.phases[phase];
+
+                const workCol      = `${phase}_work_status`;
+                const apprCol      = `${phase}_approval_status`;
+                const takeCol      = `${phase}_take`;
+                const submittedCol = `${phase}_submitted_at`;
+
+                const workStatus     = phaseData?.work_status && phaseData.work_status !== '-'
+                    ? WORK_STATUS[phaseData.work_status]
+                    : undefined;
+
+                const approvalStatus = phaseData?.approval_status && phaseData.approval_status !== '-'
+                    ? APPROVAL_STATUS[phaseData.approval_status]
+                    : undefined;
+
+                return (
+                    <React.Fragment key={phase}>
+                        {/* Work Status */}
+                        {columnsState[workCol] !== false && (
+                            <MultiLineTooltipTableCell
+                                status={workStatus}
+                                leftBorderStyle={borderLine}
+                                rightBorderStyle='none'
+                                bottomBorderStyle={bottomLine}
+                            />
+                        )}
+
+                        {/* Approval Status */}
+                        {columnsState[apprCol] !== false && (
+                            <MultiLineTooltipTableCell
+                                status={approvalStatus}
+                                leftBorderStyle='none'
+                                rightBorderStyle={borderLine}
+                                bottomBorderStyle={bottomLine}
+                            />
+                        )}
+
+                        {/* Take */}
+                        {columnsState[takeCol] !== false && (
+                            <TableCell
+                                style={{
+                                    whiteSpace:   'nowrap',
+                                    borderBottom: bottomLine,
+                                }}
+                            >
+                                {phaseData?.take ?? '-'}
+                            </TableCell>
+                        )}
+
+                        {/* Submitted At */}
+                        {columnsState[submittedCol] !== false && (
+                            <TableCell
+                                style={{
+                                    whiteSpace:   'nowrap',
+                                    borderBottom: bottomLine,
+                                }}
+                            >
+                                {phaseData?.submitted_at_utc && phaseData.submitted_at_utc !== null
+                                    ? dateTimeFormat.format(
+                                        new Date(phaseData.submitted_at_utc)
+                                      )
+                                    : '-'}
+                            </TableCell>
+                        )}
+                    </React.Fragment>
+                );
+            })}
+
+            {/* Relation */}
+            {columnsState['relation'] !== false && (
+                <TableCell>{shot.relation}</TableCell>
+            )}
+        </TableRow>
+    );
+};
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Main Table
+   ────────────────────────────────────────────────────────────────────────── */
+type ShotsDataTableProps = {
+    project:        any;
+    shots:          ShotPivot[];
+    tableFooter:    React.ReactElement;
+    dateTimeFormat: Intl.DateTimeFormat;
+    columnsState:   { [key: string]: boolean };
+};
+
+const ShotsDataTable: React.FC<ShotsDataTableProps> = ({
+    project,
+    shots,
+    tableFooter,
+    dateTimeFormat,
+    columnsState,
+}) => {
+    if (project == null) return null;
+
+    // convert ShotPivot to old Shot format for thumbnail hook
+    const shotsForThumbnail = shots.map(s => ({
+        groups:   [s.group_1, s.group_2, s.group_3],
+        relation: s.relation,
+    }));
+
+    const { thumbnails } = useFetchShotThumbnails(project, shotsForThumbnail);
+
+    const visibleColumns = ALL_COLUMNS.filter(col =>
+        col.fixed || columnsState[col.id] !== false
+    );
+
+    return (
+        <Table
+            stickyHeader
+            style={{ tableLayout: 'auto', width: 'auto' }}
+        >
+            <RecordTableHead columns={visibleColumns} />
+            <TableBody>
+                {shots.map((shot, index) => (
+                    <ShotRow
+                        key={`${shot.group_1}-${shot.group_2}-${shot.group_3}-${shot.relation}-${index}`}
+                        shot={shot}
+                        thumbnails={thumbnails}
+                        dateTimeFormat={dateTimeFormat}
+                        isLastRow={index === shots.length - 1}
+                        columnsState={columnsState}
+                    />
+                ))}
+            </TableBody>
+            {tableFooter}
+        </Table>
+    );
+};
+
+export default ShotsDataTable;
