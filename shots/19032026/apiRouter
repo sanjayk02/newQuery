@@ -1,0 +1,2 @@
+// After — production route (add this)
+apiRouter.GET("/projects/:project/reviews/shots/pivot", reviewInfoDelivery.ListShotsPivot)
