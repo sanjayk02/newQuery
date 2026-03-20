@@ -1,0 +1,118 @@
+const ALL_COLUMNS: ColumnItem[] = [
+    // Fixed columns
+    { id: 'thumbnail',    label: 'Thumbnail', group: 'Fixed' },
+    { id: 'group_1_name', label: 'Name 1',    group: 'Fixed' },
+    { id: 'group_2_name', label: 'Name 2',    group: 'Fixed' },
+    { id: 'group_3_name', label: 'Name 3',    group: 'Fixed' },
+
+    // LAY
+    { id: 'lay_work_status',     label: 'LAY WORK',      group: 'Layout' },
+    { id: 'lay_approval_status', label: 'LAY APPR',      group: 'Layout' },
+    { id: 'lay_take',            label: 'LAY TAKE',      group: 'Layout' },
+    { id: 'lay_submitted_at',    label: 'LAY SUBMITTED', group: 'Layout' },
+
+    // ANM
+    { id: 'anm_work_status',     label: 'ANM WORK',      group: 'Animation' },
+    { id: 'anm_approval_status', label: 'ANM APPR',      group: 'Animation' },
+    { id: 'anm_take',            label: 'ANM TAKE',      group: 'Animation' },
+    { id: 'anm_submitted_at',    label: 'ANM SUBMITTED', group: 'Animation' },
+
+    // GNZ
+    { id: 'gnz_work_status',     label: 'GNZ WORK',      group: 'GNZ' },
+    { id: 'gnz_approval_status', label: 'GNZ APPR',      group: 'GNZ' },
+    { id: 'gnz_take',            label: 'GNZ TAKE',      group: 'GNZ' },
+    { id: 'gnz_submitted_at',    label: 'GNZ SUBMITTED', group: 'GNZ' },
+
+    // CLOTH
+    { id: 'cloth_work_status',     label: 'CLOTH WORK',      group: 'Cloth' },
+    { id: 'cloth_approval_status', label: 'CLOTH APPR',      group: 'Cloth' },
+    { id: 'cloth_take',            label: 'CLOTH TAKE',      group: 'Cloth' },
+    { id: 'cloth_submitted_at',    label: 'CLOTH SUBMITTED', group: 'Cloth' },
+
+    // DSP
+    { id: 'dsp_work_status',     label: 'DSP WORK',      group: 'DSP' },
+    { id: 'dsp_approval_status', label: 'DSP APPR',      group: 'DSP' },
+    { id: 'dsp_take',            label: 'DSP TAKE',      group: 'DSP' },
+    { id: 'dsp_submitted_at',    label: 'DSP SUBMITTED', group: 'DSP' },
+
+    // CRD
+    { id: 'crd_work_status',     label: 'CRD WORK',      group: 'CRD' },
+    { id: 'crd_approval_status', label: 'CRD APPR',      group: 'CRD' },
+    { id: 'crd_take',            label: 'CRD TAKE',      group: 'CRD' },
+    { id: 'crd_submitted_at',    label: 'CRD SUBMITTED', group: 'CRD' },
+
+    // DRW
+    { id: 'drw_work_status',     label: 'DRW WORK',      group: 'DRW' },
+    { id: 'drw_approval_status', label: 'DRW APPR',      group: 'DRW' },
+    { id: 'drw_take',            label: 'DRW TAKE',      group: 'DRW' },
+    { id: 'drw_submitted_at',    label: 'DRW SUBMITTED', group: 'DRW' },
+
+    // MAT
+    { id: 'mat_work_status',     label: 'MAT WORK',      group: 'Materials' },
+    { id: 'mat_approval_status', label: 'MAT APPR',      group: 'Materials' },
+    { id: 'mat_take',            label: 'MAT TAKE',      group: 'Materials' },
+    { id: 'mat_submitted_at',    label: 'MAT SUBMITTED', group: 'Materials' },
+
+    // MATNUKE
+    { id: 'matnuke_work_status',     label: 'MATNUKE WORK',      group: 'Materials' },
+    { id: 'matnuke_approval_status', label: 'MATNUKE APPR',      group: 'Materials' },
+    { id: 'matnuke_take',            label: 'MATNUKE TAKE',      group: 'Materials' },
+    { id: 'matnuke_submitted_at',    label: 'MATNUKE SUBMITTED', group: 'Materials' },
+
+    // FX
+    { id: 'fx_work_status',     label: 'FX WORK',      group: 'Effects' },
+    { id: 'fx_approval_status', label: 'FX APPR',      group: 'Effects' },
+    { id: 'fx_take',            label: 'FX TAKE',      group: 'Effects' },
+    { id: 'fx_submitted_at',    label: 'FX SUBMITTED', group: 'Effects' },
+
+    // CMP
+    { id: 'cmp_work_status',     label: 'CMP WORK',      group: 'Composite' },
+    { id: 'cmp_approval_status', label: 'CMP APPR',      group: 'Composite' },
+    { id: 'cmp_take',            label: 'CMP TAKE',      group: 'Composite' },
+    { id: 'cmp_submitted_at',    label: 'CMP SUBMITTED', group: 'Composite' },
+
+    // RTCGNZ
+    { id: 'rtcgnz_work_status',     label: 'RTCGNZ WORK',      group: 'RTC' },
+    { id: 'rtcgnz_approval_status', label: 'RTCGNZ APPR',      group: 'RTC' },
+    { id: 'rtcgnz_take',            label: 'RTCGNZ TAKE',      group: 'RTC' },
+    { id: 'rtcgnz_submitted_at',    label: 'RTCGNZ SUBMITTED', group: 'RTC' },
+
+    // RTCMAT
+    { id: 'rtcmat_work_status',     label: 'RTCMAT WORK',      group: 'RTC' },
+    { id: 'rtcmat_approval_status', label: 'RTCMAT APPR',      group: 'RTC' },
+    { id: 'rtcmat_take',            label: 'RTCMAT TAKE',      group: 'RTC' },
+    { id: 'rtcmat_submitted_at',    label: 'RTCMAT SUBMITTED', group: 'RTC' },
+
+    // RTCMATNUKE
+    { id: 'rtcmatnuke_work_status',     label: 'RTCMATNUKE WORK',      group: 'RTC' },
+    { id: 'rtcmatnuke_approval_status', label: 'RTCMATNUKE APPR',      group: 'RTC' },
+    { id: 'rtcmatnuke_take',            label: 'RTCMATNUKE TAKE',      group: 'RTC' },
+    { id: 'rtcmatnuke_submitted_at',    label: 'RTCMATNUKE SUBMITTED', group: 'RTC' },
+
+    // RTCDRW
+    { id: 'rtcdrw_work_status',     label: 'RTCDRW WORK',      group: 'RTC' },
+    { id: 'rtcdrw_approval_status', label: 'RTCDRW APPR',      group: 'RTC' },
+    { id: 'rtcdrw_take',            label: 'RTCDRW TAKE',      group: 'RTC' },
+    { id: 'rtcdrw_submitted_at',    label: 'RTCDRW SUBMITTED', group: 'RTC' },
+
+    // CFXHAIR
+    { id: 'cfxhair_work_status',     label: 'CFXHAIR WORK',      group: 'CFX' },
+    { id: 'cfxhair_approval_status', label: 'CFXHAIR APPR',      group: 'CFX' },
+    { id: 'cfxhair_take',            label: 'CFXHAIR TAKE',      group: 'CFX' },
+    { id: 'cfxhair_submitted_at',    label: 'CFXHAIR SUBMITTED', group: 'CFX' },
+
+    // Other
+    { id: 'relation', label: 'Relation', group: 'Other' },
+];
+
+// Filter out fixed columns from toggle UI
+const TOGGLEABLE_COLUMNS = ALL_COLUMNS.filter(col =>
+    !['thumbnail', 'group_1_name', 'group_2_name', 'group_3_name'].includes(col.id)
+);
+
+export const DEFAULT_COLUMN_STATE: ColumnState = {
+    ...TOGGLEABLE_COLUMNS.reduce((acc, col) => {
+        acc[col.id] = true;
+        return acc;
+    }, {} as ColumnState)
+};
