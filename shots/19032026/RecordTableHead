@@ -1,0 +1,31 @@
+const RecordTableHead: React.FC<{ columns: Column[] }> = ({ columns }) => (
+    <TableHead>
+        <TableRow>
+            {columns.map((col, index) => {
+                const lineColor  = col.colors?.lineColor;
+                const borderLine = lineColor ? `solid 3px ${lineColor}` : 'none';
+                const isWork     = col.id.endsWith('_work_status');
+                const isAppr     = col.id.endsWith('_approval_status');
+                // ← last column gets right border
+                const isLast     = index === columns.length - 1;
+
+                return (
+                    <TableCell
+                        key={col.id}
+                        style={{
+                            backgroundColor: col.colors?.backgroundColor ?? undefined,
+                            borderTop:   lineColor ? borderLine : 'none',
+                            borderLeft:  isWork && lineColor ? borderLine : 'none',
+                            borderRight: (isAppr && lineColor) || isLast
+                                ? borderLine
+                                : 'none',
+                            whiteSpace:  'nowrap',
+                        }}
+                    >
+                        {col.label}
+                    </TableCell>
+                );
+            })}
+        </TableRow>
+    </TableHead>
+);
