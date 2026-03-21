@@ -1,28 +1,52 @@
-const RecordTableHead: React.FC<{ columns: Column[] }> = ({ columns }) => (
+const RecordTableHead: React.FC<RecordTableHeadProps> = ({ 
+  columns, 
+  phaseComponents, 
+  latestComponents, 
+  columnsState, 
+  sortKey, 
+  sortDir, 
+  onSortChange 
+}) => (
     <TableHead>
         <TableRow>
             {columns.map((col, index) => {
-                const lineColor  = col.colors?.lineColor;
-                const borderLine = lineColor ? `solid 3px ${lineColor}` : 'none';
-                const isWork     = col.id.endsWith('_work_status');
-                const isAppr     = col.id.endsWith('_approval_status');
+                const lineColor   = col.colors && col.colors.lineColor;
+                const borderLine  = lineColor ? `solid 3px ${lineColor}` : 'none';
+                const isWork      = col.id.endsWith('_work_status');
+                const isAppr      = col.id.endsWith('_approval_status');
+                const orderKey    = getOrderKey(col.id);
+                const isActive    = orderKey === sortKey;
+
                 // ← last column gets right border
                 const isLast     = index === columns.length - 1;
+
+                // Handle sort click
+                const handleSortClick = () => {
+                    if (orderKey) {
+                        onSortChange(orderKey);
+                    }
+                };
 
                 return (
                     <TableCell
                         key={col.id}
+                        onClick={handleSortClick}
                         style={{
-                            backgroundColor: col.colors?.backgroundColor ?? undefined,
+                            backgroundColor: col.colors && col.colors.backgroundColor || 'undefined',
                             borderTop:   lineColor ? borderLine : 'none',
                             borderLeft:  isWork && lineColor ? borderLine : 'none',
-                            borderRight: (isAppr && lineColor) || isLast
-                                ? borderLine
-                                : 'none',
                             whiteSpace:  'nowrap',
+
+                            // add pointer cursor for sortable columns
+                            cursor: orderKey ? 'pointer' : 'default',
+                            fontWeight: isActive ? 'bold' : 'normal',
+                            textDecoration: isActive ? (sortDir === 'asc' ? 'underline' : 'none') : 'none',
+                            userSelect: orderKey ? 'none' : 'auto',
                         }}
                     >
                         {col.label}
+                        {/* add sort indicator */}
+                        {isActive && (sortDir === 'asc' ? ' ▲' : ' ▼')}
                     </TableCell>
                 );
             })}
