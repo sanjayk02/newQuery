@@ -11,9 +11,13 @@ func buildShotOrderClause(alias, key, dir string) string {
 		return alias + "." + c
 	}
 
-	// helper to extract phase
+	// ✅ helper for extracting phase
 	getPhase := func(key string) string {
-		return strings.ToUpper(strings.Split(key, "_")[0])
+		parts := strings.Split(key, "_")
+		if len(parts) > 0 {
+			return strings.ToUpper(parts[0])
+		}
+		return ""
 	}
 
 	switch key {
@@ -99,7 +103,7 @@ func buildShotOrderClause(alias, key, dir string) string {
 	default:
 		parts := strings.SplitN(key, "_", 2)
 		if len(parts) == 2 {
-			phase := strings.ToUpper(parts[0])
+			phase := getPhase(key)
 			suffix := parts[1]
 
 			switch suffix {
