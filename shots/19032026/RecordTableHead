@@ -16,13 +16,12 @@ const RecordTableHead: React.FC<RecordTableHeadProps> = ({
                 const isAppr      = col.id.endsWith('_approval_status');
                 const orderKey    = getOrderKey(col.id);
                 const isActive    = orderKey === sortKey;
-
-                // ← last column gets right border
                 const isLast     = index === columns.length - 1;
 
-                // Handle sort click
-                const handleSortClick = () => {
+                // Add click handler for sortable columns
+                const handleClick = () => {
                     if (orderKey) {
+                        console.log('🔽 Sorting by:', orderKey);
                         onSortChange(orderKey);
                     }
                 };
@@ -30,22 +29,19 @@ const RecordTableHead: React.FC<RecordTableHeadProps> = ({
                 return (
                     <TableCell
                         key={col.id}
-                        onClick={handleSortClick}
+                        onClick={handleClick}
                         style={{
                             backgroundColor: col.colors && col.colors.backgroundColor || 'undefined',
                             borderTop:   lineColor ? borderLine : 'none',
                             borderLeft:  isWork && lineColor ? borderLine : 'none',
                             whiteSpace:  'nowrap',
-
-                            // add pointer cursor for sortable columns
                             cursor: orderKey ? 'pointer' : 'default',
                             fontWeight: isActive ? 'bold' : 'normal',
-                            textDecoration: isActive ? (sortDir === 'asc' ? 'underline' : 'none') : 'none',
-                            userSelect: orderKey ? 'none' : 'auto',
+                            textDecoration: isActive ? 'underline' : 'none',
+                            userSelect: 'none',
                         }}
                     >
                         {col.label}
-                        {/* add sort indicator */}
                         {isActive && (sortDir === 'asc' ? ' ▲' : ' ▼')}
                     </TableCell>
                 );
@@ -55,14 +51,51 @@ const RecordTableHead: React.FC<RecordTableHeadProps> = ({
 );
 
 
+const getOrderKey = (colId: string): string | null => {
+    // Fixed columns
+    if (colId === 'group_1_name') return 'group1_only';
+    if (colId === 'group_2_name') return 'group2_only';
+    if (colId === 'group_3_name') return 'group3_only';
+    if (colId === 'relation') return 'relation_only';
+    
+    // Phase columns - match what backend expects
+    if (colId.endsWith('_work_status')) {
+        // lay_work_status -> lay_work
+        return colId.replace('_work_status', '_work');
+    }
+    if (colId.endsWith('_approval_status')) {
+        // lay_approval_status -> lay_appr
+        return colId.replace('_approval_status', '_appr');
+    }
+    if (colId.endsWith('_submitted_at')) {
+        // lay_submitted_at -> lay_submitted
+        return colId.replace('_submitted_at', '_submitted');
+    }
+    if (colId.endsWith('_take')) {
+        // lay_take -> lay_take
+        return colId;
+    }
+    
+    return null;
+};
+
+
+
 const handleSortChange = (key: string) => {
-    console.log('Sort change triggered:', { key, currentSortKey: sortKey, currentSortDir: sortDir });
+    console.log('🔄 Sort change triggered:', { 
+        key, 
+        currentSortKey: sortKey, 
+        currentSortDir: sortDir 
+    });
     
     if (sortKey === key) {
         // Toggle direction
-        setSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+        const newDir = sortDir === 'asc' ? 'desc' : 'asc';
+        console.log('🔄 Toggling direction to:', newDir);
+        setSortDir(newDir);
     } else {
         // New column, default to asc
+        console.log('🔄 New column sorting:', key);
         setSortKey(key);
         setSortDir('asc');
     }
@@ -71,32 +104,147 @@ const handleSortChange = (key: string) => {
 };
 
 
-const getOrderKey = (colId: string): string | null => {
-    if (colId === 'group_1_name') return 'group1_only';
-    if (colId === 'group_2_name') return 'group2_only';
-    if (colId === 'group_3_name') return 'group3_only';
-    if (colId === 'relation')     return 'relation_only';
-    
-    // phase columns e.g. lay_work_status → lay_work
-    if (colId.endsWith('_work_status')) {
-        const key = colId.replace('_work_status', '_work');
-        console.log(`Mapping ${colId} → ${key}`);
-        return key;
+export function useShotsPivot({
+    project,
+    page,
+    perPage,
+    orderKey       = 'group1_only',
+    direction      = 'ASC',
+    phase          = '',
+    nameKey        = '',
+    approvalStatus = [],
+    workStatus     = [],
+}: UseShotsPivotParams): {
+    shots:    ShotPivot[];
+    total:    number;
+    pageLast: number;
+    hasNext:  boolean;
+    hasPrev:  boolean;
+    loading:  boolean;
+} {
+    const [shots,    setShots]    = useState<ShotPivot[]>([]);
+    const [total,    setTotal]    = useState(0);
+    const [pageLast, setPageLast] = useState(0);
+    const [hasNext,  setHasNext]  = useState(false);
+    const [hasPrev,  setHasPrev]  = useState(false);
+    const [loading,  setLoading]  = useState(false);
+
+    useEffect(() => {
+        if (project == null) return;
+
+        const controller = new AbortController();
+        setLoading(true);
+
+        (async () => {
+            try {
+                // Convert direction to uppercase for backend
+                const backendDirection = direction.toUpperCase();
+                console.log('📊 Fetching shots pivot with sort:', { 
+                    orderKey, 
+                    direction: backendDirection 
+                });
+                
+                const res = await fetchShotsPivot({
+                    project:       project.key_name,
+                    page,
+                    perPage,
+                    orderKey,
+                    direction: backendDirection,
+                    phase,
+                    nameKey,
+                    approvalStatus,
+                    workStatus,
+                    signal: controller.signal,
+                });
+
+                console.log('📊 Response total:', res.total, 'Items:', res.items.length);
+                setShots(res.items);
+                setTotal(res.total);
+                setPageLast(res.pageLast);
+                setHasNext(res.hasNext);
+                setHasPrev(res.hasPrev);
+            } catch (err) {
+                if (err instanceof DOMException && err.name === 'AbortError') return;
+                console.error('useShotsPivot error:', err);
+            } finally {
+                setLoading(false);
+            }
+        })();
+
+        return () => controller.abort();
+    }, [
+        project,
+        page,
+        perPage,
+        orderKey,
+        direction,
+        phase,
+        nameKey,
+        JSON.stringify(approvalStatus),
+        JSON.stringify(workStatus),
+    ]);
+
+    return { shots, total, pageLast, hasNext, hasPrev, loading };
+}
+
+
+
+export const fetchShotsPivot = async ({
+  project,
+  page,
+  perPage,
+  orderKey = 'group1_only',
+  direction = 'ASC',
+  phase = '',
+  nameKey = '',
+  approvalStatus = [],
+  workStatus = [],
+  signal,
+}: ShotsPivotParams): Promise<ShotPivotResponse> => {
+  const headers = getAuthHeader();
+  const params = new URLSearchParams();
+
+  params.set('page',      String(page));
+  params.set('perPage',   String(perPage));
+  params.set('orderKey',  orderKey);
+  params.set('direction', direction);
+
+  console.log('🌐 API Request:', {
+    url: `/api/projects/${project}/reviews/shots/pivot`,
+    params: {
+      page,
+      perPage,
+      orderKey,
+      direction,
+      phase,
+      nameKey,
+      approvalStatus,
+      workStatus
     }
-    if (colId.endsWith('_approval_status')) {
-        const key = colId.replace('_approval_status', '_appr');
-        console.log(`Mapping ${colId} → ${key}`);
-        return key;
-    }
-    if (colId.endsWith('_take')) {
-        console.log(`Mapping ${colId} → ${colId}`);
-        return colId;
-    }
-    if (colId.endsWith('_submitted_at')) {
-        const key = colId.replace('_submitted_at', '_submitted');
-        console.log(`Mapping ${colId} → ${key}`);
-        return key;
-    }
-    return null;
+  });
+
+  if (phase)   params.set('phase',   phase);
+  if (nameKey) params.set('nameKey', nameKey);
+
+  approvalStatus.forEach(s => params.append('approvalStatus', s));
+  workStatus.forEach(s     => params.append('workStatus',     s));
+
+  const url = `/api/projects/${project}/reviews/shots/pivot?${params}`;
+  console.log('🌐 Full URL:', url);
+
+  const res = await fetch(url, {
+    method: 'GET',
+    headers,
+    mode: 'cors',
+    signal,
+  });
+
+  if (res.status === 401) throw new AuthorizationError();
+  if (!res.ok) throw new Error('Failed to fetch shots pivot.');
+
+  setNewToken(res);
+  const data = await res.json();
+  console.log('🌐 API Response:', { total: data.total, itemsCount: data.items?.length });
+  return data;
 };
 
