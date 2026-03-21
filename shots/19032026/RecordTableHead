@@ -1,56 +1,3 @@
-const RecordTableHead: React.FC<RecordTableHeadProps> = ({ 
-  columns, 
-  phaseComponents, 
-  latestComponents, 
-  columnsState, 
-  sortKey, 
-  sortDir, 
-  onSortChange 
-}) => (
-    <TableHead>
-        <TableRow>
-            {columns.map((col, index) => {
-                const lineColor   = col.colors && col.colors.lineColor;
-                const borderLine  = lineColor ? `solid 3px ${lineColor}` : 'none';
-                const isWork      = col.id.endsWith('_work_status');
-                const isAppr      = col.id.endsWith('_approval_status');
-                const orderKey    = getOrderKey(col.id);
-                const isActive    = orderKey === sortKey;
-                const isLast     = index === columns.length - 1;
-
-                // Add click handler for sortable columns
-                const handleClick = () => {
-                    if (orderKey) {
-                        console.log('🔽 Sorting by:', orderKey);
-                        onSortChange(orderKey);
-                    }
-                };
-
-                return (
-                    <TableCell
-                        key={col.id}
-                        onClick={handleClick}
-                        style={{
-                            backgroundColor: col.colors && col.colors.backgroundColor || 'undefined',
-                            borderTop:   lineColor ? borderLine : 'none',
-                            borderLeft:  isWork && lineColor ? borderLine : 'none',
-                            whiteSpace:  'nowrap',
-                            cursor: orderKey ? 'pointer' : 'default',
-                            fontWeight: isActive ? 'bold' : 'normal',
-                            textDecoration: isActive ? 'underline' : 'none',
-                            userSelect: 'none',
-                        }}
-                    >
-                        {col.label}
-                        {isActive && (sortDir === 'asc' ? ' ▲' : ' ▼')}
-                    </TableCell>
-                );
-            })}
-        </TableRow>
-    </TableHead>
-);
-
-
 const getOrderKey = (colId: string): string | null => {
     // Fixed columns
     if (colId === 'group_1_name') return 'group1_only';
@@ -58,7 +5,7 @@ const getOrderKey = (colId: string): string | null => {
     if (colId === 'group_3_name') return 'group3_only';
     if (colId === 'relation') return 'relation_only';
     
-    // Phase columns - match what backend expects
+    // Phase columns - match backend expectations
     if (colId.endsWith('_work_status')) {
         // lay_work_status -> lay_work
         return colId.replace('_work_status', '_work');
@@ -79,6 +26,57 @@ const getOrderKey = (colId: string): string | null => {
     return null;
 };
 
+const RecordTableHead: React.FC<RecordTableHeadProps> = ({ 
+  columns, 
+  phaseComponents, 
+  latestComponents, 
+  columnsState, 
+  sortKey, 
+  sortDir, 
+  onSortChange 
+}) => (
+    <TableHead>
+        <TableRow>
+            {columns.map((col, index) => {
+                const lineColor   = col.colors && col.colors.lineColor;
+                const borderLine  = lineColor ? `solid 3px ${lineColor}` : 'none';
+                const isWork      = col.id.endsWith('_work_status');
+                const isAppr      = col.id.endsWith('_approval_status');
+                const orderKey    = getOrderKey(col.id);
+                const isActive    = orderKey === sortKey;
+                const isLast      = index === columns.length - 1;
+
+                // Handle sort click
+                const handleSortClick = () => {
+                    if (orderKey) {
+                        console.log(`🔽 Sorting by: ${orderKey}, current: ${sortKey}/${sortDir}`);
+                        onSortChange(orderKey);
+                    }
+                };
+
+                return (
+                    <TableCell
+                        key={col.id}
+                        onClick={handleSortClick}
+                        style={{
+                            backgroundColor: col.colors && col.colors.backgroundColor || 'undefined',
+                            borderTop:   lineColor ? borderLine : 'none',
+                            borderLeft:  isWork && lineColor ? borderLine : 'none',
+                            whiteSpace:  'nowrap',
+                            cursor: orderKey ? 'pointer' : 'default',
+                            fontWeight: isActive ? 'bold' : 'normal',
+                            textDecoration: isActive ? (sortDir === 'asc' ? 'underline' : 'none') : 'none',
+                            userSelect: orderKey ? 'none' : 'auto',
+                        }}
+                    >
+                        {col.label}
+                        {isActive && (sortDir === 'asc' ? ' ▲' : ' ▼')}
+                    </TableCell>
+                );
+            })}
+        </TableRow>
+    </TableHead>
+);
 
 
 const handleSortChange = (key: string) => {
@@ -137,11 +135,16 @@ export function useShotsPivot({
 
         (async () => {
             try {
-                // Convert direction to uppercase for backend
+                // Ensure direction is uppercase for backend
                 const backendDirection = direction.toUpperCase();
-                console.log('📊 Fetching shots pivot with sort:', { 
+                console.log('📊 Fetching shots pivot:', { 
                     orderKey, 
-                    direction: backendDirection 
+                    direction: backendDirection,
+                    page,
+                    perPage,
+                    nameKey,
+                    approvalStatus,
+                    workStatus
                 });
                 
                 const res = await fetchShotsPivot({
@@ -157,7 +160,12 @@ export function useShotsPivot({
                     signal: controller.signal,
                 });
 
-                console.log('📊 Response total:', res.total, 'Items:', res.items.length);
+                console.log('📊 Response:', { 
+                    total: res.total, 
+                    itemsCount: res.items?.length,
+                    firstItem: res.items?.[0]?.group_1
+                });
+                
                 setShots(res.items);
                 setTotal(res.total);
                 setPageLast(res.pageLast);
@@ -188,7 +196,6 @@ export function useShotsPivot({
 }
 
 
-
 export const fetchShotsPivot = async ({
   project,
   page,
@@ -209,7 +216,7 @@ export const fetchShotsPivot = async ({
   params.set('orderKey',  orderKey);
   params.set('direction', direction);
 
-  console.log('🌐 API Request:', {
+  console.log('🌐 API Request Details:', {
     url: `/api/projects/${project}/reviews/shots/pivot`,
     params: {
       page,
@@ -229,7 +236,7 @@ export const fetchShotsPivot = async ({
   approvalStatus.forEach(s => params.append('approvalStatus', s));
   workStatus.forEach(s     => params.append('workStatus',     s));
 
-  const url = `/api/projects/${project}/reviews/shots/pivot?${params}`;
+  const url = `/api/projects/${project}/reviews/shots/pivot?${params.toString()}`;
   console.log('🌐 Full URL:', url);
 
   const res = await fetch(url, {
@@ -240,11 +247,20 @@ export const fetchShotsPivot = async ({
   });
 
   if (res.status === 401) throw new AuthorizationError();
-  if (!res.ok) throw new Error('Failed to fetch shots pivot.');
+  if (!res.ok) {
+    const errorText = await res.text();
+    console.error('🌐 API Error:', errorText);
+    throw new Error('Failed to fetch shots pivot.');
+  }
 
   setNewToken(res);
   const data = await res.json();
-  console.log('🌐 API Response:', { total: data.total, itemsCount: data.items?.length });
+  console.log('🌐 API Response:', { 
+    total: data.total, 
+    itemsCount: data.items?.length,
+    firstItemSortValue: data.items?.[0]?.group_1
+  });
   return data;
 };
+
 
