@@ -53,3 +53,50 @@ const RecordTableHead: React.FC<RecordTableHeadProps> = ({
         </TableRow>
     </TableHead>
 );
+
+
+const handleSortChange = (key: string) => {
+    console.log('Sort change triggered:', { key, currentSortKey: sortKey, currentSortDir: sortDir });
+    
+    if (sortKey === key) {
+        // Toggle direction
+        setSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+        // New column, default to asc
+        setSortKey(key);
+        setSortDir('asc');
+    }
+    // reset to first page when sorting changes
+    setPageProps(prev => ({ ...prev, page: 0 }));
+};
+
+
+const getOrderKey = (colId: string): string | null => {
+    if (colId === 'group_1_name') return 'group1_only';
+    if (colId === 'group_2_name') return 'group2_only';
+    if (colId === 'group_3_name') return 'group3_only';
+    if (colId === 'relation')     return 'relation_only';
+    
+    // phase columns e.g. lay_work_status → lay_work
+    if (colId.endsWith('_work_status')) {
+        const key = colId.replace('_work_status', '_work');
+        console.log(`Mapping ${colId} → ${key}`);
+        return key;
+    }
+    if (colId.endsWith('_approval_status')) {
+        const key = colId.replace('_approval_status', '_appr');
+        console.log(`Mapping ${colId} → ${key}`);
+        return key;
+    }
+    if (colId.endsWith('_take')) {
+        console.log(`Mapping ${colId} → ${colId}`);
+        return colId;
+    }
+    if (colId.endsWith('_submitted_at')) {
+        const key = colId.replace('_submitted_at', '_submitted');
+        console.log(`Mapping ${colId} → ${key}`);
+        return key;
+    }
+    return null;
+};
+
