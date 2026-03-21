@@ -1,0 +1,44 @@
+export const fetchShotsPivot = async ({
+  project,
+  page,
+  perPage,
+  orderKey = 'group1_only',
+  direction = 'ASC',
+  phase = '',
+  nameKey = '',
+  approvalStatus = [],
+  workStatus = [],
+  signal,
+}: ShotsPivotParams): Promise<ShotPivotResponse> => {
+  const headers = getAuthHeader();
+  const params = new URLSearchParams();
+
+  params.set('page',      String(page));
+  params.set('perPage',   String(perPage));
+  params.set('orderKey',  orderKey);
+  params.set('direction', direction);
+
+  console.log('📊 Sorting parameters:', { orderKey, direction });
+
+  if (phase)   params.set('phase',   phase);
+  if (nameKey) params.set('nameKey', nameKey);
+
+  approvalStatus.forEach(s => params.append('approvalStatus', s));
+  workStatus.forEach(s     => params.append('workStatus',     s));
+
+  const url = `/api/projects/${project}/reviews/shots/pivot?${params}`;
+  console.log('📊 Full URL:', url);
+
+  const res = await fetch(url, {
+    method: 'GET',
+    headers,
+    mode: 'cors',
+    signal,
+  });
+
+  if (res.status === 401) throw new AuthorizationError();
+  if (!res.ok) throw new Error('Failed to fetch shots pivot.');
+
+  setNewToken(res);
+  return res.json() as Promise<ShotPivotResponse>;
+};
