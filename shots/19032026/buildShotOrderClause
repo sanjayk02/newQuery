@@ -1,203 +1,134 @@
-func buildPivotOrderClause(key, dir string, usePriority bool) string {
+func buildShotOrderClause(alias, key, dir string) string {
 	dir = strings.ToUpper(strings.TrimSpace(dir))
 	if dir != "ASC" && dir != "DESC" {
 		dir = "ASC"
 	}
 
-	// ---------- helpers ----------
-
-	// Work status priority
-	workOrder := func(col string) string {
-		return fmt.Sprintf(`
-			CASE LOWER(%s)
-				WHEN 'check' THEN 1
-				WHEN 'cgsv approved' THEN 2
-				WHEN 'sv approved' THEN 3
-				WHEN 'lead approved' THEN 4
-				WHEN 'cgsv retake' THEN 5
-				WHEN 'sv retake' THEN 6
-				WHEN 'lead retake' THEN 7
-				WHEN 'cgsv on hold' THEN 8
-				WHEN 'sv on hold' THEN 9
-				WHEN 'lead on hold' THEN 10
-				WHEN 'sv other' THEN 11
-				WHEN 'lead other' THEN 12
-				ELSE 99
-			END
-		`, col)
+	col := func(c string) string {
+		if alias == "" {
+			return c
+		}
+		return alias + "." + c
 	}
-
-	// Approval status priority
-	apprOrder := func(col string) string {
-		return fmt.Sprintf(`
-			CASE LOWER(%s)
-				WHEN 'check' THEN 1
-				WHEN 'client review' THEN 2
-				WHEN 'dir review' THEN 3
-				WHEN 'epd review' THEN 4
-				WHEN 'client approved' THEN 5
-				WHEN 'dir approved' THEN 6
-				WHEN 'epd approved' THEN 7
-				WHEN 'sv approved' THEN 8
-				WHEN 'client retake' THEN 9
-				WHEN 'dir retake' THEN 10
-				WHEN 'epd retake' THEN 11
-				WHEN 'exec retake' THEN 12
-				WHEN 'client on hold' THEN 13
-				WHEN 'dir on hold' THEN 14
-				WHEN 'epd on hold' THEN 15
-				WHEN 'omit' THEN 16
-				WHEN 'other' THEN 17
-				ELSE 99
-			END
-		`, col)
-	}
-
-	// extract phase (lay, anm, etc.)
-	getPhase := func(key string) string {
-		parts := strings.Split(key, "_")
-		return parts[0]
-	}
-
-	// ---------- switch ----------
 
 	switch key {
 
 	// =========================
-	// GROUP SORT (A–Z / Z–A)
+	// GROUP SORT (GLOBAL)
 	// =========================
 
 	case "group1_only":
 		return fmt.Sprintf(`
-			LOWER(group_1) %s,
-			LOWER(group_2) ASC,
-			LOWER(group_3) ASC
-		`, dir)
+			LOWER(%s) %s,
+			LOWER(%s) ASC,
+			LOWER(%s) ASC
+		`,
+			col("group_1"), dir,
+			col("group_2"),
+			col("group_3"),
+		)
 
 	case "group2_only":
 		return fmt.Sprintf(`
-			LOWER(group_2) %s,
-			LOWER(group_1) ASC,
-			LOWER(group_3) ASC
-		`, dir)
+			LOWER(%s) %s,
+			LOWER(%s) ASC,
+			LOWER(%s) ASC
+		`,
+			col("group_2"), dir,
+			col("group_1"),
+			col("group_3"),
+		)
 
 	case "group3_only":
 		return fmt.Sprintf(`
-			LOWER(group_3) %s,
-			LOWER(group_1) ASC,
-			LOWER(group_2) ASC
-		`, dir)
+			LOWER(%s) %s,
+			LOWER(%s) ASC,
+			LOWER(%s) ASC
+		`,
+			col("group_3"), dir,
+			col("group_1"),
+			col("group_2"),
+		)
 
 	case "relation_only":
 		return fmt.Sprintf(`
-			LOWER(relation) %s,
-			LOWER(group_1) ASC
-		`, dir)
+			LOWER(%s) %s,
+			LOWER(%s) ASC
+		`,
+			col("relation"), dir,
+			col("group_1"),
+		)
 
 	// =========================
-	// WORK STATUS (ALL PHASES)
+	// WORK STATUS (GLOBAL)
 	// =========================
 
 	case "lay_work", "anm_work", "gnz_work", "mat_work",
 		"dsp_work", "cloth_work", "cfxhair_work", "crd_work", "drw_work",
 		"rtcgnz_work", "rtcmat_work", "rtcmatnuke_work", "rtcdrw_work":
 
-		phase := getPhase(key)
-		col := phase + "_work"
-
-		if usePriority {
-			return fmt.Sprintf(`
-				(%s IS NULL) ASC,
-				%s %s,
-				LOWER(group_1) ASC,
-				LOWER(group_2) ASC,
-				LOWER(group_3) ASC
-			`,
-				col,
-				workOrder(col), dir,
-			)
-		}
-
-		// alphabetical mode
 		return fmt.Sprintf(`
-			(%s IS NULL) ASC,
+			(CASE WHEN %s IS NULL OR %s = '-' OR %s = '' THEN 1 ELSE 0 END) ASC,
 			LOWER(%s) %s,
-			LOWER(group_1) ASC,
-			LOWER(group_2) ASC,
-			LOWER(group_3) ASC
+			LOWER(%s) ASC,
+			LOWER(%s) ASC,
+			LOWER(%s) ASC
 		`,
-			col,
-			col, dir,
+			col("work_status"), col("work_status"), col("work_status"),
+			col("work_status"), dir,
+			col("group_1"),
+			col("group_2"),
+			col("group_3"),
 		)
 
 	// =========================
-	// APPROVAL STATUS
+	// APPROVAL STATUS (GLOBAL)
 	// =========================
 
 	case "lay_appr", "anm_appr", "gnz_appr", "mat_appr",
 		"dsp_appr", "cloth_appr", "cfxhair_appr", "crd_appr", "drw_appr",
 		"rtcgnz_appr", "rtcmat_appr", "rtcmatnuke_appr", "rtcdrw_appr":
 
-		phase := getPhase(key)
-		col := phase + "_appr"
-
-		if usePriority {
-			return fmt.Sprintf(`
-				(%s IS NULL) ASC,
-				%s %s,
-				LOWER(group_1) ASC
-			`,
-				col,
-				apprOrder(col), dir,
-			)
-		}
-
 		return fmt.Sprintf(`
-			(%s IS NULL) ASC,
+			(CASE WHEN %s IS NULL OR %s = '-' OR %s = '' THEN 1 ELSE 0 END) ASC,
 			LOWER(%s) %s,
-			LOWER(group_1) ASC
+			LOWER(%s) ASC,
+			LOWER(%s) ASC,
+			LOWER(%s) ASC
 		`,
-			col,
-			col, dir,
+			col("approval_status"), col("approval_status"), col("approval_status"),
+			col("approval_status"), dir,
+			col("group_1"),
+			col("group_2"),
+			col("group_3"),
 		)
 
 	// =========================
 	// SUBMITTED DATE
 	// =========================
 
-	case "lay_submitted", "anm_submitted", "gnz_submitted", "mat_submitted",
-		"dsp_submitted", "cloth_submitted", "cfxhair_submitted", "crd_submitted", "drw_submitted",
-		"rtcgnz_submitted", "rtcmat_submitted", "rtcmatnuke_submitted", "rtcdrw_submitted":
-
-		phase := getPhase(key)
-		col := phase + "_submitted"
-
+	case "lay_submitted", "anm_submitted", "gnz_submitted", "mat_submitted":
 		return fmt.Sprintf(`
 			(%s IS NULL) ASC,
 			%s %s
 		`,
-			col,
-			col, dir,
+			col("submitted_at_utc"),
+			col("submitted_at_utc"), dir,
 		)
 
 	// =========================
-	// TAKE (NUMERIC SORT)
+	// TAKE (NUMERIC)
 	// =========================
 
-	case "lay_take", "anm_take", "gnz_take", "mat_take",
-		"dsp_take", "cloth_take", "cfxhair_take", "crd_take", "drw_take",
-		"rtcgnz_take", "rtcmat_take", "rtcmatnuke_take", "rtcdrw_take":
-
-		phase := getPhase(key)
-		col := phase + "_take"
-
+	case "lay_take", "anm_take", "gnz_take", "mat_take":
 		return fmt.Sprintf(`
 			CASE WHEN %s IS NULL OR %s = '' THEN 1 ELSE 0 END ASC,
 			CAST(RIGHT(%s, 4) AS UNSIGNED) %s,
-			LOWER(group_1) ASC
+			LOWER(%s) ASC
 		`,
-			col, col,
-			col, dir,
+			col("take"), col("take"),
+			col("take"), dir,
+			col("group_1"),
 		)
 
 	// =========================
@@ -205,6 +136,14 @@ func buildPivotOrderClause(key, dir string, usePriority bool) string {
 	// =========================
 
 	default:
-		return "LOWER(group_1) ASC"
+		return fmt.Sprintf(`
+			LOWER(%s) %s,
+			LOWER(%s) ASC,
+			LOWER(%s) ASC
+		`,
+			col("group_1"), dir,
+			col("group_2"),
+			col("group_3"),
+		)
 	}
 }
