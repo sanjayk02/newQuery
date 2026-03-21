@@ -1,0 +1,13 @@
+// Map column id to orderKey
+const getOrderKey = (colId: string): string | null => {
+    if (colId === 'group_1_name') return 'group1_only';
+    if (colId === 'group_2_name') return 'group2_only';
+    if (colId === 'group_3_name') return 'group3_only';
+    if (colId === 'relation')     return 'relation_only';
+    // phase columns e.g. lay_work_status → lay_work
+    if (colId.endsWith('_work_status'))     return colId.replace('_work_status',     '_work');
+    if (colId.endsWith('_approval_status')) return colId.replace('_approval_status', '_appr');
+    if (colId.endsWith('_take'))            return colId; // already correct
+    if (colId.endsWith('_submitted_at'))    return colId.replace('_submitted_at',    '_submitted');
+    return null;
+};
