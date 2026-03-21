@@ -11,13 +11,46 @@ func buildShotOrderClause(alias, key, dir string) string {
 		return alias + "." + c
 	}
 
-	// helper: phase priority (VERY IMPORTANT)
+	// Phase priority (bring selected phase to top)
 	phasePriority := func(phase string) string {
 		return fmt.Sprintf(
 			"(CASE WHEN %s = '%s' THEN 0 ELSE 1 END) ASC",
 			col("phase"),
 			strings.ToUpper(phase),
 		)
+	}
+
+	// Work status priority (IMPORTANT FIX)
+	workOrder := func(c string) string {
+		return fmt.Sprintf(`
+			CASE LOWER(%s)
+				WHEN 'check' THEN 1
+				WHEN 'sv approved' THEN 2
+				WHEN 'dir approved' THEN 3
+				WHEN 'epd approved' THEN 4
+				WHEN 'sv other' THEN 5
+				WHEN 'other' THEN 6
+				ELSE 99
+			END
+		`, c)
+	}
+
+	// Approval status priority (IMPORTANT FIX)
+	apprOrder := func(c string) string {
+		return fmt.Sprintf(`
+			CASE LOWER(%s)
+				WHEN 'check' THEN 1
+				WHEN 'client review' THEN 2
+				WHEN 'dir review' THEN 3
+				WHEN 'epd review' THEN 4
+				WHEN 'client approved' THEN 5
+				WHEN 'dir approved' THEN 6
+				WHEN 'epd approved' THEN 7
+				WHEN 'sv approved' THEN 8
+				WHEN 'other' THEN 9
+				ELSE 99
+			END
+		`, c)
 	}
 
 	switch key {
@@ -31,44 +64,37 @@ func buildShotOrderClause(alias, key, dir string) string {
 
 	case "group1_only":
 		return fmt.Sprintf(
-			"LOWER(%s) %s, LOWER(%s) ASC, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			"LOWER(%s) %s, LOWER(%s) ASC, LOWER(%s) ASC",
 			col("group_1"), dir,
 			col("group_2"),
 			col("group_3"),
-			col("submitted_at_utc"),
-			col("submitted_at_utc"), dir,
 		)
 
 	case "group2_only":
 		return fmt.Sprintf(
-			"LOWER(%s) %s, LOWER(%s) ASC, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			"LOWER(%s) %s, LOWER(%s) ASC, LOWER(%s) ASC",
 			col("group_2"), dir,
 			col("group_1"),
 			col("group_3"),
-			col("submitted_at_utc"),
-			col("submitted_at_utc"), dir,
 		)
 
 	case "group3_only":
 		return fmt.Sprintf(
-			"LOWER(%s) %s, LOWER(%s) ASC, LOWER(%s) ASC, (%s IS NULL) ASC, %s %s",
+			"LOWER(%s) %s, LOWER(%s) ASC, LOWER(%s) ASC",
 			col("group_3"), dir,
 			col("group_1"),
 			col("group_2"),
-			col("submitted_at_utc"),
-			col("submitted_at_utc"), dir,
 		)
 
 	case "relation_only":
 		return fmt.Sprintf(
-			"LOWER(%s) %s, LOWER(%s) ASC, LOWER(%s) ASC",
+			"LOWER(%s) %s, LOWER(%s) ASC",
 			col("relation"), dir,
 			col("group_1"),
-			col("group_2"),
 		)
 
 	// =========================
-	// PHASE-BASED SORTING (FIXED)
+	// WORK STATUS SORT (FIXED)
 	// =========================
 
 	case "lay_work", "anm_work", "gnz_work", "mat_work",
@@ -80,18 +106,22 @@ func buildShotOrderClause(alias, key, dir string) string {
 		return fmt.Sprintf(`
 			%s,
 			(%s IS NULL) ASC,
-			LOWER(%s) %s,
+			%s %s,
 			LOWER(%s) ASC,
 			LOWER(%s) ASC,
 			LOWER(%s) ASC
 		`,
 			phasePriority(phase),
 			col("work_status"),
-			col("work_status"), dir,
+			workOrder(col("work_status")), dir,
 			col("group_1"),
 			col("group_2"),
 			col("group_3"),
 		)
+
+	// =========================
+	// APPROVAL STATUS SORT (FIXED)
+	// =========================
 
 	case "lay_appr", "anm_appr", "gnz_appr", "mat_appr",
 		"dsp_appr", "cloth_appr", "cfxhair_appr", "crd_appr", "drw_appr",
@@ -102,14 +132,18 @@ func buildShotOrderClause(alias, key, dir string) string {
 		return fmt.Sprintf(`
 			%s,
 			(%s IS NULL) ASC,
-			LOWER(%s) %s,
+			%s %s,
 			LOWER(%s) ASC
 		`,
 			phasePriority(phase),
 			col("approval_status"),
-			col("approval_status"), dir,
+			apprOrder(col("approval_status")), dir,
 			col("group_1"),
 		)
+
+	// =========================
+	// SUBMITTED DATE SORT
+	// =========================
 
 	case "lay_submitted", "anm_submitted", "gnz_submitted", "mat_submitted",
 		"dsp_submitted", "cloth_submitted", "cfxhair_submitted", "crd_submitted", "drw_submitted",
@@ -126,6 +160,10 @@ func buildShotOrderClause(alias, key, dir string) string {
 			col("submitted_at_utc"),
 			col("submitted_at_utc"), dir,
 		)
+
+	// =========================
+	// TAKE SORT (NUMERIC)
+	// =========================
 
 	case "lay_take", "anm_take", "gnz_take", "mat_take",
 		"dsp_take", "cloth_take", "cfxhair_take", "crd_take", "drw_take",
