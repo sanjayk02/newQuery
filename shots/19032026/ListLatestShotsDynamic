@@ -1,0 +1,171 @@
+func (r *repository) ListLatestShotsDynamic(
+	ctx context.Context,
+	project string,
+	orderKey string,
+	direction string,
+	page int,
+	perPage int,
+	nameKey string,
+	approvalStatus []string,
+	workStatus []string,
+) ([]shotKey, int, error) {
+
+	offset := (page - 1) * perPage
+
+	orderClause := buildShotOrderClause("", orderKey, direction)
+
+	var args []any
+	args = append(args, project)
+
+	// =========================
+	// BASE QUERY (LATEST PER PHASE)
+	// =========================
+
+	query := fmt.Sprintf(`
+WITH latest_phase AS (
+	SELECT
+		project,
+		root,
+		group_1,
+		group_2,
+		group_3,
+		relation,
+		component,
+		phase,
+		work_status,
+		approval_status,
+		submitted_at_utc,
+		modified_at_utc,
+		ROW_NUMBER() OVER (
+			PARTITION BY project, root, group_1, group_2, group_3, relation, component, phase
+			ORDER BY modified_at_utc DESC
+		) AS rn
+	FROM t_review_info
+	WHERE project = ?
+	  AND root = 'shots'
+	  AND deleted = 0
+),
+
+latest AS (
+	SELECT *
+	FROM latest_phase
+	WHERE rn = 1
+),
+
+ranked AS (
+	SELECT
+		group_1,
+		group_2,
+		group_3,
+		relation,
+		component,
+
+		-- GLOBAL SORTING HERE
+		ROW_NUMBER() OVER (
+			PARTITION BY group_1, group_2, group_3, relation, component
+			ORDER BY %s
+		) AS _rank
+
+	FROM latest
+	WHERE 1=1
+`, orderClause)
+
+	// =========================
+	// FILTERS
+	// =========================
+
+	if nameKey != "" {
+		query += " AND (group_1 LIKE ? OR group_2 LIKE ? OR group_3 LIKE ? OR relation LIKE ?)"
+		like := "%" + nameKey + "%"
+		args = append(args, like, like, like, like)
+	}
+
+	if len(workStatus) > 0 {
+		query += " AND work_status IN (" + placeholders(len(workStatus)) + ")"
+		for _, v := range workStatus {
+			args = append(args, v)
+		}
+	}
+
+	if len(approvalStatus) > 0 {
+		query += " AND approval_status IN (" + placeholders(len(approvalStatus)) + ")"
+		for _, v := range approvalStatus {
+			args = append(args, v)
+		}
+	}
+
+	query += `
+),
+
+dedup AS (
+	SELECT *
+	FROM ranked
+	WHERE _rank = 1
+),
+
+ordered AS (
+	SELECT *,
+		ROW_NUMBER() OVER (ORDER BY ` + orderClause + `) AS _order
+	FROM dedup
+)
+
+SELECT
+	group_1,
+	group_2,
+	group_3,
+	relation,
+	component
+FROM ordered
+ORDER BY _order
+LIMIT ? OFFSET ?
+`
+
+	args = append(args, perPage, offset)
+
+	// =========================
+	// EXECUTE QUERY
+	// =========================
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var keys []shotKey
+
+	for rows.Next() {
+		var k shotKey
+		if err := rows.Scan(
+			&k.Group1,
+			&k.Group2,
+			&k.Group3,
+			&k.Relation,
+			&k.Component,
+		); err != nil {
+			return nil, 0, err
+		}
+		keys = append(keys, k)
+	}
+
+	// =========================
+	// TOTAL COUNT
+	// =========================
+
+	countQuery := `
+SELECT COUNT(*) FROM (
+	SELECT group_1, group_2, group_3, relation, component
+	FROM t_review_info
+	WHERE project = ? AND root = 'shots' AND deleted = 0
+	GROUP BY group_1, group_2, group_3, relation, component
+) t
+`
+
+	var total int
+	err = r.db.QueryRowContext(ctx, countQuery, project).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return keys, total, nil
+}
