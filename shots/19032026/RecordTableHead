@@ -1,31 +1,3 @@
-const getOrderKey = (colId: string): string | null => {
-    // Fixed columns
-    if (colId === 'group_1_name') return 'group1_only';
-    if (colId === 'group_2_name') return 'group2_only';
-    if (colId === 'group_3_name') return 'group3_only';
-    if (colId === 'relation') return 'relation_only';
-    
-    // Phase columns - match backend expectations
-    if (colId.endsWith('_work_status')) {
-        // lay_work_status -> lay_work
-        return colId.replace('_work_status', '_work');
-    }
-    if (colId.endsWith('_approval_status')) {
-        // lay_approval_status -> lay_appr
-        return colId.replace('_approval_status', '_appr');
-    }
-    if (colId.endsWith('_submitted_at')) {
-        // lay_submitted_at -> lay_submitted
-        return colId.replace('_submitted_at', '_submitted');
-    }
-    if (colId.endsWith('_take')) {
-        // lay_take -> lay_take
-        return colId;
-    }
-    
-    return null;
-};
-
 const RecordTableHead: React.FC<RecordTableHeadProps> = ({ 
   columns, 
   phaseComponents, 
@@ -46,6 +18,12 @@ const RecordTableHead: React.FC<RecordTableHeadProps> = ({
                 const isActive    = orderKey === sortKey;
                 const isLast      = index === columns.length - 1;
 
+                // Get sort indicator icon
+                const getSortIcon = () => {
+                    if (!isActive) return null;
+                    return sortDir === 'asc' ? ' ↑' : ' ↓';
+                };
+
                 // Handle sort click
                 const handleSortClick = () => {
                     if (orderKey) {
@@ -65,12 +43,12 @@ const RecordTableHead: React.FC<RecordTableHeadProps> = ({
                             whiteSpace:  'nowrap',
                             cursor: orderKey ? 'pointer' : 'default',
                             fontWeight: isActive ? 'bold' : 'normal',
-                            textDecoration: isActive ? (sortDir === 'asc' ? 'underline' : 'none') : 'none',
                             userSelect: orderKey ? 'none' : 'auto',
                         }}
+                        title={orderKey ? `Click to sort ${sortDir === 'asc' ? 'descending' : 'ascending'}` : ''}
                     >
                         {col.label}
-                        {isActive && (sortDir === 'asc' ? ' ▲' : ' ▼')}
+                        {getSortIcon()}
                     </TableCell>
                 );
             })}
@@ -87,19 +65,20 @@ const handleSortChange = (key: string) => {
     });
     
     if (sortKey === key) {
-        // Toggle direction
+        // Toggle direction: ASC -> DESC -> ASC
         const newDir = sortDir === 'asc' ? 'desc' : 'asc';
-        console.log('🔄 Toggling direction to:', newDir);
+        console.log(`🔄 Toggling direction: ${sortDir} -> ${newDir}`);
         setSortDir(newDir);
     } else {
-        // New column, default to asc
-        console.log('🔄 New column sorting:', key);
+        // New column, start with ASC
+        console.log(`🔄 New column: ${key}, setting to ASC`);
         setSortKey(key);
         setSortDir('asc');
     }
-    // reset to first page when sorting changes
+    // Reset to first page when sorting changes
     setPageProps(prev => ({ ...prev, page: 0 }));
 };
+
 
 
 export function useShotsPivot({
@@ -135,7 +114,7 @@ export function useShotsPivot({
 
         (async () => {
             try {
-                // Ensure direction is uppercase for backend
+                // Convert frontend 'asc'/'desc' to backend 'ASC'/'DESC'
                 const backendDirection = direction.toUpperCase();
                 console.log('📊 Fetching shots pivot:', { 
                     orderKey, 
@@ -143,8 +122,8 @@ export function useShotsPivot({
                     page,
                     perPage,
                     nameKey,
-                    approvalStatus,
-                    workStatus
+                    approvalStatusCount: approvalStatus.length,
+                    workStatusCount: workStatus.length
                 });
                 
                 const res = await fetchShotsPivot({
@@ -163,7 +142,11 @@ export function useShotsPivot({
                 console.log('📊 Response:', { 
                     total: res.total, 
                     itemsCount: res.items?.length,
-                    firstItem: res.items?.[0]?.group_1
+                    firstItem: res.items?.[0] ? {
+                        group1: res.items[0].group_1,
+                        group2: res.items[0].group_2,
+                        group3: res.items[0].group_3
+                    } : null
                 });
                 
                 setShots(res.items);
@@ -194,73 +177,3 @@ export function useShotsPivot({
 
     return { shots, total, pageLast, hasNext, hasPrev, loading };
 }
-
-
-export const fetchShotsPivot = async ({
-  project,
-  page,
-  perPage,
-  orderKey = 'group1_only',
-  direction = 'ASC',
-  phase = '',
-  nameKey = '',
-  approvalStatus = [],
-  workStatus = [],
-  signal,
-}: ShotsPivotParams): Promise<ShotPivotResponse> => {
-  const headers = getAuthHeader();
-  const params = new URLSearchParams();
-
-  params.set('page',      String(page));
-  params.set('perPage',   String(perPage));
-  params.set('orderKey',  orderKey);
-  params.set('direction', direction);
-
-  console.log('🌐 API Request Details:', {
-    url: `/api/projects/${project}/reviews/shots/pivot`,
-    params: {
-      page,
-      perPage,
-      orderKey,
-      direction,
-      phase,
-      nameKey,
-      approvalStatus,
-      workStatus
-    }
-  });
-
-  if (phase)   params.set('phase',   phase);
-  if (nameKey) params.set('nameKey', nameKey);
-
-  approvalStatus.forEach(s => params.append('approvalStatus', s));
-  workStatus.forEach(s     => params.append('workStatus',     s));
-
-  const url = `/api/projects/${project}/reviews/shots/pivot?${params.toString()}`;
-  console.log('🌐 Full URL:', url);
-
-  const res = await fetch(url, {
-    method: 'GET',
-    headers,
-    mode: 'cors',
-    signal,
-  });
-
-  if (res.status === 401) throw new AuthorizationError();
-  if (!res.ok) {
-    const errorText = await res.text();
-    console.error('🌐 API Error:', errorText);
-    throw new Error('Failed to fetch shots pivot.');
-  }
-
-  setNewToken(res);
-  const data = await res.json();
-  console.log('🌐 API Response:', { 
-    total: data.total, 
-    itemsCount: data.items?.length,
-    firstItemSortValue: data.items?.[0]?.group_1
-  });
-  return data;
-};
-
-
