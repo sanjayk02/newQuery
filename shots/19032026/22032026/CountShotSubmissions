@@ -1,0 +1,62 @@
+func (r *ReviewInfo) CountShotSubmissions(
+	ctx context.Context,
+	project string,
+) (int64, error) {
+
+	if project == "" {
+		return 0, fmt.Errorf("project is required")
+	}
+
+	query := `
+WITH latest_phase AS (
+  SELECT
+    project,
+    root,
+    group_1,
+    group_2,
+    group_3,
+    relation,
+    component,
+    phase,
+    ROW_NUMBER() OVER (
+      PARTITION BY project, root, group_1, group_2, group_3, relation, component, phase
+      ORDER BY modified_at_utc DESC
+    ) rn
+  FROM t_review_info
+  WHERE project = ? AND root = 'shots' AND deleted = 0
+),
+
+filtered AS (
+  SELECT * FROM latest_phase WHERE rn = 1
+)
+
+SELECT COUNT(*) FROM (
+  SELECT
+    project,
+    root,
+    group_1,
+    group_2,
+    group_3,
+    relation,
+    component
+  FROM filtered
+  GROUP BY
+    project,
+    root,
+    group_1,
+    group_2,
+    group_3,
+    relation,
+    component
+) x;
+`
+
+	var total int64
+	if err := r.db.WithContext(ctx).
+		Raw(query, project).
+		Scan(&total).Error; err != nil {
+		return 0, err
+	}
+
+	return total, nil
+}
