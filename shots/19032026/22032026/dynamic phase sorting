@@ -1,0 +1,21 @@
+// dynamic phase sorting
+parts := strings.SplitN(key, "_", 2)
+if len(parts) == 2 {
+    phase := strings.ToLower(parts[0])
+    field := parts[1]
+
+    switch field {
+    case "work", "appr", "take":
+        col := fmt.Sprintf("%s_%s", phase, field)
+        return fmt.Sprintf(
+            "CASE WHEN %s IS NULL OR %s='' THEN 1 ELSE 0 END, %s %s",
+            col, col, col, dir,
+        )
+    case "submitted":
+        col := fmt.Sprintf("%s_%s", phase, field)
+        return fmt.Sprintf(
+            "CASE WHEN %s IS NULL THEN 1 ELSE 0 END, CAST(%s AS DATETIME) %s",
+            col, col, dir,
+        )
+    }
+}
