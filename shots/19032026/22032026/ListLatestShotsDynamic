@@ -1,0 +1,89 @@
+func (r *ReviewInfo) ListLatestShotsDynamic(
+	ctx context.Context,
+	project string,
+	orderKey string,
+	direction string,
+	limit, offset int,
+) ([]shotKeyRow, error) {
+
+	if project == "" {
+		return nil, fmt.Errorf("project is required")
+	}
+
+	if limit <= 0 {
+		limit = 60
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	orderClause := buildShotOrderClause("", orderKey, direction)
+
+	query := `
+WITH latest_phase AS (
+  SELECT
+    project,
+    root,
+    group_1,
+    group_2,
+    group_3,
+    relation,
+    component,
+    phase,
+    submitted_at_utc,
+    modified_at_utc,
+    ROW_NUMBER() OVER (
+      PARTITION BY project, root, group_1, group_2, group_3, relation, component, phase
+      ORDER BY modified_at_utc DESC
+    ) rn
+  FROM t_review_info
+  WHERE project = ? AND root = 'shots' AND deleted = 0
+),
+
+filtered AS (
+  SELECT * FROM latest_phase WHERE rn = 1
+),
+
+aggregated AS (
+  SELECT
+    project,
+    root,
+    group_1,
+    group_2,
+    group_3,
+    relation,
+    COALESCE(component,'') AS component,
+
+    -- 🔥 GLOBAL SORT FIELDS
+    MAX(CASE WHEN LOWER(phase)='cmp' THEN submitted_at_utc END) AS cmp_submitted,
+    MAX(CASE WHEN LOWER(phase)='anm' THEN submitted_at_utc END) AS anm_submitted,
+    MAX(CASE WHEN LOWER(phase)='lay' THEN submitted_at_utc END) AS lay_submitted,
+
+    MAX(submitted_at_utc) AS latest_submitted
+
+  FROM filtered
+  GROUP BY project, root, group_1, group_2, group_3, relation, component
+)
+
+SELECT
+  project,
+  root,
+  group_1,
+  group_2,
+  group_3,
+  relation,
+  component
+FROM aggregated
+ORDER BY ` + orderClause + `
+LIMIT ? OFFSET ?
+`
+
+	var rows []shotKeyRow
+	if err := r.db.WithContext(ctx).
+		Raw(query, project, limit, offset).
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	return rows, nil
+}
