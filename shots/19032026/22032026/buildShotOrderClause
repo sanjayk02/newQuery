@@ -1,0 +1,36 @@
+func buildShotOrderClause(orderKey, dir string) string {
+	dir = strings.ToUpper(strings.TrimSpace(dir))
+	if dir != "ASC" && dir != "DESC" {
+		dir = "ASC"
+	}
+
+	switch orderKey {
+
+	// ✅ SAME as Assets
+	case "group1_only":
+		return fmt.Sprintf(`
+			LOWER(group_1) %s,
+			LOWER(group_2) ASC,
+			LOWER(group_3) ASC,
+			LOWER(relation) ASC
+		`, dir)
+
+	case "relation_only":
+		return fmt.Sprintf(`
+			LOWER(relation) %s,
+			LOWER(group_1) ASC
+		`, dir)
+
+	// ✅ GLOBAL PHASE SORT
+	case "cmp_submitted", "anm_submitted", "lay_submitted":
+		return fmt.Sprintf("%s %s", orderKey, dir)
+
+	default:
+		return `
+			LOWER(group_1),
+			LOWER(group_2),
+			LOWER(group_3),
+			LOWER(relation)
+		`
+	}
+}
