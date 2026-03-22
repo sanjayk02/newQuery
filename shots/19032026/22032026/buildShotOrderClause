@@ -11,32 +11,27 @@ func buildShotOrderClause(alias, key, dir string) string {
 		return alias + "." + c
 	}
 
+	sortComponent := func() string {
+		return fmt.Sprintf(
+			"CASE WHEN %s IS NULL OR %s = '' THEN 1 ELSE 0 END ASC, LOWER(TRIM(%s)) %s",
+			col("component"),
+			col("component"),
+			col("component"),
+			dir,
+		)
+	}
+
 	switch key {
 
+	// -----------------------------
+	// GENERIC (same as assets)
+	// -----------------------------
 	case "group1_only":
 		return fmt.Sprintf(
 			"LOWER(%s) %s, LOWER(%s), LOWER(%s), LOWER(%s)",
 			col("group_1"), dir,
 			col("group_2"),
 			col("group_3"),
-			col("relation"),
-		)
-
-	case "group2_only":
-		return fmt.Sprintf(
-			"LOWER(%s) %s, LOWER(%s), LOWER(%s), LOWER(%s)",
-			col("group_2"), dir,
-			col("group_1"),
-			col("group_3"),
-			col("relation"),
-		)
-
-	case "group3_only":
-		return fmt.Sprintf(
-			"LOWER(%s) %s, LOWER(%s), LOWER(%s), LOWER(%s)",
-			col("group_3"), dir,
-			col("group_1"),
-			col("group_2"),
 			col("relation"),
 		)
 
@@ -49,54 +44,67 @@ func buildShotOrderClause(alias, key, dir string) string {
 			col("group_3"),
 		)
 
+	case "component", "component_only":
+		return fmt.Sprintf(
+			"%s, LOWER(%s)",
+			sortComponent(),
+			col("group_1"),
+		)
+
 	// -----------------------------
-	// 🔥 GLOBAL PHASE SORT (FIXED)
+	// 🔥 PHASE (GLOBAL COLUMNS)
 	// -----------------------------
 	default:
 		parts := strings.SplitN(key, "_", 2)
 		if len(parts) == 2 {
 			phase := strings.ToLower(parts[0])
-			suffix := parts[1]
+			field := parts[1]
 
-			switch suffix {
+			switch field {
 
 			case "submitted":
 				return fmt.Sprintf(
-					"MAX(CASE WHEN LOWER(%s)='%s' THEN %s END) %s",
-					col("phase"), phase,
-					col("submitted_at_utc"), dir,
+					"(%s IS NULL) ASC, %s %s, LOWER(%s)",
+					col(phase+"_submitted"),
+					col(phase+"_submitted"), dir,
+					col("group_1"),
 				)
 
 			case "work":
 				return fmt.Sprintf(
-					"MAX(CASE WHEN LOWER(%s)='%s' THEN LOWER(%s) END) %s",
-					col("phase"), phase,
-					col("work_status"), dir,
+					"(%s IS NULL) ASC, LOWER(%s) %s, LOWER(%s)",
+					col(phase+"_work"),
+					col(phase+"_work"), dir,
+					col("group_1"),
 				)
 
 			case "appr":
 				return fmt.Sprintf(
-					"MAX(CASE WHEN LOWER(%s)='%s' THEN LOWER(%s) END) %s",
-					col("phase"), phase,
-					col("approval_status"), dir,
+					"(%s IS NULL) ASC, LOWER(%s) %s, LOWER(%s)",
+					col(phase+"_appr"),
+					col(phase+"_appr"), dir,
+					col("group_1"),
 				)
 
 			case "take":
 				return fmt.Sprintf(
-					"MAX(CASE WHEN LOWER(%s)='%s' THEN CAST(RIGHT(%s,4) AS UNSIGNED) END) %s",
-					col("phase"), phase,
-					col("take"), dir,
+					"CASE WHEN %s IS NULL THEN 1 ELSE 0 END ASC, "+
+						"%s %s, LOWER(%s)",
+					col(phase+"_take"),
+					col(phase+"_take"), dir,
+					col("group_1"),
 				)
 			}
 		}
 
-		// default fallback
-		return fmt.Sprintf(
-			"LOWER(%s), LOWER(%s), LOWER(%s), LOWER(%s)",
-			col("group_1"),
-			col("group_2"),
-			col("group_3"),
-			col("relation"),
-		)
-	}
+	// -----------------------------
+	// DEFAULT
+	// -----------------------------
+	return fmt.Sprintf(
+		"LOWER(%s), LOWER(%s), LOWER(%s), LOWER(%s)",
+		col("group_1"),
+		col("group_2"),
+		col("group_3"),
+		col("relation"),
+	)
 }
