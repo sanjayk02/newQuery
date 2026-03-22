@@ -1,8 +1,6 @@
 func (r *ReviewInfo) ListShotsPivot(
 	ctx context.Context,
-	project string,
-	orderKey string,
-	direction string,
+	project, orderKey, direction string,
 	limit, offset int,
 ) ([]ShotPivot, int64, error) {
 
@@ -17,66 +15,33 @@ func (r *ReviewInfo) ListShotsPivot(
 		offset = 0
 	}
 
-	dir := strings.ToUpper(strings.TrimSpace(direction))
-	if dir != "ASC" && dir != "DESC" {
-		dir = "ASC"
-	}
+	orderClause := buildShotOrderClause("", orderKey, direction)
 
 	// -----------------------------
-	// 1. BUILD GLOBAL ORDER CLAUSE
-	// -----------------------------
-	orderClause := ""
-	if orderKey != "" {
-		orderClause = fmt.Sprintf("%s %s", orderKey, dir)
-	} else {
-		orderClause = `
-			LOWER(group_1),
-			LOWER(group_2),
-			LOWER(group_3),
-			LOWER(relation)
-		`
-	}
-
-	// -----------------------------
-	// 2. GET KEYS (GLOBAL SORT)
+	// 1. GET KEYS (GLOBAL SORT)
 	// -----------------------------
 	keysQuery := `
 WITH latest_phase AS (
-  SELECT
-    project,
-    root,
-    group_1,
-    group_2,
-    group_3,
-    relation,
-    component,
-    phase,
-    work_status,
-    approval_status,
-    submitted_at_utc,
-    modified_at_utc,
+  SELECT *,
     ROW_NUMBER() OVER (
       PARTITION BY project, root, group_1, group_2, group_3, relation, component, phase
       ORDER BY modified_at_utc DESC
-    ) AS rn
+    ) rn
   FROM t_review_info
-  WHERE project = ? AND root = 'shots' AND deleted = 0
+  WHERE project = ? AND root='shots' AND deleted=0
 ),
-
 filtered AS (
-  SELECT * FROM latest_phase WHERE rn = 1
+  SELECT * FROM latest_phase WHERE rn=1
 ),
-
 aggregated AS (
   SELECT
-    project,
-    root,
-    group_1,
-    group_2,
-    group_3,
+    project, root,
+    group_1, group_2, group_3,
     relation,
     COALESCE(component,'') AS component,
+    MAX(submitted_at_utc) AS submitted_at_utc,
 
+    -- needed for sorting
     MAX(CASE WHEN LOWER(phase)='cmp' THEN submitted_at_utc END) AS cmp_submitted,
     MAX(CASE WHEN LOWER(phase)='anm' THEN submitted_at_utc END) AS anm_submitted,
     MAX(CASE WHEN LOWER(phase)='lay' THEN submitted_at_utc END) AS lay_submitted
@@ -103,7 +68,7 @@ LIMIT ? OFFSET ?
 	}
 
 	// -----------------------------
-	// 3. COUNT (TOTAL)
+	// 2. COUNT
 	// -----------------------------
 	countQuery := `
 WITH latest_phase AS (
@@ -111,17 +76,17 @@ WITH latest_phase AS (
     ROW_NUMBER() OVER (
       PARTITION BY project, root, group_1, group_2, group_3, relation, component, phase
       ORDER BY modified_at_utc DESC
-    ) AS rn
+    ) rn
   FROM t_review_info
-  WHERE project = ? AND root = 'shots' AND deleted = 0
+  WHERE project = ? AND root='shots' AND deleted=0
 ),
 filtered AS (
-  SELECT * FROM latest_phase WHERE rn = 1
+  SELECT * FROM latest_phase WHERE rn=1
 )
 SELECT COUNT(*) FROM (
-  SELECT project, root, group_1, group_2, group_3, relation, component
+  SELECT group_1, group_2, group_3, relation, component
   FROM filtered
-  GROUP BY project, root, group_1, group_2, group_3, relation, component
+  GROUP BY group_1, group_2, group_3, relation, component
 ) x;
 `
 
@@ -133,27 +98,21 @@ SELECT COUNT(*) FROM (
 	}
 
 	// -----------------------------
-	// 4. FETCH ALL PHASES FOR KEYS
+	// 3. FETCH PHASES
 	// -----------------------------
 	var sb strings.Builder
 	var args []any
 
 	sb.WriteString(`
 SELECT
-  project,
-  root,
-  group_1,
-  group_2,
-  group_3,
-  relation,
-  component,
-  phase,
-  work_status,
-  approval_status,
+  project, root,
+  group_1, group_2, group_3,
+  relation, component,
+  phase, work_status, approval_status,
   submitted_at_utc,
   RIGHT(take,4) AS take
 FROM t_review_info
-WHERE project = ? AND root = 'shots' AND deleted = 0 AND (
+WHERE project=? AND root='shots' AND deleted=0 AND (
 `)
 	args = append(args, project)
 
@@ -174,14 +133,14 @@ WHERE project = ? AND root = 'shots' AND deleted = 0 AND (
 	}
 
 	// -----------------------------
-	// 5. PIVOT
+	// 4. PIVOT
 	// -----------------------------
 	type key struct {
 		p, r, g1, g2, g3, rel, comp string
 	}
 
-	m := make(map[key]*ShotPivot)
-	order := make([]*ShotPivot, 0, len(keys))
+	m := map[key]*ShotPivot{}
+	order := []*ShotPivot{}
 
 	for _, k := range keys {
 		id := key{k.Project, k.Root, k.Group1, k.Group2, k.Group3, k.Relation, k.Component}
@@ -194,7 +153,7 @@ WHERE project = ? AND root = 'shots' AND deleted = 0 AND (
 			Group3:   k.Group3,
 			Relation: k.Relation,
 			Component: k.Component,
-			Phases:   make(map[string]PhaseData),
+			Phases:   map[string]PhaseData{},
 		}
 
 		m[id] = sp
@@ -202,11 +161,7 @@ WHERE project = ? AND root = 'shots' AND deleted = 0 AND (
 	}
 
 	for _, r := range rows {
-		id := key{
-			r.Project, r.Root,
-			r.Group1, r.Group2, r.Group3,
-			r.Relation, getStr(r.Component),
-		}
+		id := key{r.Project, r.Root, r.Group1, r.Group2, r.Group3, r.Relation, getStr(r.Component)}
 
 		if sp, ok := m[id]; ok {
 			sp.Phases[strings.ToLower(r.Phase)] = PhaseData{
