@@ -1446,7 +1446,6 @@ WHERE rn = 1;
 	return ordered, total, nil
 }
 
-
 // ---- Shots Pivot Row ----
 
 type PhaseData struct {
@@ -1761,12 +1760,12 @@ WITH latest_phase AS (
       ORDER BY modified_at_utc DESC
     ) AS rn
   FROM t_review_info
-  WHERE project = ? AND root = 'shots' AND deleted = 0` + nameCond + `
+  WHERE project = ? AND root = 'shots' AND deleted = 0`+nameCond+`
 ),
 filtered AS (
   SELECT *
   FROM latest_phase
-  WHERE rn = 1` + statusWhere + `
+  WHERE rn = 1`+statusWhere+`
 ),
 ranked AS (
   SELECT
@@ -1821,6 +1820,36 @@ LIMIT ? OFFSET ?;
 	return rows, nil
 }
 
+/* ──────────────────────────────────────────────────────────────────────────
+   Known shot phases — used to fill missing phases with "-"
+   ────────────────────────────────────────────────────────────────────────── */
+
+var knownShotPhases = []string{
+	"lay",
+	"anm",
+	"gnz",
+	"cloth",
+	"dsp",
+	"crd",
+	"drw",
+	"mat",
+	"matnuke",
+	"fx",
+	"cmp",
+	"rtcgnz",
+	"rtcmat",
+	"rtcmatnuke",
+	"rtcdrw",
+	"rel",
+	"snd",
+	"crowd",
+	"lgt",
+	"cfxhair",
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   ListShotsPivot
+   ────────────────────────────────────────────────────────────────────────── */
 
 func (r *ReviewInfo) ListShotsPivot(
 	ctx context.Context,
@@ -1842,7 +1871,7 @@ func (r *ReviewInfo) ListShotsPivot(
 		return nil, 0, err
 	}
 
-	// 2) page keys
+	// 2) page keys — one row per shot in correct order
 	keys, err := r.ListLatestShotsDynamic(
 		ctx, project, preferredPhase,
 		orderKey, direction,
@@ -1929,6 +1958,18 @@ WHERE rn = 1;
 		return *s
 	}
 
+	strPtr := func(s string) *string {
+		return &s
+	}
+
+	// empty phase — used for missing phases
+	emptyPhase := PhaseData{
+		WorkStatus:     strPtr("-"),
+		ApprovalStatus: strPtr("-"),
+		SubmittedAtUTC: nil,
+		Take:           strPtr("-"),
+	}
+
 	m := make(map[keyStruct]*ShotPivot, len(keys))
 	orderedPtrs := make([]*ShotPivot, 0, len(keys))
 
@@ -1948,7 +1989,7 @@ WHERE rn = 1;
 		orderedPtrs = append(orderedPtrs, sp)
 	}
 
-	// 3 lines — dynamic, works for ALL phases
+	// stitch phases — dynamic, works for ALL phases
 	for _, pr := range phases {
 		id := keyStruct{pr.Project, pr.Root, pr.Group1, pr.Group2, pr.Group3, pr.Relation, ptrToString(pr.Component)}
 		sp, ok := m[id]
@@ -1963,7 +2004,16 @@ WHERE rn = 1;
 		}
 	}
 
-	// 5) convert to slice preserving order
+	// fill missing phases with "-"
+	for _, sp := range orderedPtrs {
+		for _, phase := range knownShotPhases {
+			if _, exists := sp.Phases[phase]; !exists {
+				sp.Phases[phase] = emptyPhase
+			}
+		}
+	}
+
+	// 5) convert []*ShotPivot → []ShotPivot preserving order
 	ordered := make([]ShotPivot, len(orderedPtrs))
 	for i, sp := range orderedPtrs {
 		ordered[i] = *sp
@@ -1971,4 +2021,3 @@ WHERE rn = 1;
 
 	return ordered, total, nil
 }
-
