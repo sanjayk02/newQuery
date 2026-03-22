@@ -1,36 +1,102 @@
-func buildShotOrderClause(orderKey, dir string) string {
+func buildShotOrderClause(alias, key, dir string) string {
 	dir = strings.ToUpper(strings.TrimSpace(dir))
 	if dir != "ASC" && dir != "DESC" {
 		dir = "ASC"
 	}
 
-	switch orderKey {
+	col := func(c string) string {
+		if alias == "" {
+			return c
+		}
+		return alias + "." + c
+	}
 
-	// ✅ SAME as Assets
+	switch key {
+
 	case "group1_only":
-		return fmt.Sprintf(`
-			LOWER(group_1) %s,
-			LOWER(group_2) ASC,
-			LOWER(group_3) ASC,
-			LOWER(relation) ASC
-		`, dir)
+		return fmt.Sprintf(
+			"LOWER(%s) %s, LOWER(%s), LOWER(%s), LOWER(%s)",
+			col("group_1"), dir,
+			col("group_2"),
+			col("group_3"),
+			col("relation"),
+		)
+
+	case "group2_only":
+		return fmt.Sprintf(
+			"LOWER(%s) %s, LOWER(%s), LOWER(%s), LOWER(%s)",
+			col("group_2"), dir,
+			col("group_1"),
+			col("group_3"),
+			col("relation"),
+		)
+
+	case "group3_only":
+		return fmt.Sprintf(
+			"LOWER(%s) %s, LOWER(%s), LOWER(%s), LOWER(%s)",
+			col("group_3"), dir,
+			col("group_1"),
+			col("group_2"),
+			col("relation"),
+		)
 
 	case "relation_only":
-		return fmt.Sprintf(`
-			LOWER(relation) %s,
-			LOWER(group_1) ASC
-		`, dir)
+		return fmt.Sprintf(
+			"LOWER(%s) %s, LOWER(%s), LOWER(%s), LOWER(%s)",
+			col("relation"), dir,
+			col("group_1"),
+			col("group_2"),
+			col("group_3"),
+		)
 
-	// ✅ GLOBAL PHASE SORT
-	case "cmp_submitted", "anm_submitted", "lay_submitted":
-		return fmt.Sprintf("%s %s", orderKey, dir)
-
+	// -----------------------------
+	// 🔥 GLOBAL PHASE SORT (FIXED)
+	// -----------------------------
 	default:
-		return `
-			LOWER(group_1),
-			LOWER(group_2),
-			LOWER(group_3),
-			LOWER(relation)
-		`
+		parts := strings.SplitN(key, "_", 2)
+		if len(parts) == 2 {
+			phase := strings.ToLower(parts[0])
+			suffix := parts[1]
+
+			switch suffix {
+
+			case "submitted":
+				return fmt.Sprintf(
+					"MAX(CASE WHEN LOWER(%s)='%s' THEN %s END) %s",
+					col("phase"), phase,
+					col("submitted_at_utc"), dir,
+				)
+
+			case "work":
+				return fmt.Sprintf(
+					"MAX(CASE WHEN LOWER(%s)='%s' THEN LOWER(%s) END) %s",
+					col("phase"), phase,
+					col("work_status"), dir,
+				)
+
+			case "appr":
+				return fmt.Sprintf(
+					"MAX(CASE WHEN LOWER(%s)='%s' THEN LOWER(%s) END) %s",
+					col("phase"), phase,
+					col("approval_status"), dir,
+				)
+
+			case "take":
+				return fmt.Sprintf(
+					"MAX(CASE WHEN LOWER(%s)='%s' THEN CAST(RIGHT(%s,4) AS UNSIGNED) END) %s",
+					col("phase"), phase,
+					col("take"), dir,
+				)
+			}
+		}
+
+		// default fallback
+		return fmt.Sprintf(
+			"LOWER(%s), LOWER(%s), LOWER(%s), LOWER(%s)",
+			col("group_1"),
+			col("group_2"),
+			col("group_3"),
+			col("relation"),
+		)
 	}
 }
