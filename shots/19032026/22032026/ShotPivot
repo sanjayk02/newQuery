@@ -1,0 +1,270 @@
+type ShotPivot struct {
+	Root      string `json:"root"`
+	Project   string `json:"project"`
+	Group1    string `json:"group_1"`
+	Group2    string `json:"group_2"`
+	Group3    string `json:"group_3"`
+	Relation  string `json:"relation"`
+	Component string `json:"component"`
+
+	Phases map[string]PhaseData `json:"phases"`
+}
+
+type PhaseData struct {
+	WorkStatus     *string    `json:"work_status"`
+	ApprovalStatus *string    `json:"approval_status"`
+	SubmittedAtUTC *time.Time `json:"submitted_at_utc"`
+	Take           *string    `json:"take"`
+}
+
+type shotKeyRow struct {
+	Project   string `gorm:"column:project"`
+	Root      string `gorm:"column:root"`
+	Group1    string `gorm:"column:group_1"`
+	Group2    string `gorm:"column:group_2"`
+	Group3    string `gorm:"column:group_3"`
+	Relation  string `gorm:"column:relation"`
+	Component string `gorm:"column:component"`
+}
+
+type shotPhaseRow struct {
+	Project        string     `gorm:"column:project"`
+	Root           string     `gorm:"column:root"`
+	Group1         string     `gorm:"column:group_1"`
+	Group2         string     `gorm:"column:group_2"`
+	Group3         string     `gorm:"column:group_3"`
+	Relation       string     `gorm:"column:relation"`
+	Component      *string    `gorm:"column:component"`
+	Phase          string     `gorm:"column:phase"`
+	WorkStatus     *string    `gorm:"column:work_status"`
+	ApprovalStatus *string    `gorm:"column:approval_status"`
+	SubmittedAtUTC *time.Time `gorm:"column:submitted_at_utc"`
+	Take           *string    `gorm:"column:take"`
+}
+
+func getStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func buildShotOrderClause(orderKey, dir string) string {
+	dir = strings.ToUpper(strings.TrimSpace(dir))
+	if dir != "ASC" && dir != "DESC" {
+		dir = "ASC"
+	}
+
+	if strings.Contains(orderKey, "_") {
+		parts := strings.Split(orderKey, "_")
+		phase := strings.ToLower(parts[0])
+		field := parts[1]
+
+		switch field {
+		case "submitted":
+			return fmt.Sprintf(`
+				(CASE WHEN LOWER(phase)='%s' THEN 0 ELSE 1 END),
+				submitted_at_utc %s
+			`, phase, dir)
+
+		case "work":
+			return fmt.Sprintf(`
+				(CASE WHEN LOWER(phase)='%s' THEN 0 ELSE 1 END),
+				LOWER(work_status) %s
+			`, phase, dir)
+
+		case "appr":
+			return fmt.Sprintf(`
+				(CASE WHEN LOWER(phase)='%s' THEN 0 ELSE 1 END),
+				LOWER(approval_status) %s
+			`, phase, dir)
+		}
+	}
+
+	return `
+		LOWER(group_1),
+		LOWER(group_2),
+		LOWER(group_3),
+		LOWER(relation)
+	`
+}
+
+func (r *ReviewInfo) CountLatestShotSubmissions(
+	ctx context.Context,
+	project string,
+) (int64, error) {
+
+	query := `
+WITH latest_phase AS (
+  SELECT *,
+    ROW_NUMBER() OVER (
+      PARTITION BY project, root, group_1, group_2, group_3, relation, component, phase
+      ORDER BY modified_at_utc DESC
+    ) AS rn
+  FROM t_review_info
+  WHERE project = ? AND root = 'shots' AND deleted = 0
+),
+filtered AS (
+  SELECT * FROM latest_phase WHERE rn = 1
+),
+ranked AS (
+  SELECT *,
+    ROW_NUMBER() OVER (
+      PARTITION BY project, root, group_1, group_2, group_3, relation, component
+      ORDER BY modified_at_utc DESC
+    ) AS rnk
+  FROM filtered
+)
+SELECT COUNT(*) FROM ranked WHERE rnk = 1;
+`
+
+	var total int64
+	err := r.db.WithContext(ctx).Raw(query, project).Scan(&total).Error
+	return total, err
+}
+
+func (r *ReviewInfo) ListLatestShotsDynamic(
+	ctx context.Context,
+	project, orderKey, direction string,
+	limit, offset int,
+) ([]shotKeyRow, error) {
+
+	orderClause := buildShotOrderClause(orderKey, direction)
+
+	query := `
+WITH latest_phase AS (
+  SELECT *,
+    ROW_NUMBER() OVER (
+      PARTITION BY project, root, group_1, group_2, group_3, relation, component, phase
+      ORDER BY modified_at_utc DESC
+    ) AS rn
+  FROM t_review_info
+  WHERE project = ? AND root = 'shots' AND deleted = 0
+),
+filtered AS (
+  SELECT * FROM latest_phase WHERE rn = 1
+),
+ranked AS (
+  SELECT *,
+    ROW_NUMBER() OVER (
+      PARTITION BY project, root, group_1, group_2, group_3, relation, component
+      ORDER BY modified_at_utc DESC
+    ) AS rnk
+  FROM filtered
+)
+SELECT
+  project, root, group_1, group_2, group_3, relation,
+  COALESCE(component,'') AS component
+FROM ranked
+WHERE rnk = 1
+ORDER BY ` + orderClause + `
+LIMIT ? OFFSET ?;
+`
+
+	var rows []shotKeyRow
+	err := r.db.WithContext(ctx).
+		Raw(query, project, limit, offset).
+		Scan(&rows).Error
+
+	return rows, err
+}
+
+func (r *ReviewInfo) ListShotsPivot(
+	ctx context.Context,
+	project, orderKey, direction string,
+	limit, offset int,
+) ([]ShotPivot, int64, error) {
+
+	// 1. count
+	total, err := r.CountLatestShotSubmissions(ctx, project)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// 2. get keys
+	keys, err := r.ListLatestShotsDynamic(ctx, project, orderKey, direction, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(keys) == 0 {
+		return []ShotPivot{}, total, nil
+	}
+
+	// 3. fetch phases for keys
+	var sb strings.Builder
+	var args []any
+
+	sb.WriteString(`
+SELECT
+  project, root, group_1, group_2, group_3, relation,
+  component, phase, work_status, approval_status,
+  submitted_at_utc,
+  RIGHT(take,4) AS take
+FROM t_review_info
+WHERE project = ? AND root='shots' AND deleted=0 AND (
+`)
+
+	args = append(args, project)
+
+	for i, k := range keys {
+		if i > 0 {
+			sb.WriteString(" OR ")
+		}
+		sb.WriteString("(group_1=? AND group_2=? AND group_3=? AND relation=? AND COALESCE(component,'')=?)")
+		args = append(args, k.Group1, k.Group2, k.Group3, k.Relation, k.Component)
+	}
+
+	sb.WriteString(")")
+
+	var rows []shotPhaseRow
+	if err := r.db.WithContext(ctx).Raw(sb.String(), args...).Scan(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 4. pivot
+	type key struct {
+		p, r, g1, g2, g3, rel, comp string
+	}
+
+	m := map[key]*ShotPivot{}
+	order := []*ShotPivot{}
+
+	for _, k := range keys {
+		id := key{k.Project, k.Root, k.Group1, k.Group2, k.Group3, k.Relation, k.Component}
+
+		sp := &ShotPivot{
+			Project:  k.Project,
+			Root:     k.Root,
+			Group1:   k.Group1,
+			Group2:   k.Group2,
+			Group3:   k.Group3,
+			Relation: k.Relation,
+			Component: k.Component,
+			Phases:   map[string]PhaseData{},
+		}
+
+		m[id] = sp
+		order = append(order, sp)
+	}
+
+	for _, r := range rows {
+		id := key{r.Project, r.Root, r.Group1, r.Group2, r.Group3, r.Relation, getStr(r.Component)}
+
+		if sp, ok := m[id]; ok {
+			sp.Phases[strings.ToLower(r.Phase)] = PhaseData{
+				WorkStatus:     r.WorkStatus,
+				ApprovalStatus: r.ApprovalStatus,
+				SubmittedAtUTC: r.SubmittedAtUTC,
+				Take:           r.Take,
+			}
+		}
+	}
+
+	final := make([]ShotPivot, len(order))
+	for i, v := range order {
+		final[i] = *v
+	}
+
+	return final, total, nil
+}
+
