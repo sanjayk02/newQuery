@@ -1,0 +1,267 @@
+// ShotsDataTableGroup.tsx - Step 1: Basic nested grouping structure
+import React, { useState } from "react";
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableRow,
+    Collapse,
+    Box,
+} from "@material-ui/core";
+import { styled } from "@material-ui/core/styles";
+import KeyboardArrowDownIcon from "@material-ui/icons/KeyboardArrowDown";
+import KeyboardArrowRightIcon from "@material-ui/icons/KeyboardArrowRight";
+import { ColumnState, ShotPivot, ShotsDataTableProps } from "./types";
+import { Project } from "../../types";
+
+type ShotsDataTableGroupProps = ShotsDataTableProps & {
+    project:        Project | null | undefined;
+    shots:          ShotPivot[];
+    total:          number;
+    groupCounts:    { [key: string]: number };
+    dateTimeFormat: Intl.DateTimeFormat;
+    columnsState:   ColumnState;
+    sortKey:        string;
+    sortDir:        'asc' | 'desc';
+    onSortChange:   (key: string) => void;
+};
+
+// Styled components
+const Group1HeaderRow = styled(TableRow)(({ theme }) => ({
+    cursor: 'pointer',
+    backgroundColor: theme.palette.grey[800],
+    '&:hover': {
+        backgroundColor: theme.palette.grey[700],
+    },
+}));
+
+const Group2HeaderRow = styled(TableRow)(({ theme }) => ({
+    cursor: 'pointer',
+    backgroundColor: theme.palette.grey[900],
+    '&:hover': {
+        backgroundColor: theme.palette.grey[800],
+    },
+}));
+
+const GroupHeaderCell = styled(TableCell)(({ theme }) => ({
+    fontWeight: 'bold',
+    padding: theme.spacing(1.5, 2),
+}));
+
+// Build columns (same as list view)
+const buildColumns = (columnsState: ColumnState) => {
+    const fixed = [
+        { id: 'thumbnail', label: 'THUMBNAIL', fixed: true },
+        { id: 'group_1_name', label: 'NAME 1', fixed: true },
+        { id: 'group_2_name', label: 'NAME 2', fixed: true },
+        { id: 'group_3_name', label: 'NAME 3', fixed: true },
+    ];
+
+    const PHASE_ORDER = [
+        'lay', 'anm', 'gnz', 'mat', 'matnuke', 'fx', 'cmp',
+        'dsp', 'cloth', 'cfxhair', 'crd', 'drw', 
+        'rtcgnz', 'rtcmat', 'rtcmatnuke', 'rtcdrw',
+    ];
+
+    const phase = PHASE_ORDER.flatMap(p => {
+        const label = p.toUpperCase();
+        return [
+            { id: `${p}_work_status`, label: `${label} WORK`, fixed: false },
+            { id: `${p}_approval_status`, label: `${label} APPR`, fixed: false },
+            { id: `${p}_take`, label: `${label} TAKE`, fixed: false },
+            { id: `${p}_submitted_at`, label: `${label} SUBMITTED`, fixed: false },
+        ];
+    });
+
+    const tail = [{ id: 'relation', label: 'RELATION', fixed: false }];
+
+    return [...fixed, ...phase, ...tail].filter(col => col.fixed || columnsState[col.id] !== false);
+};
+
+// Structure for nested grouping
+interface NestedGroup {
+    group1: string;
+    group2Groups: Map<string, ShotPivot[]>;
+    group2Counts: Map<string, number>;
+}
+
+const ShotsDataTableGroup: React.FC<ShotsDataTableGroupProps> = ({
+    project,
+    shots,
+    groupCounts,
+    dateTimeFormat,
+    columnsState,
+    sortKey,
+    sortDir,
+    onSortChange,
+}) => {
+    if (project === null) return null;
+
+    // Build visible columns
+    const visibleColumns = buildColumns(columnsState);
+    
+    // Create nested grouping structure: group_1 -> group_2 -> shots
+    const nestedGroups = React.useMemo(() => {
+        const group1Map = new Map<string, Map<string, ShotPivot[]>>();
+        
+        shots.forEach(shot => {
+            const group1 = shot.group_1;
+            const group2 = shot.group_2;
+            
+            if (!group1Map.has(group1)) {
+                group1Map.set(group1, new Map());
+            }
+            
+            const group2Map = group1Map.get(group1)!;
+            if (!group2Map.has(group2)) {
+                group2Map.set(group2, []);
+            }
+            
+            group2Map.get(group2)!.push(shot);
+        });
+        
+        return group1Map;
+    }, [shots]);
+    
+    // State for expanded groups
+    const [expandedGroup1, setExpandedGroup1] = useState<Set<string>>(new Set());
+    const [expandedGroup2, setExpandedGroup2] = useState<Map<string, Set<string>>>(new Map());
+    
+    const toggleGroup1 = (group1: string) => {
+        setExpandedGroup1(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(group1)) {
+                newSet.delete(group1);
+            } else {
+                newSet.add(group1);
+            }
+            return newSet;
+        });
+    };
+    
+    const toggleGroup2 = (group1: string, group2: string) => {
+        setExpandedGroup2(prev => {
+            const newMap = new Map(prev);
+            if (!newMap.has(group1)) {
+                newMap.set(group1, new Set());
+            }
+            const group2Set = newMap.get(group1)!;
+            if (group2Set.has(group2)) {
+                group2Set.delete(group2);
+            } else {
+                group2Set.add(group2);
+            }
+            return newMap;
+        });
+    };
+    
+    const isGroup1Expanded = (group1: string) => expandedGroup1.has(group1);
+    const isGroup2Expanded = (group1: string, group2: string) => {
+        return expandedGroup2.get(group1)?.has(group2) || false;
+    };
+    
+    // Get total count for group1 (from groupCounts prop)
+    const getGroup1Count = (group1: string) => {
+        return groupCounts[group1] || 0;
+    };
+
+    return (
+        <Table stickyHeader style={{ tableLayout: 'fixed', width: 'auto' }}>
+            {/* SINGLE TABLE HEADER */}
+            <TableHead>
+                <TableRow>
+                    {visibleColumns.map((col) => (
+                        <TableCell
+                            key={col.id}
+                            style={{
+                                whiteSpace: 'nowrap',
+                                fontWeight: 'bold',
+                                backgroundColor: '#2d2d2d',
+                            }}
+                        >
+                            {col.label}
+                        </TableCell>
+                    ))}
+                </TableRow>
+            </TableHead>
+            
+            <TableBody>
+                {Array.from(nestedGroups.entries()).map(([group1, group2Map]) => (
+                    <React.Fragment key={group1}>
+                        {/* Group 1 Header */}
+                        <Group1HeaderRow onClick={() => toggleGroup1(group1)}>
+                            <GroupHeaderCell colSpan={visibleColumns.length}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                                    {isGroup1Expanded(group1) ? (
+                                        <KeyboardArrowDownIcon fontSize="small" style={{ marginRight: 8 }} />
+                                    ) : (
+                                        <KeyboardArrowRightIcon fontSize="small" style={{ marginRight: 8 }} />
+                                    )}
+                                    {group1} ({getGroup1Count(group1)} shots)
+                                </span>
+                            </GroupHeaderCell>
+                        </Group1HeaderRow>
+                        
+                        {/* Group 1 Content */}
+                        {isGroup1Expanded(group1) && (
+                            <TableRow>
+                                <TableCell colSpan={visibleColumns.length} style={{ padding: 0 }}>
+                                    <Collapse in={isGroup1Expanded(group1)} timeout="auto">
+                                        <Box>
+                                            {Array.from(group2Map.entries()).map(([group2, group2Shots]) => (
+                                                <React.Fragment key={group2}>
+                                                    {/* Group 2 Header */}
+                                                    <Group2HeaderRow onClick={() => toggleGroup2(group1, group2)}>
+                                                        <TableCell colSpan={visibleColumns.length} style={{ paddingLeft: 32 }}>
+                                                            <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                                                                {isGroup2Expanded(group1, group2) ? (
+                                                                    <KeyboardArrowDownIcon fontSize="small" style={{ marginRight: 8 }} />
+                                                                ) : (
+                                                                    <KeyboardArrowRightIcon fontSize="small" style={{ marginRight: 8 }} />
+                                                                )}
+                                                                {group2} ({group2Shots.length})
+                                                            </span>
+                                                        </TableCell>
+                                                    </Group2HeaderRow>
+                                                    
+                                                    {/* Group 2 Content - Individual Shots */}
+                                                    {isGroup2Expanded(group1, group2) && (
+                                                        <TableRow>
+                                                            <TableCell colSpan={visibleColumns.length} style={{ padding: 0 }}>
+                                                                <Collapse in={isGroup2Expanded(group1, group2)} timeout="auto">
+                                                                    <Box>
+                                                                        {group2Shots.map((shot, idx) => (
+                                                                            <TableRow key={`${shot.group_1}-${shot.group_2}-${shot.group_3}-${idx}`}>
+                                                                                {visibleColumns.map(col => (
+                                                                                    <TableCell key={col.id} style={{ padding: '8px' }}>
+                                                                                        {/* We'll add cell rendering in next step */}
+                                                                                        {col.id === 'group_1_name' && shot.group_1}
+                                                                                        {col.id === 'group_2_name' && shot.group_2}
+                                                                                        {col.id === 'group_3_name' && shot.group_3}
+                                                                                        {col.id === 'relation' && shot.relation}
+                                                                                        {col.id === 'thumbnail' && 'No thumb'}
+                                                                                    </TableCell>
+                                                                                ))}
+                                                                            </TableRow>
+                                                                        ))}
+                                                                    </Box>
+                                                                </Collapse>
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    )}
+                                                </React.Fragment>
+                                            ))}
+                                        </Box>
+                                    </Collapse>
+                                </TableCell>
+                            </TableRow>
+                        )}
+                    </React.Fragment>
+                ))}
+            </TableBody>
+        </Table>
+    );
+};
+
+export default ShotsDataTableGroup;
