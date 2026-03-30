@@ -319,109 +319,54 @@ const ShotDataRow: React.FC<{
 };
 
 /* ── Group2 Header Row ──────────────────────────────────────────────────── */
-
 const Group2HeaderRow: React.FC<{
-    group2:       string;
-    shots:        ShotPivot[];
-    isExpanded:   boolean;
-    onToggle:     () => void;
+    group2: string;
+    shots: ShotPivot[];
+    total: number; // 👈 added
+    isExpanded: boolean;
+    onToggle: () => void;
     columnsState: ColumnState;
-}> = ({ group2, shots, isExpanded, onToggle, columnsState }) => {
+}> = ({ group2, shots, total, isExpanded, onToggle, columnsState }) => {
     return (
         <TableRow
             onClick={onToggle}
             style={{
-                cursor:          'pointer',
+                cursor: 'pointer',
                 backgroundColor: 'rgba(255,255,255,0.04)',
             }}
         >
-            {/* Thumbnail cell — empty */}
-            <TableCell style={{ padding: '4px 8px' }} />
+            <TableCell />
+            <TableCell />
 
-            {/* NAME 1 — empty, indented */}
-            <TableCell style={{ padding: '4px 8px' }} />
-
-            {/* NAME 2 — group label with toggle */}
-            <TableCell
-                style={{
-                    padding:    '6px 8px',
-                    fontWeight: 600,
-                    color:      '#a0c4ff',
-                    whiteSpace: 'nowrap',
-                }}
-            >
+            {/* ✅ NAME 2 */}
+            <TableCell style={{
+                fontWeight: 600,
+                color: '#a0c4ff',
+                whiteSpace: 'nowrap',
+            }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                     {isExpanded
-                        ? <ExpandIcon fontSize="small" style={{ fontSize: 16 }} />
-                        : <CollapseIcon fontSize="small" style={{ fontSize: 16 }} />
+                        ? <ExpandIcon fontSize="small" />
+                        : <CollapseIcon fontSize="small" />
                     }
                     {group2}
-                    <span style={{ color: '#666', fontWeight: 400, fontSize: 11, marginLeft: 4 }}>
-                        ({shots.length})
+                    <span style={{ color: '#666', fontSize: 11 }}>
+                        ({shots.length} / {total})
                     </span>
                 </span>
             </TableCell>
 
-            {/* NAME 3 — empty */}
-            <TableCell style={{ padding: '4px 8px' }} />
+            <TableCell />
 
-            {/* Phase aggregation cells */}
-            {PHASE_ORDER.map(phase => {
-                const colors     = SHOT_PHASES[phase];
-                const lineColor  = colors?.lineColor ?? '#fff';
-                const borderLine = `solid 3px ${lineColor}`;
-
-                const workCol      = `${phase}_work_status`;
-                const apprCol      = `${phase}_approval_status`;
-                const takeCol      = `${phase}_take`;
-                const submittedCol = `${phase}_submitted_at`;
-
-                const workAgg      = aggregatePhaseField(shots, phase, 'work_status');
-                const apprAgg      = aggregatePhaseField(shots, phase, 'approval_status');
-                const takeAgg      = aggregatePhaseField(shots, phase, 'take');
-                const submittedAgg = aggregatePhaseField(shots, phase, 'submitted_at_utc');
-
-                return (
-                    <React.Fragment key={phase}>
-                        {columnsState[workCol] !== false && (
-                            <AggCellDisplay
-                                agg={workAgg}
-                                lineColor={lineColor}
-                                leftBorder={borderLine}
-                                rightBorder="none"
-                                isCountField
-                            />
-                        )}
-                        {columnsState[apprCol] !== false && (
-                            <AggCellDisplay
-                                agg={apprAgg}
-                                lineColor={lineColor}
-                                leftBorder="none"
-                                rightBorder="none"
-                                isCountField
-                            />
-                        )}
-                        {columnsState[takeCol] !== false && (
-                            <AggCellDisplay
-                                agg={takeAgg}
-                                lineColor={lineColor}
-                                leftBorder="none"
-                                rightBorder="none"
-                                isCountField={false}
-                            />
-                        )}
-                        {columnsState[submittedCol] !== false && (
-                            <AggCellDisplay
-                                agg={submittedAgg}
-                                lineColor={lineColor}
-                                leftBorder="none"
-                                rightBorder="none"
-                                isCountField={false}
-                            />
-                        )}
-                    </React.Fragment>
-                );
-            })}
+            {/* ❌ REMOVE aggregation → replace with empty cells */}
+            {PHASE_ORDER.map(phase => (
+                <React.Fragment key={phase}>
+                    {columnsState[`${phase}_work_status`] !== false && <TableCell />}
+                    {columnsState[`${phase}_approval_status`] !== false && <TableCell />}
+                    {columnsState[`${phase}_take`] !== false && <TableCell />}
+                    {columnsState[`${phase}_submitted_at`] !== false && <TableCell />}
+                </React.Fragment>
+            ))}
 
             {columnsState['relation'] !== false && <TableCell />}
         </TableRow>
@@ -429,116 +374,61 @@ const Group2HeaderRow: React.FC<{
 };
 
 /* ── Group1 Header Row ──────────────────────────────────────────────────── */
-
 const Group1HeaderRow: React.FC<{
-    group1:        string;
-    allShots:      ShotPivot[];
-    total:         number;        // grand total from API (across all pages)
-    isExpanded:    boolean;
-    onToggle:      () => void;
-    columnsState:  ColumnState;
-    visibleCols:   number;
-}> = ({ group1, allShots, total, isExpanded, onToggle, columnsState, visibleCols }) => {
+    group1: string;
+    allShots: ShotPivot[];
+    total: number;
+    isExpanded: boolean;
+    onToggle: () => void;
+    columnsState: ColumnState;
+    visibleCols: number;
+}> = ({ group1, allShots, total, isExpanded, onToggle, columnsState }) => {
     return (
         <TableRow
             onClick={onToggle}
             style={{
-                cursor:          'pointer',
+                cursor: 'pointer',
                 backgroundColor: 'rgba(255,255,255,0.07)',
-                borderTop:       '1px solid rgba(255,255,255,0.1)',
             }}
         >
-            {/* Thumbnail — empty */}
-            <TableCell style={{ padding: '6px 8px' }} />
+            <TableCell />
 
-            {/* NAME 1 — group label */}
-            <TableCell
-                style={{
-                    padding:    '8px 12px',
-                    fontWeight: 700,
-                    fontSize:   13,
-                    color:      '#e0e0e0',
-                    whiteSpace: 'nowrap',
-                }}
-            >
+            {/* ✅ NAME 1 */}
+            <TableCell style={{
+                fontWeight: 700,
+                color: '#e0e0e0',
+                whiteSpace: 'nowrap',
+            }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     {isExpanded
                         ? <ExpandIcon fontSize="small" />
                         : <CollapseIcon fontSize="small" />
                     }
                     {group1}
-                    <span style={{ color: '#777', fontWeight: 400, fontSize: 11, marginLeft: 4 }}>
+                    <span style={{ color: '#777', fontSize: 11 }}>
                         ({allShots.length} / {total})
                     </span>
                 </span>
             </TableCell>
 
-            {/* NAME 2, NAME 3 — empty */}
-            <TableCell style={{ padding: '6px 8px' }} />
-            <TableCell style={{ padding: '6px 8px' }} />
+            <TableCell />
+            <TableCell />
 
-            {/* Phase aggregation across ALL shots in this group1 */}
-            {PHASE_ORDER.map(phase => {
-                const colors     = SHOT_PHASES[phase];
-                const lineColor  = colors?.lineColor ?? '#fff';
-                const borderLine = `solid 3px ${lineColor}`;
-
-                const workCol      = `${phase}_work_status`;
-                const apprCol      = `${phase}_approval_status`;
-                const takeCol      = `${phase}_take`;
-                const submittedCol = `${phase}_submitted_at`;
-
-                const workAgg      = aggregatePhaseField(allShots, phase, 'work_status');
-                const apprAgg      = aggregatePhaseField(allShots, phase, 'approval_status');
-                const takeAgg      = aggregatePhaseField(allShots, phase, 'take');
-                const submittedAgg = aggregatePhaseField(allShots, phase, 'submitted_at_utc');
-
-                return (
-                    <React.Fragment key={phase}>
-                        {columnsState[workCol] !== false && (
-                            <AggCellDisplay
-                                agg={workAgg}
-                                lineColor={lineColor}
-                                leftBorder={borderLine}
-                                rightBorder="none"
-                                isCountField
-                            />
-                        )}
-                        {columnsState[apprCol] !== false && (
-                            <AggCellDisplay
-                                agg={apprAgg}
-                                lineColor={lineColor}
-                                leftBorder="none"
-                                rightBorder="none"
-                                isCountField
-                            />
-                        )}
-                        {columnsState[takeCol] !== false && (
-                            <AggCellDisplay
-                                agg={takeAgg}
-                                lineColor={lineColor}
-                                leftBorder="none"
-                                rightBorder="none"
-                                isCountField={false}
-                            />
-                        )}
-                        {columnsState[submittedCol] !== false && (
-                            <AggCellDisplay
-                                agg={submittedAgg}
-                                lineColor={lineColor}
-                                leftBorder="none"
-                                rightBorder="none"
-                                isCountField={false}
-                            />
-                        )}
-                    </React.Fragment>
-                );
-            })}
+            {/* ❌ REMOVE aggregation */}
+            {PHASE_ORDER.map(phase => (
+                <React.Fragment key={phase}>
+                    {columnsState[`${phase}_work_status`] !== false && <TableCell />}
+                    {columnsState[`${phase}_approval_status`] !== false && <TableCell />}
+                    {columnsState[`${phase}_take`] !== false && <TableCell />}
+                    {columnsState[`${phase}_submitted_at`] !== false && <TableCell />}
+                </React.Fragment>
+            ))}
 
             {columnsState['relation'] !== false && <TableCell />}
         </TableRow>
     );
 };
+
 
 /* ── Grouped Data Builder ───────────────────────────────────────────────── */
 
