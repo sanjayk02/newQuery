@@ -5,7 +5,7 @@ export const fetchAssetThumbnail = async (
   signal?: AbortSignal | null,
 ): Promise<Response | null> => {
   if (!project || !asset || !relation) {
-    console.warn('fetchAssetThumbnail: missing required params', { project, asset, relation });
+    console.warn('[Thumbnail] SKIPPED - missing params:', { project, asset, relation });
     return null;
   }
 
@@ -15,6 +15,9 @@ export const fetchAssetThumbnail = async (
 
   const url = `/api/projects/${encodedProject}/assets/${encodedAsset}/relations/${encodedRelation}/reviewthumbnail`;
 
+  console.log('[Thumbnail] REQUEST URL:', url);
+  console.log('[Thumbnail] RAW params :', { project, asset, relation });
+
   const headers = getAuthHeader();
   const res = await fetch(url, {
     method: 'GET',
@@ -23,9 +26,17 @@ export const fetchAssetThumbnail = async (
     signal: signal ?? undefined,
   });
 
-  if (res.status === 204) return null;
+  console.log('[Thumbnail] RESPONSE status:', res.status, url);
+
+  if (res.status === 204) {
+    console.warn('[Thumbnail] 204 - No thumbnail exists on server for:', url);
+    return null;
+  }
   if (res.status === 401) throw new AuthorizationError();
-  if (!res.ok) throw new Error('Failed to fetch thumbnail.');
+  if (!res.ok) {
+    console.error('[Thumbnail] FAILED', res.status, url);
+    throw new Error('Failed to fetch thumbnail.');
+  }
 
   setNewToken(res);
   return res;
