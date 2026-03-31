@@ -1,0 +1,19 @@
+for _, phase := range []string{"mdl", "rig", "bld", "dsn", "ldv"} {
+    pattern := filepath.Join(
+        "/mnt/ppip30-data01/datasync30/projects",
+        params.Project,
+        "shared/publish/assets",
+        params.Asset,
+        params.Relation,
+        phase,
+        "_tmb/20*.s???r????/thumbnail",
+    )
+    fmt.Printf("[Thumbnail] pattern: %s\n", pattern)  // ← inside the for loop
+
+    matches, err := filepath.Glob(pattern)
+    if err != nil {
+        return "", err
+    }
+    fmt.Printf("[Thumbnail] matches: %v\n", matches)  // ← see what matched
+    thumbnailDirs = append(thumbnailDirs, matches...)
+}
