@@ -1,0 +1,1 @@
+find /mnt/ppip30-data01/datasync30/projects/urs/shared/publish/assets/eaamudo/ -name "thumbnail" | head -5
