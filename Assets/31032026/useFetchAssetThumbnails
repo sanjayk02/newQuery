@@ -1,0 +1,55 @@
+function assetThumbnailReducer(
+  state: { [key: string]: string },
+  action: { asset: Asset, responseResult: string },
+): { [key: string]: string } {
+  const data: { [key: string]: string } = {};
+  const assetName = action.asset.group_1 || action.asset.name || '';
+  data[`${assetName}-${action.asset.relation}`] = action.responseResult;
+  return { ...state, ...data };
+};
+
+export function useFetchAssetThumbnails(
+  project: Project,
+  assets: Asset[],
+): { thumbnails: { [key: string]: string } } {
+  const [thumbnails, dispatch] = useReducer(assetThumbnailReducer, {});
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const loadAssetThumbnails = async (asset: Asset) => {
+      const assetName = asset.group_1 || asset.name || '';
+      if (!assetName || !asset.relation) return;
+
+      try {
+        const res = await fetchAssetThumbnail(
+          project.key_name,
+          assetName,
+          asset.relation,
+          controller.signal,
+        );
+        if (res != null && res.ok) {
+          const blob = await res.blob();
+          const reader = new FileReader();
+          reader.onload = () => {
+            dispatch({ asset, responseResult: reader.result as string });
+          };
+          reader.readAsDataURL(blob);
+        }
+      } catch (err) {
+        if ((err as any)?.name === 'AbortError') return;
+        console.error('Failed to fetch thumbnail:', err);
+      }
+    };
+
+    for (const asset of assets) {
+      loadAssetThumbnails(asset);
+    }
+
+    return () => {
+      controller.abort();
+    };
+  }, [project, assets]);
+
+  return { thumbnails };
+};
