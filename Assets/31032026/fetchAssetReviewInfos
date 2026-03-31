@@ -1,0 +1,50 @@
+export const fetchAssetReviewInfos = async (
+  project: string,
+  asset: string,
+  relation: string,
+  signal?: AbortSignal | null,
+): Promise<ReviewInfoListResponse> => {
+  const encodedProject  = encodeURIComponent(project);
+  const encodedAsset    = encodeURIComponent(asset);
+  const encodedRelation = encodeURIComponent(relation);
+
+  // ✅ Single line — no whitespace injected into URL
+  const url = `/api/projects/${encodedProject}/assets/${encodedAsset}/relations/${encodedRelation}/reviewInfos`;
+
+  const headers = getAuthHeader();
+  const res = await fetch(url, { method: 'GET', headers, mode: 'cors', signal: signal || undefined });
+
+  if (res.status === 401) throw new AuthorizationError();
+  if (!res.ok) throw new Error('Failed to fetch review infos.');
+
+  setNewToken(res);
+  const json = await res.json();
+  if (!json || !Array.isArray(json.reviews) || typeof json.total !== 'number') {
+    throw new Error('Invalid response format for review infos.');
+  }
+  return json as ReviewInfoListResponse;
+};
+
+export const fetchAssetThumbnail = async (
+  project: string,
+  asset: string,
+  relation: string,
+  signal?: AbortSignal | null,
+): Promise<Response | null> => {
+  const encodedProject  = encodeURIComponent(project);
+  const encodedAsset    = encodeURIComponent(asset);
+  const encodedRelation = encodeURIComponent(relation);
+
+  // ✅ Single line — no whitespace injected into URL
+  const url = `/api/projects/${encodedProject}/assets/${encodedAsset}/relations/${encodedRelation}/reviewthumbnail`;
+
+  const headers = getAuthHeader();
+  const res = await fetch(url, { method: 'GET', headers, mode: 'cors', signal });
+
+  if (res.status === 204) return null;
+  if (res.status === 401) throw new AuthorizationError();
+  if (!res.ok) throw new Error('Failed to fetch thumbnail.');
+
+  setNewToken(res);
+  return res;
+};
