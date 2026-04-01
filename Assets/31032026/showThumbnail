@@ -1,0 +1,16 @@
+if (!currentProject) return null;
+
+const { enabled: showThumbnail, loading: thumbnailLoading } =
+  useThumbnailVisibility(currentProject);
+
+const shouldShowThumbnails =
+  thumbnailLoading === false && showThumbnail === true;
+
+const { thumbnails } = useFetchAssetThumbnails(
+  currentProject,
+  allAssets,
+  shouldShowThumbnails
+);
+
+const safeThumbnails =
+  showThumbnail === true && !thumbnailLoading ? thumbnails : {};
