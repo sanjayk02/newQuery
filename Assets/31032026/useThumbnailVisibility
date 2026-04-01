@@ -1,0 +1,33 @@
+export function useThumbnailVisibility(
+  project: Project | null | undefined
+): { enabled: boolean; loading: boolean } {
+
+  const [enabled, setEnabled] = useState(true);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!project) return;
+
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const isEnabled = await fetchThumbnailVisibilitySetting(
+          project.key_name,
+          controller.signal
+        );
+        setEnabled(isEnabled);
+      } catch (err) {
+        if ((err as any).name !== 'AbortError') {
+          console.error('Thumbnail setting fetch failed:', err);
+        }
+      } finally {
+        setLoading(false);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [project?.key_name]);
+
+  return { enabled, loading };
+}
