@@ -1,0 +1,42 @@
+export const fetchThumbnailVisibilitySetting = async (
+  project: string,
+  signal?: AbortSignal | null,
+): Promise<boolean> => {
+
+  const headers = getAuthHeader();
+  const encodedProject = encodeURIComponent(project);
+
+  // Query the correct path — /ppiTracker/assets/thumbnail/ (NOT /components/)
+  const searchKey = encodeURIComponent('/ppiTracker/assets/thumbnail/');
+  const url = `/api/pipelineSetting/preference/projects/${encodedProject}/values?search_key=${searchKey}`;
+
+  console.log('[ThumbnailVisibility] Fetching:', url);
+
+  const res = await fetch(url, {
+    method: 'GET',
+    headers,
+    mode: 'cors',
+    signal: signal || undefined,
+  });
+
+  if (res.status === 401) throw new AuthorizationError();
+  if (!res.ok) {
+    console.warn('[ThumbnailVisibility] API returned', res.status);
+    return true; // default to showing thumbnails if setting fetch fails
+  }
+
+  setNewToken(res);
+  const json = await res.json();
+
+  console.log('[ThumbnailVisibility] Response:', JSON.stringify(json, null, 2));
+
+  // Find the enable key: /ppiTracker/assets/thumbnail/enable
+  const match = (json.values || []).find((v: any) =>
+    v.key.includes('/ppiTracker/assets/thumbnail/enable')
+  );
+
+  console.log('[ThumbnailVisibility] match:', match);
+  console.log('[ThumbnailVisibility] returning:', match ? Boolean(match.value) : true);
+
+  return match ? Boolean(match.value) : true;
+};
