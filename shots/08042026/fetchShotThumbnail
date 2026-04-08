@@ -1,0 +1,35 @@
+export const fetchShotThumbnail = async (
+  project: string,
+  shots: string[],
+  relation: string,
+  signal?: AbortSignal | null,
+): Promise<Response | null> => {
+  let url = `/api/projects/${project}/shots/reviewthumbnail`;
+  const headers = getAuthHeader();
+  const params = new URLSearchParams();
+  params.set('group1', shots[0]);
+  params.set('group2', shots[1]);
+  params.set('group3', shots[2]);
+  params.set('relation', String(relation));
+  url += `?${params}`;
+  const res = await fetch(
+    url,
+    {
+      method: 'GET',
+      headers,
+      mode: 'cors',
+      signal,
+    },
+  );
+  if (res.status === 204) {
+    return null;
+  }
+  if (res.status === 401) {
+    throw new AuthorizationError();
+  }
+  if (!res.ok) {
+    throw new Error('Failed to fetch thumbnail.');
+  }
+  setNewToken(res);
+  return res;
+};
