@@ -1,0 +1,94 @@
+export const fetchShotsPivot = async ({
+  project,
+  page,
+  perPage,
+  orderKey = 'group1_only',
+  direction = 'ASC',
+  phase = '',
+  nameKey = '',
+  approvalStatus = [],
+  workStatus = [],
+  group1 = [],
+  signal,
+}: ShotsPivotParams): Promise<ShotPivotResponse> => {
+  const headers = getAuthHeader();
+  const params = new URLSearchParams();
+
+  params.set('page',      String(page));
+  params.set('perPage',   String(perPage));
+  params.set('orderKey',  orderKey);
+  params.set('direction', direction);
+
+  console.log('🌐 API Request Details:', {
+    url: `/api/projects/${project}/reviews/shots/pivot`,
+    params: {
+      page,
+      perPage,
+      orderKey,
+      direction,
+      phase,
+      nameKey,
+      approvalStatus,
+      workStatus
+    }
+  });
+
+  if (phase)   params.set('phase',   phase);
+  if (nameKey) params.set('nameKey', nameKey);
+
+  approvalStatus.forEach(s => params.append('approvalStatus', s));
+  workStatus.forEach(s     => params.append('workStatus',     s));
+
+  // add group filters
+  group1.forEach(g => params.append('group1', g));
+
+  const url = `/api/projects/${project}/reviews/shots/pivot?${params.toString()}`;
+  console.log('🌐 Full URL:', url);
+
+  // ADD TRY-CATCH BLOCK HERE
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers,
+      mode: 'cors',
+      signal,
+    });
+
+    if (res.status === 401) throw new AuthorizationError();
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error('🌐 API Error:', errorText);
+      throw new Error('Failed to fetch shots pivot.');
+    }
+
+    setNewToken(res);
+    const data = await res.json();
+    console.log('🌐 API Response:', { 
+      total: data.total, 
+      itemsCount: data.items && data.items.length,
+      firstItemSortValue: data.items && data.items[0] && data.items[0].group_1
+    });
+    return data;
+    
+  } catch (error) {
+    // Handle AbortError specifically - don't treat as error
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.log('🛑 Request was aborted due to filter change - ignoring');
+      // Return empty response instead of throwing
+      return {
+        items: [],
+        total: 0,
+        page: page,
+        perPage: perPage,
+        pageLast: 0,
+        hasNext: false,
+        hasPrev: false,
+        sort: orderKey,
+        dir: direction,
+        groupCounts: {}
+      };
+    }
+    // Re-throw other errors
+    throw error;
+  }
+};
