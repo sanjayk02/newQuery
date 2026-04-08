@@ -1,0 +1,35 @@
+func (h *ReviewInfo) ListShotsPivot(c *gin.Context) {
+    project := c.Param("project")
+    orderKey := c.DefaultQuery("orderKey", "group1_only")
+    direction := c.DefaultQuery("direction", "ASC")
+    phase := c.DefaultQuery("phase", "")
+    nameKey := c.DefaultQuery("nameKey", "")
+
+    page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+    perPage, _ := strconv.Atoi(c.DefaultQuery("perPage", "15"))
+
+    approvalStatuses := c.QueryArray("approvalStatus")
+    workStatuses := c.QueryArray("workStatus")
+
+    // ── ADD THIS TEMPORARY DEBUG LOG ──────────────────────────────
+    group1Filter := c.QueryArray("group1")
+    fmt.Printf("🔍 [ListShotsPivot] raw query string: %s\n", c.Request.URL.RawQuery)
+    fmt.Printf("🔍 [ListShotsPivot] group1Filter: %v (len=%d)\n", group1Filter, len(group1Filter))
+    // ──────────────────────────────────────────────────────────────
+
+    result, err := h.uc.ListShotsPivot(
+        c.Request.Context(),
+        usecase.ListShotsPivotParams{
+            Project:          project,
+            PreferredPhase:   phase,
+            OrderKey:         orderKey,
+            Direction:        direction,
+            Page:             page,
+            PerPage:          perPage,
+            ShotNameKey:      nameKey,
+            ApprovalStatuses: approvalStatuses,
+            WorkStatuses:     workStatuses,
+            Group1Filter:     group1Filter,
+        },
+    )
+    // ... rest unchanged
