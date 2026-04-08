@@ -1,22 +1,139 @@
 func (r *ReviewInfo) ListShotsPivot(
-    ctx context.Context,
-    project, orderKey, direction string,
-    limit, offset int,
-    shotNameKey string,
-    approvalStatuses []string,
-    workStatuses []string,
-    group1Filter []string,  // ADD THIS
+	ctx context.Context,
+	project, orderKey, direction string,
+	limit, offset int,
+	shotNameKey string,
+	approvalStatuses []string,
+	workStatuses []string,
+	group1Filter []string,
+
 ) ([]ShotPivot, int64, map[string]int, error) {
 
-    total, err := r.CountShotSubmissions(ctx, project, shotNameKey, approvalStatuses, workStatuses, group1Filter)  // ADD group1Filter
-    if err != nil {
-        return nil, 0, nil, err
-    }
+	total, err := r.CountShotSubmissions(ctx, project, shotNameKey, approvalStatuses, workStatuses, group1Filter)
+	if err != nil {
+		return nil, 0, nil, err
+	}
 
-    keys, err := r.ListLatestShotsDynamic(ctx, project, orderKey, direction, limit, offset, shotNameKey, approvalStatuses, workStatuses, group1Filter)  // ADD group1Filter
-    if err != nil {
-        return nil, 0, nil, err
-    }
+	keys, err := r.ListLatestShotsDynamic(ctx, project, orderKey, direction, limit, offset, shotNameKey, approvalStatuses, workStatuses, group1Filter)
+	if err != nil {
+		return nil, 0, nil, err
+	}
 
-    // ... rest of the function remains the same
+	if len(keys) == 0 {
+		return []ShotPivot{}, total, nil, nil
+	}
+
+	var sb strings.Builder
+	var args []any
+
+	sb.WriteString(`
+SELECT
+  project, root,
+  group_1, group_2, group_3,
+  relation, component,
+  phase, work_status, approval_status,
+  submitted_at_utc,
+  RIGHT(take,4) AS take
+FROM t_review_info
+WHERE project=? AND root='shots' AND deleted=0 AND (
+`)
+	args = append(args, project)
+
+	for i, k := range keys {
+		if i > 0 {
+			sb.WriteString(" OR ")
+		}
+		sb.WriteString("(group_1=? AND group_2=? AND group_3=? AND relation=? AND COALESCE(component,'')=?)")
+		args = append(args, k.Group1, k.Group2, k.Group3, k.Relation, k.Component)
+	}
+
+	sb.WriteString(")")
+
+	var rows []shotPhaseRow
+	if err := r.db.WithContext(ctx).
+		Raw(sb.String(), args...).
+		Scan(&rows).Error; err != nil {
+		return nil, 0, nil, err
+	}
+
+	type key struct {
+		p, r, g1, g2, g3, rel, comp string
+	}
+
+	m := map[key]*ShotPivot{}
+	order := []*ShotPivot{}
+
+	for _, k := range keys {
+		id := key{k.Project, k.Root, k.Group1, k.Group2, k.Group3, k.Relation, k.Component}
+
+		sp := &ShotPivot{
+			Project:   k.Project,
+			Root:      k.Root,
+			Group1:    k.Group1,
+			Group2:    k.Group2,
+			Group3:    k.Group3,
+			Relation:  k.Relation,
+			Component: k.Component,
+			Phases:    map[string]PhaseData{},
+		}
+
+		m[id] = sp
+		order = append(order, sp)
+	}
+
+	for _, r := range rows {
+		id := key{r.Project, r.Root, r.Group1, r.Group2, r.Group3, r.Relation, getStr(r.Component)}
+
+		if sp, ok := m[id]; ok {
+			sp.Phases[strings.ToLower(r.Phase)] = PhaseData{
+				WorkStatus:     r.WorkStatus,
+				ApprovalStatus: r.ApprovalStatus,
+				SubmittedAtUTC: r.SubmittedAtUTC,
+				Take:           r.Take,
+			}
+		}
+	}
+
+	final := make([]ShotPivot, len(order))
+	for i, v := range order {
+		final[i] = *v
+	}
+
+	// group counts
+	groupCountQuery := `
+		SELECT group_1, COUNT(DISTINCT CONCAT(group_1, group_2, group_3, relation, COALESCE(component, ''))) AS cnt
+		FROM t_review_info
+		WHERE project = ? AND root = 'shots' AND deleted = 0
+	`
+	// ✅ Build args starting with project
+	groupCountArgs := []any{project}
+
+	if len(group1Filter) > 0 {
+		groupCountQuery += " AND group_1 IN (?" + strings.Repeat(",?", len(group1Filter)-1) + ")"
+		// ✅ Append each group1Filter value as a separate arg
+		for _, g := range group1Filter {
+			groupCountArgs = append(groupCountArgs, g)
+		}
+	}
+	groupCountQuery += " GROUP BY group_1;"
+
+	type groupCountRow struct {
+		Group1 string `gorm:"column:group_1"`
+		Count  int    `gorm:"column:cnt"`
+	}
+
+	var groupCountRows []groupCountRow
+	// ✅ Pass groupCountArgs... instead of just project
+	if err := r.db.WithContext(ctx).
+		Raw(groupCountQuery, groupCountArgs...).
+		Scan(&groupCountRows).Error; err != nil {
+		return nil, 0, nil, err
+	}
+
+	groupCounts := make(map[string]int)
+	for _, gc := range groupCountRows {
+		groupCounts[gc.Group1] = gc.Count
+	}
+
+	return final, total, groupCounts, nil
 }
