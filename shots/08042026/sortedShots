@@ -1,35 +1,22 @@
-g1data.group2s.map(g2data => {
+const sortedShots = [...g2data.shots];
 
-    const sortedShots = useMemo(() => {
-        return [...g2data.shots].sort((a, b) => {
-            const aVal = getShotSortValue(a, sortKey);
-            const bVal = getShotSortValue(b, sortKey);
+if (sortKey && sortDir !== 'none') {
+    sortedShots.sort((a, b) => {
+        const aVal = getShotSortValue(a, sortKey);
+        const bVal = getShotSortValue(b, sortKey);
 
-            const aEmpty = aVal === '' || aVal === 0 || aVal == null;
-            const bEmpty = bVal === '' || bVal === 0 || bVal == null;
+        const aEmpty = aVal === null || aVal === undefined || aVal === 0 || aVal === '';
+        const bEmpty = bVal === null || bVal === undefined || bVal === 0 || bVal === '';
 
-            if (aEmpty && bEmpty) return 0;
-            if (aEmpty) return 1;
-            if (bEmpty) return -1;
+        // push empty to bottom
+        if (aEmpty && bEmpty) return 0;
+        if (aEmpty) return 1;
+        if (bEmpty) return -1;
 
-            return sortDir === 'asc'
-                ? aVal > bVal ? 1 : -1
-                : aVal < bVal ? 1 : -1;
-        });
-    }, [g2data.shots, sortKey, sortDir]);
+        if (aVal === bVal) return 0;
 
-    return (
-        <React.Fragment key={`${g1data.group1}/${g2data.group2}`}>
-            <Group2HeaderRow ... />
-
-            {isGroup2Expanded(g1data.group1, g2data.group2) &&
-                sortedShots.map((shot) => (
-                    <ShotDataRow
-                        key={`${shot.group_1}-${shot.group_2}-${shot.group_3}-${shot.relation}`}
-                        ...
-                    />
-                ))
-            }
-        </React.Fragment>
-    );
-})
+        return sortDir === 'asc'
+            ? aVal > bVal ? 1 : -1
+            : aVal < bVal ? 1 : -1;
+    });
+}
