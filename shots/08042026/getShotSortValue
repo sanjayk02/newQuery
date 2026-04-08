@@ -1,0 +1,179 @@
+const getShotSortValue = (shot: ShotPivot, sortKey: string): any => {
+    if (sortKey === 'group1_only')   return shot.group_1.toLowerCase();
+    if (sortKey === 'group2_only')   return shot.group_2.toLowerCase();
+    if (sortKey === 'group3_only')   return shot.group_3.toLowerCase();
+    if (sortKey === 'relation_only') return shot.relation.toLowerCase();
+
+    // phase columns — e.g. "lay_work", "lay_appr", "lay_take", "lay_submitted"
+    const underscoreIdx = sortKey.indexOf('_');
+    if (underscoreIdx === -1) return '';
+    const phase = sortKey.substring(0, underscoreIdx);
+    const field = sortKey.substring(underscoreIdx + 1);
+    const pd    = shot.phases[phase];
+    if (!pd) return '';
+
+    if (field === 'submitted') {
+        const d = new Date(pd.submitted_at_utc || '');
+        return isNaN(d.getTime()) ? 0 : d.getTime();
+    }
+    if (field === 'take') return parseInt(pd.take || '0', 10) || 0;
+    if (field === 'work') return (pd.work_status     || '').toLowerCase();
+    if (field === 'appr') return (pd.approval_status || '').toLowerCase();
+    return '';
+};
+
+const GroupTableHead: React.FC<{
+    columns:      Column[];
+    columnsState: ColumnState;
+    sortKey:      string;
+    sortDir:      'asc' | 'desc';
+    onSortChange: (key: string) => void;
+}> = ({ columns, columnsState, sortKey, sortDir, onSortChange }) => (
+    <TableHead>
+        <TableRow>
+            {columns.map(col => {
+                const lineColor  = col.colors?.lineColor;
+                const borderLine = lineColor ? `solid 3px ${lineColor}` : 'none';
+                const isWork     = col.id.endsWith('_work_status');
+                const orderKey   = getOrderKey(col.id);
+                const isActive   = orderKey !== null && orderKey === sortKey;
+
+                return (
+                    <TableCell
+                        key={col.id}
+                        onClick={orderKey ? () => onSortChange(orderKey) : undefined}
+                        style={{
+                            backgroundColor: col.colors?.backgroundColor || undefined,
+                            borderTop:       lineColor ? borderLine : 'none',
+                            borderLeft:      isWork && lineColor ? borderLine : 'none',
+                            whiteSpace:      'nowrap',
+                            cursor:          orderKey ? 'pointer' : 'default',
+                            userSelect:      'none',
+                            color:           isActive ? '#fff' : undefined,
+                        }}
+                    >
+                        {col.label}{' '}
+                        {orderKey && (
+                            <span style={{ fontSize: 10, opacity: isActive ? 1 : 0.3 }}>
+                                {isActive ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                            </span>
+                        )}
+                    </TableCell>
+                );
+            })}
+        </TableRow>
+    </TableHead>
+);
+
+
+const ShotsDataTableGroup: React.FC<ShotsDataTableProps> = ({
+    project,
+    shots,
+    dateTimeFormat,
+    columnsState,
+    sortKey,
+    sortDir,
+    onSortChange,
+}) => {
+    if (project == null) return null;
+
+    const grouped = useMemo(() => buildGroupedData(shots), [shots]);
+
+    const [expandedGroup1, setExpandedGroup1] = useState<{ [key: string]: boolean }>({});
+    const [expandedGroup2, setExpandedGroup2] = useState<{ [key: string]: boolean }>({});
+
+    const isGroup1Expanded = (g1: string) => expandedGroup1[g1] !== false;
+    const isGroup2Expanded = (g1: string, g2: string) => expandedGroup2[`${g1}/${g2}`] !== false;
+
+    const toggleGroup1 = (g1: string) =>
+        setExpandedGroup1(prev => ({ ...prev, [g1]: !isGroup1Expanded(g1) }));
+
+    const toggleGroup2 = (g1: string, g2: string) =>
+        setExpandedGroup2(prev => ({
+            ...prev,
+            [`${g1}/${g2}`]: !isGroup2Expanded(g1, g2),
+        }));
+
+    const shotsForThumbnail = shots.map(s => ({
+        groups:   [s.group_1, s.group_2, s.group_3],
+        relation: s.relation,
+    }));
+    const { thumbnails } = useFetchShotThumbnails(project, shotsForThumbnail);
+
+    const visibleColumns = ALL_COLUMNS.filter(
+        col => col.fixed || columnsState[col.id] !== false,
+    );
+
+    return (
+        <Table stickyHeader style={{ tableLayout: 'fixed', width: 'auto' }}>
+            <GroupTableHead
+                columns={visibleColumns}
+                columnsState={columnsState}
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onSortChange={onSortChange}
+            />
+            <TableBody>
+                {grouped.map(g1data => (
+                    <React.Fragment key={g1data.group1}>
+
+                        <Group1HeaderRow
+                            group1={g1data.group1}
+                            allShots={g1data.allShots}
+                            group2Total={g1data.group2s.length}
+                            isExpanded={isGroup1Expanded(g1data.group1)}
+                            onToggle={() => toggleGroup1(g1data.group1)}
+                            columnsState={columnsState}
+                            visibleCols={visibleColumns.length}
+                        />
+
+                        {isGroup1Expanded(g1data.group1) && g1data.group2s.map(g2data => {
+
+                            // ── sort shots within each group2 bucket at render time ──
+                            const sortedShots = [...g2data.shots].sort((a, b) => {
+                                const aVal = getShotSortValue(a, sortKey);
+                                const bVal = getShotSortValue(b, sortKey);
+
+                                const aEmpty = aVal === '' || aVal === 0 || aVal == null;
+                                const bEmpty = bVal === '' || bVal === 0 || bVal == null;
+                                if (aEmpty && bEmpty) return 0;
+                                if (aEmpty) return 1;   // empty always last
+                                if (bEmpty) return -1;
+
+                                return sortDir === 'asc'
+                                    ? aVal > bVal ? 1 : -1
+                                    : aVal < bVal ? 1 : -1;
+                            });
+
+                            return (
+                                <React.Fragment key={`${g1data.group1}/${g2data.group2}`}>
+                                    <Group2HeaderRow
+                                        group2={g2data.group2}
+                                        shots={g2data.shots}
+                                        total={g2data.shots.length}
+                                        isExpanded={isGroup2Expanded(g1data.group1, g2data.group2)}
+                                        onToggle={() => toggleGroup2(g1data.group1, g2data.group2)}
+                                        columnsState={columnsState}
+                                    />
+
+                                    {isGroup2Expanded(g1data.group1, g2data.group2) &&
+                                        sortedShots.map((shot, idx) => (
+                                            <ShotDataRow
+                                                key={`${shot.group_1}-${shot.group_2}-${shot.group_3}-${shot.relation}-${idx}`}
+                                                shot={shot}
+                                                thumbnails={thumbnails}
+                                                dateTimeFormat={dateTimeFormat}
+                                                columnsState={columnsState}
+                                                isLastRow={idx === sortedShots.length - 1}
+                                            />
+                                        ))
+                                    }
+                                </React.Fragment>
+                            );
+                        })}
+                    </React.Fragment>
+                ))}
+            </TableBody>
+        </Table>
+    );
+};
