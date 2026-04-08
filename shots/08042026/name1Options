@@ -1,0 +1,70 @@
+const name1Options = useMemo(() => {
+  const entries = Object.entries(groupCounts);
+
+  const sorted = entries.sort((a, b) => {
+    const isSelectedA = filters.shotGroups.includes(a[0]);
+    const isSelectedB = filters.shotGroups.includes(b[0]);
+
+    if (isSelectedA && !isSelectedB) return -1;
+    if (!isSelectedA && isSelectedB) return 1;
+
+    return b[1] - a[1]; // fallback: count desc
+  });
+
+  return sorted.map(([key, count]) => ({
+    id: key,
+    label: `${key} (${count})`,
+  }));
+}, [groupCounts, filters.shotGroups]);
+
+
+
+🔍 Add Search Inside Filter (Very Useful)
+
+Your list is long → hard to scroll.
+
+Add input:
+
+<input
+  placeholder="Search groups..."
+  value={search}
+  onChange={e => setSearch(e.target.value)}
+/>
+
+Filter options:
+
+options.filter(o =>
+  o.label.toLowerCase().includes(search.toLowerCase())
+);
+3. ⚡ Show Only Relevant Counts (Advanced UX)
+
+Right now counts are global.
+
+Better UX:
+👉 Counts update based on:
+
+approvalStatus
+workStatus
+
+This requires backend support (faceted filtering).
+
+4. 🚀 Performance (Important Soon)
+
+Your list is already big:
+
+15 groups → fine
+100+ groups → slow scroll
+
+👉 Add virtualization:
+
+react-window
+5. 🎯 Select All / Deselect All
+
+Add button:
+
+const handleSelectAll = () => {
+  onChange({
+    ...filters,
+    shotGroups: Object.keys(groupCounts),
+  });
+};
