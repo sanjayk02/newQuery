@@ -1,0 +1,22 @@
+func (r *ReviewInfo) ListShotsPivot(
+    ctx context.Context,
+    project, orderKey, direction string,
+    limit, offset int,
+    shotNameKey string,
+    approvalStatuses []string,
+    workStatuses []string,
+    group1Filter []string,  // ADD THIS
+) ([]ShotPivot, int64, map[string]int, error) {
+
+    total, err := r.CountShotSubmissions(ctx, project, shotNameKey, approvalStatuses, workStatuses, group1Filter)  // ADD group1Filter
+    if err != nil {
+        return nil, 0, nil, err
+    }
+
+    keys, err := r.ListLatestShotsDynamic(ctx, project, orderKey, direction, limit, offset, shotNameKey, approvalStatuses, workStatuses, group1Filter)  // ADD group1Filter
+    if err != nil {
+        return nil, 0, nil, err
+    }
+
+    // ... rest of the function remains the same
+}
