@@ -1,0 +1,17 @@
+const sortedShots = useMemo(() => {
+    return [...g2data.shots].sort((a, b) => {
+        const aVal = getShotSortValue(a, sortKey);
+        const bVal = getShotSortValue(b, sortKey);
+
+        const aEmpty = aVal === '' || aVal === 0 || aVal == null;
+        const bEmpty = bVal === '' || bVal === 0 || bVal == null;
+
+        if (aEmpty && bEmpty) return 0;
+        if (aEmpty) return 1;
+        if (bEmpty) return -1;
+
+        return sortDir === 'asc'
+            ? aVal > bVal ? 1 : -1
+            : aVal < bVal ? 1 : -1;
+    });
+}, [g2data.shots, sortKey, sortDir]);
