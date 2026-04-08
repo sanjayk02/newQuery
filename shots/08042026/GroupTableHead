@@ -1,0 +1,57 @@
+// Replace GroupTableHead in ShotsDataTableGroup.tsx
+
+const getOrderKey = (colId: string): string | null => {
+    if (colId === 'group_1_name') return 'group1_only';
+    if (colId === 'group_2_name') return 'group2_only';
+    if (colId === 'group_3_name') return 'group3_only';
+    if (colId === 'relation')     return 'relation_only';
+    if (colId.endsWith('_work_status'))    return colId.replace('_work_status',    '_work');
+    if (colId.endsWith('_approval_status')) return colId.replace('_approval_status', '_appr');
+    if (colId.endsWith('_submitted_at'))   return colId.replace('_submitted_at',   '_submitted');
+    if (colId.endsWith('_take'))           return colId;
+    return null;
+};
+
+const GroupTableHead: React.FC<{
+    columns:      Column[];
+    columnsState: ColumnState;
+    sortKey:      string;
+    sortDir:      'asc' | 'desc';
+    onSortChange: (key: string) => void;
+}> = ({ columns, columnsState, sortKey, sortDir, onSortChange }) => (
+    <TableHead>
+        <TableRow>
+            {columns.map(col => {
+                const lineColor   = col.colors?.lineColor;
+                const borderLine  = lineColor ? `solid 3px ${lineColor}` : 'none';
+                const isWork      = col.id.endsWith('_work_status');
+                const orderKey    = getOrderKey(col.id);
+                const isActive    = orderKey === sortKey;
+
+                const getSortIcon = () => {
+                    if (!orderKey) return null;
+                    if (!isActive) return <span style={{ opacity: 0.3, fontSize: 10 }}>↕</span>;
+                    return <span style={{ fontSize: 10 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>;
+                };
+
+                return (
+                    <TableCell
+                        key={col.id}
+                        onClick={orderKey ? () => onSortChange(orderKey) : undefined}
+                        style={{
+                            backgroundColor: col.colors?.backgroundColor || undefined,
+                            borderTop:       lineColor ? borderLine : 'none',
+                            borderLeft:      isWork && lineColor ? borderLine : 'none',
+                            whiteSpace:      'nowrap',
+                            cursor:          orderKey ? 'pointer' : 'default',
+                            userSelect:      'none',
+                            color:           isActive ? '#fff' : undefined,
+                        }}
+                    >
+                        {col.label} {getSortIcon()}
+                    </TableCell>
+                );
+            })}
+        </TableRow>
+    </TableHead>
+);
