@@ -1,0 +1,22 @@
+const globallySortedShots = useMemo(() => {
+    if (!sortKey || sortDir === 'none') return shots;
+
+    return [...shots].sort((a, b) => {
+        const aVal = getShotSortValue(a, sortKey);
+        const bVal = getShotSortValue(b, sortKey);
+
+        const aEmpty = aVal === null || aVal === undefined || aVal === '' || aVal === 0;
+        const bEmpty = bVal === null || bVal === undefined || bVal === '' || bVal === 0;
+
+        // push empty values to bottom
+        if (aEmpty && bEmpty) return 0;
+        if (aEmpty) return 1;
+        if (bEmpty) return -1;
+
+        if (aVal === bVal) return 0;
+
+        return sortDir === 'asc'
+            ? aVal > bVal ? 1 : -1
+            : aVal < bVal ? 1 : -1;
+    });
+}, [shots, sortKey, sortDir]);
