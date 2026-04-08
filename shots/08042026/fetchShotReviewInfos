@@ -1,0 +1,41 @@
+export const fetchShotReviewInfos = async (
+  project: string,
+  shot: string,
+  relation: string,
+  signal?: AbortSignal | null,
+): Promise<ReviewInfoListResponse> => {
+  let url = `/api/projects/${project}/shots/reviewInfos`;
+  const headers = getAuthHeader();
+  const params = new URLSearchParams();
+  params.set('groups', String(shot));
+  params.set('relation', String(relation));
+  url += `?${params}`;
+  
+  try {
+    const res = await fetch(
+      url,
+      {
+        method: 'GET',
+        headers,
+        mode: 'cors',
+        signal,
+      },
+    );
+    if (res.status === 401) {
+      throw new AuthorizationError();
+    }
+    if (!res.ok) {
+      throw new Error('Failed to fetch review infos.');
+    }
+    setNewToken(res);
+    const json: ReviewInfoListResponse = await res.json();
+    return json;
+    
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.log('Review infos request aborted');
+      return { reviews: [], next: null, total: 0 };
+    }
+    throw error;
+  }
+};
