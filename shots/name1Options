@@ -1,0 +1,6 @@
+const name1Options = useMemo(() => {
+  return Object.keys(groupCounts).map(key => ({
+    id: key,
+    label: `${key} (${groupCounts[key]})`,
+  }));
+}, [groupCounts]);
