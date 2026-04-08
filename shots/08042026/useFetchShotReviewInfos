@@ -1,0 +1,39 @@
+export function useFetchShotReviewInfos(
+  project: Project,
+  shots: Shot[],
+): { reviewInfos: { [key: string]: ReviewInfo } } {
+  const [reviewInfos, dispatch] = useReducer(reducer, {});
+  const controller = new AbortController();
+
+  useEffect(() => {
+    const loadShotReviewInfos = async (shot: Shot) => {
+      try {
+        const shotPath = shot.groups.join('/');
+        const res = await fetchShotReviewInfos(
+          project.key_name,
+          shotPath,
+          shot.relation,
+          controller.signal,
+        );
+        const data = res.reviews;
+        if (data.length > 0) {
+          dispatch({ shot, reviewInfos: data });
+        }
+      } catch (err) {
+        // FIX: Don't log AbortError as an error
+        if (err instanceof Error && err.name === 'AbortError') {
+          return; // Silently ignore
+        }
+        console.error('Failed to fetch shot review infos:', err);
+      }
+    };
+
+    for (const shot of shots) {
+      loadShotReviewInfos(shot);
+    }
+
+    return () => controller.abort();
+  }, [project, shots]);
+
+  return { reviewInfos };
+};
