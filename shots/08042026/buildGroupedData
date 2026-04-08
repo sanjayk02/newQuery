@@ -1,31 +1,37 @@
-const buildGroupedData = (shots: ShotPivot[], sortDir: 'asc' | 'desc' = 'asc'): Group1Data[] => {
+const buildGroupedData = (shots: ShotPivot[]): Group1Data[] => {
     const map = new Map<string, Map<string, ShotPivot[]>>();
 
     for (const shot of shots) {
-        if (!map.has(shot.group_1)) map.set(shot.group_1, new Map());
+        if (!map.has(shot.group_1)) {
+            map.set(shot.group_1, new Map());
+        }
+
         const g2map = map.get(shot.group_1)!;
-        if (!g2map.has(shot.group_2)) g2map.set(shot.group_2, []);
+
+        if (!g2map.has(shot.group_2)) {
+            g2map.set(shot.group_2, []);
+        }
+
         g2map.get(shot.group_2)!.push(shot);
     }
 
-    const dir = sortDir === 'asc' ? 1 : -1;
+    return Array.from(map.entries())
+        // (optional) keep group1 stable
+        .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
+        .map(([group1, g2map]) => {
 
-    return Array.from(map.entries()).map(([group1, g2map]) => {
-        const group2s = Array.from(g2map.entries())
-            // sort group_2 buckets
-            .sort(([a], [b]) => a.localeCompare(b) * dir)
-            .map(([group2, shots]) => ({
-                group2,
-                // sort shots within each group_2 by group_3
-                shots: [...shots].sort((a, b) =>
-                    a.group_3.localeCompare(b.group_3) * dir
-                ),
-            }));
+            const group2s = Array.from(g2map.entries())
+                .map(([group2, shots]) => ({
+                    group2,
+                    shots,
+                }))
+                // ✅ FORCE: 01 → 02 → 03 → 04
+                .sort((a, b) => Number(a.group2) - Number(b.group2));
 
-        return {
-            group1,
-            group2s,
-            allShots: group2s.flatMap(g => g.shots),
-        };
-    });
+            return {
+                group1,
+                group2s,
+                allShots: group2s.flatMap(g => g.shots),
+            };
+        });
 };
