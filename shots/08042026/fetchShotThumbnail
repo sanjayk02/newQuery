@@ -12,24 +12,36 @@ export const fetchShotThumbnail = async (
   params.set('group3', shots[2]);
   params.set('relation', String(relation));
   url += `?${params}`;
-  const res = await fetch(
-    url,
-    {
-      method: 'GET',
-      headers,
-      mode: 'cors',
-      signal,
-    },
-  );
-  if (res.status === 204) {
-    return null;
+  
+  try {
+    const res = await fetch(
+      url,
+      {
+        method: 'GET',
+        headers,
+        mode: 'cors',
+        signal,
+      },
+    );
+    
+    if (res.status === 204) {
+      return null;
+    }
+    if (res.status === 401) {
+      throw new AuthorizationError();
+    }
+    if (!res.ok) {
+      throw new Error('Failed to fetch thumbnail.');
+    }
+    setNewToken(res);
+    return res;
+    
+  } catch (error) {
+    // Handle AbortError silently
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.log('Thumbnail request aborted');
+      return null;
+    }
+    throw error;
   }
-  if (res.status === 401) {
-    throw new AuthorizationError();
-  }
-  if (!res.ok) {
-    throw new Error('Failed to fetch thumbnail.');
-  }
-  setNewToken(res);
-  return res;
 };
