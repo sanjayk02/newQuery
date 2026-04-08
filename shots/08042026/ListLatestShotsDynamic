@@ -5,14 +5,14 @@ func (r *ReviewInfo) ListLatestShotsDynamic(
     shotNameKey string,
     approvalStatuses []string,
     workStatuses []string,
-    group1Filter []string,  // ADD THIS
+    group1Filter []string,
 ) ([]shotKeyRow, error) {
 
     aggSQL := buildPhaseAggregationSQL()
     orderClause := buildShotOrderClause("", orderKey, direction)
     havingClause, havingArgs := buildShotStatusHaving(approvalStatuses, workStatuses)
 
-    // ADD THIS - Group1 filter condition
+    // Build group1 filter condition
     group1Cond := ""
     var group1Args []any
     if len(group1Filter) > 0 {
@@ -46,7 +46,7 @@ WITH latest_phase AS (
       ORDER BY modified_at_utc DESC
     ) rn
   FROM t_review_info
-  WHERE project = ? AND root='shots' AND deleted=0` + nameCond + group1Cond + `  // ADD group1Cond HERE
+  WHERE project = ? AND root='shots' AND deleted=0` + nameCond + group1Cond + `
 ),
 filtered AS (
   SELECT * FROM latest_phase WHERE rn=1
@@ -72,7 +72,7 @@ LIMIT ? OFFSET ?
 
     args := []any{project}
     args = append(args, nameArgs...)
-    args = append(args, group1Args...)  // ADD THIS
+    args = append(args, group1Args...)
     args = append(args, havingArgs...)
     args = append(args, limit, offset)
 
