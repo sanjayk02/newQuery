@@ -108,6 +108,7 @@ const ALL_COLUMNS = buildColumns();
 
 const getShotSortValue = (shot: ShotPivot, sortKey: string): any => {
     if (sortKey === 'group3_only') return shot.group_3.toLowerCase();
+    if (sortKey === 'relation_only') return shot.relation.toLowerCase();
 
     // phase columns — e.g. "lay_work", "lay_appr", "lay_take", "lay_submitted"
     const underscoreIdx = sortKey.indexOf('_');
@@ -129,6 +130,9 @@ const getShotSortValue = (shot: ShotPivot, sortKey: string): any => {
 
 // Helper to map column id to sort key
 function getOrderKey(colId: string): string | null {
+    // ❌ Do NOT allow sorting on NAME1 or NAME2
+    if (colId === 'group_1_name') return null;
+    if (colId === 'group_2_name') return null;
     if (colId === 'group_3_name') return 'group3_only';
     if (colId === 'relation')     return 'relation_only';
     
@@ -161,23 +165,26 @@ const GroupTableHead: React.FC<{
                 const isWork     = col.id.endsWith('_work_status');
                 const orderKey   = getOrderKey(col.id);
                 const isActive   = orderKey !== null && orderKey === sortKey;
+                
+                // Disable sorting for NAME1 and NAME2
+                const isSortable = orderKey !== null && col.id !== 'group_1_name' && col.id !== 'group_2_name';
 
                 return (
                     <TableCell
                         key={col.id}
-                        onClick={orderKey ? () => onSortChange(orderKey) : undefined}
+                        onClick={isSortable ? () => onSortChange(orderKey!) : undefined}
                         style={{
                             backgroundColor: col.colors && col.colors.backgroundColor || undefined,
                             borderTop:       lineColor ? borderLine : 'none',
                             borderLeft:      isWork && lineColor ? borderLine : 'none',
                             whiteSpace:      'nowrap',
-                            cursor:          orderKey ? 'pointer' : 'default',
+                            cursor:          isSortable ? 'pointer' : 'default',
                             userSelect:      'none',
                             color:           isActive ? '#fff' : undefined,
                         }}
                     >
                         {col.label}{' '}
-                        {orderKey && (
+                        {isSortable && (
                             <span style={{ fontSize: 10, opacity: isActive ? 1 : 0.3 }}>
                                 {isActive ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
                             </span>
@@ -395,7 +402,7 @@ const Group1HeaderRow: React.FC<{
     );
 };
 
-/* ── Grouped Data Builder ───────────────────────────────────────────────── */
+/* ── Grouped Data Builder (Preserves Original Order) ───────────────────── */
 
 type Group2Data = {
     group2: string;
@@ -410,19 +417,38 @@ type Group1Data = {
 
 const buildGroupedData = (shots: ShotPivot[]): Group1Data[] => {
     const map = new Map<string, Map<string, ShotPivot[]>>();
+    
+    // Preserve insertion order by using arrays
+    const group1Order: string[] = [];
+    const group2Order = new Map<string, string[]>();
 
     for (const shot of shots) {
-        if (!map.has(shot.group_1)) map.set(shot.group_1, new Map());
+        // Track NAME1 order
+        if (!map.has(shot.group_1)) {
+            map.set(shot.group_1, new Map());
+            group1Order.push(shot.group_1);
+            group2Order.set(shot.group_1, []);
+        }
+        
         const g2map = map.get(shot.group_1)!;
-        if (!g2map.has(shot.group_2)) g2map.set(shot.group_2, []);
+        
+        // Track NAME2 order within this NAME1
+        if (!g2map.has(shot.group_2)) {
+            g2map.set(shot.group_2, []);
+            group2Order.get(shot.group_1)!.push(shot.group_2);
+        }
+        
         g2map.get(shot.group_2)!.push(shot);
     }
 
-    return Array.from(map.entries()).map(([group1, g2map]) => {
-        const group2s = Array.from(g2map.entries()).map(([group2, shots]) => ({
+    // Build grouped data using the preserved order
+    return group1Order.map(group1 => {
+        const g2map = map.get(group1)!;
+        const group2s = group2Order.get(group1)!.map(group2 => ({
             group2,
-            shots,
+            shots: g2map.get(group2)!,
         }));
+        
         return {
             group1,
             group2s,
@@ -444,6 +470,7 @@ const ShotsDataTableGroup: React.FC<ShotsDataTableProps> = ({
 }) => {
     if (project == null) return null;
 
+    // Preserves original order of NAME1 and NAME2 groups
     const grouped = useMemo(() => buildGroupedData(shots), [shots]);
 
     const [expandedGroup1, setExpandedGroup1] = useState<{ [key: string]: boolean }>({});
@@ -493,8 +520,12 @@ const ShotsDataTableGroup: React.FC<ShotsDataTableProps> = ({
                         />
 
                         {isGroup1Expanded(g1data.group1) && g1data.group2s.map(g2data => {
-                            // ✅ Sort ONLY inside each NAME2 group
+                            // ✅ ONLY sort shots (NAME3) within each NAME2 group
+                            // NAME1 and NAME2 orders remain unchanged
                             const sortedShots = [...g2data.shots].sort((a, b) => {
+                                // If no sort key, return original order
+                                if (!sortKey) return 0;
+                                
                                 const aVal = getShotSortValue(a, sortKey);
                                 const bVal = getShotSortValue(b, sortKey);
 
