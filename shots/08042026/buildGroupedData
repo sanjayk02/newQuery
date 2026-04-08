@@ -1,35 +1,57 @@
-const buildGroupedData = (shots: ShotPivot[]): Group1Data[] => {
-    const result: Group1Data[] = [];
+const naturalCompare = (a: string, b: string) => {
+    return a.localeCompare(b, undefined, {
+        numeric: true,
+        sensitivity: 'base',
+    });
+};
 
-    let currentG1: Group1Data | null = null;
-    let currentG2: Group2Data | null = null;
+const smartSortGroup2 = (a: string, b: string) => {
+    const isNumA = /^\d+$/.test(a);
+    const isNumB = /^\d+$/.test(b);
 
-    for (const shot of shots) {
-
-        // 👉 NEW GROUP1
-        if (!currentG1 || currentG1.group1 !== shot.group_1) {
-            currentG1 = {
-                group1: shot.group_1,
-                group2s: [],
-                allShots: [],
-            };
-            result.push(currentG1);
-            currentG2 = null;
-        }
-
-        // 👉 NEW GROUP2
-        if (!currentG2 || currentG2.group2 !== shot.group_2) {
-            currentG2 = {
-                group2: shot.group_2,
-                shots: [],
-            };
-            currentG1.group2s.push(currentG2);
-        }
-
-        // 👉 PRESERVE ORDER (no map)
-        currentG2.shots.push(shot);
-        currentG1.allShots.push(shot);
+    if (isNumA && isNumB) {
+        return parseInt(a, 10) - parseInt(b, 10);
     }
 
-    return result;
+    if (isNumA) return -1;
+    if (isNumB) return 1;
+
+    return naturalCompare(a, b);
+};
+
+
+const buildGroupedData = (shots: ShotPivot[]): Group1Data[] => {
+    const map = new Map<string, Map<string, ShotPivot[]>>();
+
+    // group while preserving incoming order (important for NAME3)
+    for (const shot of shots) {
+        if (!map.has(shot.group_1)) map.set(shot.group_1, new Map());
+        const g2map = map.get(shot.group_1)!;
+
+        if (!g2map.has(shot.group_2)) g2map.set(shot.group_2, []);
+        g2map.get(shot.group_2)!.push(shot);
+    }
+
+    // ✅ NAME1 → ALWAYS A-Z (default)
+    const sortedGroup1Keys = Array.from(map.keys()).sort((a, b) =>
+        a.toLowerCase().localeCompare(b.toLowerCase())
+    );
+
+    return sortedGroup1Keys.map(group1 => {
+        const g2map = map.get(group1)!;
+
+        // ✅ NAME2 → ALWAYS smart sorted (default)
+        const sortedGroup2Keys = Array.from(g2map.keys()).sort(smartSortGroup2);
+
+        const group2s: Group2Data[] = sortedGroup2Keys.map(group2 => ({
+            group2,
+            shots: g2map.get(group2)!,
+        }));
+
+        return {
+            group1,
+            group2s,
+            allShots: group2s.flatMap(g => g.shots),
+        };
+    });
 };
