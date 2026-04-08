@@ -1,0 +1,27 @@
+// group counts — always unfiltered so the filter menu shows all groups
+	groupCountQuery := `
+		SELECT group_1, COUNT(DISTINCT CONCAT(group_1, group_2, group_3, relation, COALESCE(component, ''))) AS cnt
+		FROM t_review_info
+		WHERE project = ? AND root = 'shots' AND deleted = 0
+		GROUP BY group_1
+	`
+
+	type groupCountRow struct {
+		Group1 string `gorm:"column:group_1"`
+		Count  int    `gorm:"column:cnt"`
+	}
+
+	var groupCountRows []groupCountRow
+	if err := r.db.WithContext(ctx).
+		Raw(groupCountQuery, project).
+		Scan(&groupCountRows).Error; err != nil {
+		return nil, 0, nil, err
+	}
+
+	groupCounts := make(map[string]int)
+	for _, gc := range groupCountRows {
+		groupCounts[gc.Group1] = gc.Count
+	}
+
+	return final, total, groupCounts, nil
+}
