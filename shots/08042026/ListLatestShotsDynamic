@@ -1,0 +1,85 @@
+func (r *ReviewInfo) ListLatestShotsDynamic(
+    ctx context.Context,
+    project, orderKey, direction string,
+    limit, offset int,
+    shotNameKey string,
+    approvalStatuses []string,
+    workStatuses []string,
+    group1Filter []string,  // ADD THIS
+) ([]shotKeyRow, error) {
+
+    aggSQL := buildPhaseAggregationSQL()
+    orderClause := buildShotOrderClause("", orderKey, direction)
+    havingClause, havingArgs := buildShotStatusHaving(approvalStatuses, workStatuses)
+
+    // ADD THIS - Group1 filter condition
+    group1Cond := ""
+    var group1Args []any
+    if len(group1Filter) > 0 {
+        placeholders := make([]string, len(group1Filter))
+        for i := range group1Filter {
+            placeholders[i] = "?"
+            group1Args = append(group1Args, group1Filter[i])
+        }
+        group1Cond = " AND group_1 IN (" + strings.Join(placeholders, ",") + ")"
+    }
+
+    // name search
+    nameCond := ""
+    var nameArgs []any
+    if strings.TrimSpace(shotNameKey) != "" {
+        like := "%" + strings.ToLower(strings.TrimSpace(shotNameKey)) + "%"
+        nameCond = ` AND (
+            LOWER(group_1) LIKE ? OR
+            LOWER(group_2) LIKE ? OR
+            LOWER(group_3) LIKE ? OR
+            LOWER(relation) LIKE ?
+        )`
+        nameArgs = []any{like, like, like, like}
+    }
+
+    query := `
+WITH latest_phase AS (
+  SELECT *,
+    ROW_NUMBER() OVER (
+      PARTITION BY project, root, group_1, group_2, group_3, relation, component, phase
+      ORDER BY modified_at_utc DESC
+    ) rn
+  FROM t_review_info
+  WHERE project = ? AND root='shots' AND deleted=0` + nameCond + group1Cond + `  // ADD group1Cond HERE
+),
+filtered AS (
+  SELECT * FROM latest_phase WHERE rn=1
+),
+aggregated AS (
+  SELECT
+    project,
+    root,
+    group_1,
+    group_2,
+    group_3,
+    relation,
+    COALESCE(component,'') AS component,
+    ` + aggSQL + `
+  FROM filtered
+  GROUP BY project, root, group_1, group_2, group_3, relation, component` + havingClause + `
+)
+SELECT project, root, group_1, group_2, group_3, relation, component
+FROM aggregated
+ORDER BY ` + orderClause + `
+LIMIT ? OFFSET ?
+`
+
+    args := []any{project}
+    args = append(args, nameArgs...)
+    args = append(args, group1Args...)  // ADD THIS
+    args = append(args, havingArgs...)
+    args = append(args, limit, offset)
+
+    var rows []shotKeyRow
+    err := r.db.WithContext(ctx).
+        Raw(query, args...).
+        Scan(&rows).Error
+
+    return rows, err
+}
