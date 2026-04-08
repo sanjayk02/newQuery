@@ -1,0 +1,31 @@
+const buildGroupedData = (shots: ShotPivot[], sortDir: 'asc' | 'desc' = 'asc'): Group1Data[] => {
+    const map = new Map<string, Map<string, ShotPivot[]>>();
+
+    for (const shot of shots) {
+        if (!map.has(shot.group_1)) map.set(shot.group_1, new Map());
+        const g2map = map.get(shot.group_1)!;
+        if (!g2map.has(shot.group_2)) g2map.set(shot.group_2, []);
+        g2map.get(shot.group_2)!.push(shot);
+    }
+
+    const dir = sortDir === 'asc' ? 1 : -1;
+
+    return Array.from(map.entries()).map(([group1, g2map]) => {
+        const group2s = Array.from(g2map.entries())
+            // sort group_2 buckets
+            .sort(([a], [b]) => a.localeCompare(b) * dir)
+            .map(([group2, shots]) => ({
+                group2,
+                // sort shots within each group_2 by group_3
+                shots: [...shots].sort((a, b) =>
+                    a.group_3.localeCompare(b.group_3) * dir
+                ),
+            }));
+
+        return {
+            group1,
+            group2s,
+            allShots: group2s.flatMap(g => g.shots),
+        };
+    });
+};
