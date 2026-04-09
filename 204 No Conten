@@ -1,0 +1,18 @@
+// 204 No Content -> server has no thumbnail for this asset.
+// Leave the key unset so the table renders the "No Thumbnail" placeholder.
+if (res != null && res.status === 204) {
+  return;
+}
+if (res != null && res.ok) {
+  const blob = await res.blob();
+  // Defensive: an empty body would still produce a tiny data URL that
+  // renders as a broken image, so treat zero-byte blobs as "no thumbnail".
+  if (blob.size === 0) {
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    dispatch({ asset, responseResult: reader.result as string });
+  };
+  reader.readAsDataURL(blob);
+}
