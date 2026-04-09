@@ -1,0 +1,52 @@
+/* ── Sort ALL shots into canonical hierarchical order ──────────────
+   Order: NAME 1 (alpha) → NAME 2 (smart) → NAME 3 (by sortDir).
+   The flat list is then sliced page-by-page in pagedShots.
+   This produces the behavior:
+     - NAME 1 / NAME 2 order is fixed
+     - NAME 3 inside each NAME 2 subgroup flips with asc/desc
+     - Pages flow forward through the sorted list; long groups
+       can span multiple pages.
+─────────────────────────────────────────────────────────────────── */
+const sortedAllShots = useMemo(() => {
+    if (!isGroupView || !shots || shots.length === 0) return shots || [];
+
+    // Guard against stale shorter responses while a bigger one is in flight
+    if (shots.length < total) return [];
+
+    // NAME 2 smart sort: numeric first, then alphabetic (matches buildGroupedData)
+    const smartCmp = (a: string, b: string) => {
+        const isNumA = /^\d+$/.test(a);
+        const isNumB = /^\d+$/.test(b);
+        if (isNumA && isNumB) return parseInt(a, 10) - parseInt(b, 10);
+        if (isNumA) return -1;
+        if (isNumB) return 1;
+        return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+    };
+
+    const arr = [...shots];
+    arr.sort((a, b) => {
+        // 1. NAME 1 alphabetical (always)
+        const g1 = a.group_1.toLowerCase().localeCompare(b.group_1.toLowerCase());
+        if (g1 !== 0) return g1;
+
+        // 2. NAME 2 smart sort (always)
+        const g2 = smartCmp(a.group_2, b.group_2);
+        if (g2 !== 0) return g2;
+
+        // 3. NAME 3 (or phase column) by sortDir
+        const aVal = getShotSortValue(a, sortKey);
+        const bVal = getShotSortValue(b, sortKey);
+
+        const aEmpty = aVal === null || aVal === undefined || aVal === '' || aVal === 0;
+        const bEmpty = bVal === null || bVal === undefined || bVal === '' || bVal === 0;
+        if (aEmpty && bEmpty) return 0;
+        if (aEmpty) return 1;
+        if (bEmpty) return -1;
+
+        if (aVal === bVal) return 0;
+        return sortDir === 'asc'
+            ? (aVal > bVal ? 1 : -1)
+            : (aVal < bVal ? 1 : -1);
+    });
+    return arr;
+}, [shots, total, isGroupView, sortKey, sortDir]);
