@@ -1,0 +1,23 @@
+const sortedShots = [...shots];
+
+if (sortKey && sortDir !== 'none') {
+    sortedShots.sort((a, b) => {
+        const aVal = getShotSortValue(a, sortKey);
+        const bVal = getShotSortValue(b, sortKey);
+
+        const aEmpty = aVal === null || aVal === undefined || aVal === '' || aVal === 0;
+        const bEmpty = bVal === null || bVal === undefined || bVal === '' || bVal === 0;
+
+        if (aEmpty && bEmpty) return 0;
+        if (aEmpty) return 1;
+        if (bEmpty) return -1;
+
+        if (aVal === bVal) return 0;
+
+        return sortDir === 'asc'
+            ? aVal > bVal ? 1 : -1
+            : aVal < bVal ? 1 : -1;
+    });
+}
+
+const grouped = useMemo(() => buildGroupedData(sortedShots), [sortedShots]);
