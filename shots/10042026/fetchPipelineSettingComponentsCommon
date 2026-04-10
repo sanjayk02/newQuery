@@ -1,0 +1,76 @@
+export const fetchPipelineSettingComponentsCommon = async (
+  root: string,
+  signal?: AbortSignal | null,
+): Promise<ValueListResponse> => {
+  const params = new URLSearchParams();
+  // ✅ FIX: Use backticks for template literal
+  params.set('search_key', `/ppiTracker/${root}/components/`);
+  
+  const url = `/api/pipelineSetting/preference/commons/default/values?${params.toString()}`;
+  
+  console.log('🔧 Fetching common components:', { root, url }); // Debug log
+  
+  const headers = getAuthHeader();
+  const res = await fetch(
+    url,
+    {
+      method: 'GET',
+      headers,
+      mode: 'cors',
+      signal,
+    },
+  );
+  
+  if (res.status === 401) {
+    throw new AuthorizationError();
+  }
+  if (!res.ok) {
+    throw new Error('Failed to fetch values.');
+  }
+  
+  const json: ValueListResponse = await res.json();
+  setNewToken(res);
+  
+  console.log('🔧 Common components response:', json); // Debug log
+  
+  return json;
+};
+
+export const fetchPipelineSettingComponentsProject = async (
+  project: string,
+  root: string,
+  signal?: AbortSignal | null,
+): Promise<ValueListResponse> => {
+  const params = new URLSearchParams();
+  // ✅ FIX: Use backticks for template literal
+  params.set('search_key', `/ppiTracker/${root}/components/`);
+  
+  const url = `/api/pipelineSetting/preference/projects/${project}/values?${params.toString()}`;
+  
+  console.log('🔧 Fetching project components:', { project, root, url }); // Debug log
+  
+  const headers = getAuthHeader();
+  const res = await fetch(
+    url,
+    {
+      method: 'GET',
+      headers,
+      mode: 'cors',
+      signal,
+    },
+  );
+  
+  if (res.status === 401) {
+    throw new AuthorizationError();
+  }
+  if (!res.ok) {
+    throw new Error('Failed to fetch values.');
+  }
+  
+  const json: ValueListResponse = await res.json();
+  setNewToken(res);
+  
+  console.log('🔧 Project components response:', json); // Debug log
+  
+  return json;
+};
