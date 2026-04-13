@@ -134,10 +134,34 @@ const buildColumns = (phaseComponents: { [key: string]: string[] }): Column[] =>
 
 /* ── Sort Helpers ───────────────────────────────────────────────────────── */
 
-export const getShotSortValue = (shot: ShotPivot, sortKey: string): any => {
+export const getShotSortValue = (
+    shot: ShotPivot,
+    sortKey: string,
+    latestComponents?: { [key: string]: any[] },
+): any => {
     if (sortKey === 'group3_only')   return shot.group_3.toLowerCase();
     if (sortKey === 'relation_only') return shot.relation.toLowerCase();
 
+    // Component sort: "component:<componentId>" → latest submission timestamp
+    if (sortKey.startsWith('component:')) {
+        const componentId = sortKey.substring('component:'.length);
+        const compKey = `${shot.group_1}-${shot.group_2}-${shot.group_3}-${shot.relation}`;
+        const componentList = (latestComponents && latestComponents[compKey]) || [];
+        const item =
+            componentList.find((x: any) => x.component === componentId) ||
+            componentList.find(
+                (x: any) =>
+                    x.component &&
+                    x.component.toLowerCase() === componentId.toLowerCase(),
+            );
+        const submittedAt =
+            item && item.latest_document && item.latest_document.submitted_at_utc;
+        if (!submittedAt) return 0;
+        const d = new Date(submittedAt);
+        return isNaN(d.getTime()) ? 0 : d.getTime();
+    }
+
+    // Phase columns
     const underscoreIdx = sortKey.indexOf('_');
     if (underscoreIdx === -1) return '';
     const phase = sortKey.substring(0, underscoreIdx);
@@ -155,9 +179,14 @@ export const getShotSortValue = (shot: ShotPivot, sortKey: string): any => {
     return '';
 };
 
-function getOrderKey(colId: string): string | null {
+function getOrderKey(
+    colId: string,
+    phaseComponents: { [key: string]: string[] },
+): string | null {
     if (colId === 'group_3_name') return 'group3_only';
     if (colId === 'relation')     return 'relation_only';
+
+    // Phase columns
     const match = colId.match(/^([a-z0-9]+)_(work_status|approval_status|take)$/);
     if (match) {
         const [, phase, field] = match;
@@ -165,6 +194,13 @@ function getOrderKey(colId: string): string | null {
         if (field === 'approval_status') return `${phase}_appr`;
         if (field === 'take')            return `${phase}_take`;
     }
+
+    // Component columns — colId is the component name itself
+    const allComponents = Object.values(phaseComponents || {}).flat();
+    if (allComponents.includes(colId)) {
+        return `component:${colId}`;
+    }
+
     return null;
 }
 
@@ -176,15 +212,17 @@ const GroupTableHead: React.FC<{
     sortKey:      string;
     sortDir:      'asc' | 'desc';
     onSortChange: (key: string) => void;
-}> = ({ columns, sortKey, sortDir, onSortChange }) => (
+    phaseComponents: { [key: string]: string[] };
+}> = ({ columns, sortKey, sortDir, onSortChange, phaseComponents }) => (
     <TableHead>
         <TableRow>
             {columns.map(col => {
                 const lineColor  = col.colors && col.colors.lineColor;
                 const borderLine = lineColor ? `solid 3px ${lineColor}` : 'none';
                 const isWork     = col.id.endsWith('_work_status');
-                const orderKey   = getOrderKey(col.id);
+                const orderKey = getOrderKey(col.id, phaseComponents);
                 const isActive   = orderKey !== null && orderKey === sortKey;
+
 
                 return (
                     <TableCell
@@ -542,10 +580,10 @@ const ShotsDataTableGroup: React.FC<ShotsDataTableProps> = ({
     if (project == null) return null;
 
     const sortedShots = [...shots];
-    if (sortKey && sortDir !== 'none') {
+    if (sortKey) {
         sortedShots.sort((a, b) => {
-            const aVal = getShotSortValue(a, sortKey);
-            const bVal = getShotSortValue(b, sortKey);
+            const aVal = getShotSortValue(a, sortKey, latestComponents);
+            const bVal = getShotSortValue(b, sortKey, latestComponents);
             const aEmpty = aVal === null || aVal === undefined || aVal === '' || aVal === 0;
             const bEmpty = bVal === null || bVal === undefined || bVal === '' || bVal === 0;
             if (aEmpty && bEmpty) return 0;
