@@ -1,0 +1,143 @@
+const ShotDataRow: React.FC<{
+    shot:             ShotPivot;
+    thumbnails:       { [key: string]: string };
+    dateTimeFormat:   Intl.DateTimeFormat;
+    columnsState:     ColumnState;
+    isLastRow:        boolean;
+    phaseComponents:  { [key: string]: string[] };
+    latestComponents: { [key: string]: any[] };
+}> = ({ shot, thumbnails, dateTimeFormat, columnsState, isLastRow, phaseComponents, latestComponents }) => {
+    const thumbKey = `${shot.group_1}-${shot.group_2}-${shot.group_3}-${shot.relation}`;
+    const compKey  = `${shot.group_1}-${shot.group_2}-${shot.group_3}-${shot.relation}`;
+
+    const orderedPhases = getOrderedPhases(phaseComponents);
+
+    return (
+        <TableRow>
+            {/* Thumbnail */}
+            <TableCell>
+                {thumbnails[thumbKey] ? (
+                    <img src={thumbnails[thumbKey]} alt="" style={{ width: 80, height: 'auto' }} />
+                ) : (
+                    <span style={{ color: '#bdbdbd', fontSize: 10 }}>No Thumbnail</span>
+                )}
+            </TableCell>
+
+            {/* NAME 1 — empty, shown in group_1 header */}
+            <TableCell />
+
+            {/* NAME 2 — empty, shown in group_2 header */}
+            <TableCell />
+
+            {/* NAME 3 */}
+            <TableCell style={{ fontWeight: 500 }}>
+                {shot.group_3}
+            </TableCell>
+
+            {/* Phase columns (dynamic) */}
+            {orderedPhases.map((phase, phaseIdx) => {
+                const colors      = getPhaseColors(phase);
+                const lineColor   = colors.lineColor;
+                const borderLine  = `solid 3px ${lineColor}`;
+                const bottomLine  = isLastRow ? borderLine : 'none';
+                const isLastPhase = phaseIdx === orderedPhases.length - 1;
+
+                const phaseData =
+                    (shot.phases && shot.phases[phase]) ||
+                    (shot.phases && shot.phases[phase.toLowerCase()]);
+
+                const colBase = phase.toLowerCase();
+                const workCol = `${colBase}_work_status`;
+                const apprCol = `${colBase}_approval_status`;
+                const takeCol = `${colBase}_take`;
+
+                const workStatus =
+                    phaseData && phaseData.work_status && phaseData.work_status !== '-'
+                        ? WORK_STATUS[phaseData.work_status]
+                        : undefined;
+                const approvalStatus =
+                    phaseData && phaseData.approval_status && phaseData.approval_status !== '-'
+                        ? APPROVAL_STATUS[phaseData.approval_status]
+                        : undefined;
+
+                const componentIds  = (phaseComponents && phaseComponents[phase]) || [];
+                const hasComponents = componentIds.length > 0;
+
+                return (
+                    <React.Fragment key={phase}>
+                        {/* Work Status */}
+                        {columnsState[workCol] !== false && (
+                            <TableCell style={{
+                                color:      (workStatus && workStatus.color) || '',
+                                borderLeft: borderLine,
+                                whiteSpace: 'nowrap',
+                            }}>
+                                {(workStatus && workStatus.displayName) || '–'}
+                            </TableCell>
+                        )}
+
+                        {/* Approval Status */}
+                        {columnsState[apprCol] !== false && (
+                            <TableCell style={{
+                                color:      (approvalStatus && approvalStatus.color) || '',
+                                whiteSpace: 'nowrap',
+                            }}>
+                                {(approvalStatus && approvalStatus.displayName) || '–'}
+                            </TableCell>
+                        )}
+
+                        {/* Take */}
+                        {columnsState[takeCol] !== false && (
+                            <TableCell style={{
+                                whiteSpace:  'nowrap',
+                                borderRight: !hasComponents && isLastPhase ? borderLine : 'none',
+                            }}>
+                                {(phaseData && phaseData.take) || '–'}
+                            </TableCell>
+                        )}
+
+                        {/* Dynamic component columns from pipeline settings */}
+                        {componentIds.map((componentId, compIdx) => {
+                            if (columnsState[componentId] === false) return null;
+
+                            const componentList =
+                                (latestComponents && latestComponents[compKey]) || [];
+                            const item =
+                                componentList.find((x: any) => x.component === componentId) ||
+                                componentList.find(
+                                    (x: any) =>
+                                        x.component &&
+                                        x.component.toLowerCase() === componentId.toLowerCase(),
+                                );
+                            const submittedAt =
+                                item && item.latest_document && item.latest_document.submitted_at_utc;
+                            const text = submittedAt
+                                ? dateTimeFormat.format(new Date(submittedAt))
+                                : '–';
+
+                            const isLastComponentOfLastPhase =
+                                isLastPhase && compIdx === componentIds.length - 1;
+
+                            return (
+                                <TableCell
+                                    key={componentId}
+                                    style={{
+                                        whiteSpace:  'nowrap',
+                                        borderRight: isLastComponentOfLastPhase ? borderLine : 'none',
+                                    }}
+                                >
+                                    {text}
+                                </TableCell>
+                            );
+                        })}
+                    </React.Fragment>
+                );
+            })}
+
+            {/* Relation */}
+            {columnsState['relation'] !== false && (
+                <TableCell>{shot.relation}</TableCell>
+            )}
+        </TableRow>
+    );
+};
