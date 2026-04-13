@@ -1,0 +1,43 @@
+export const getShotSortValue = (shot: ShotPivot, sortKey: string, phaseComponents?: { [key: string]: string[] }): any => {
+    if (sortKey === 'group1_only') return shot.group_1.toLowerCase();
+    if (sortKey === 'group2_only') return shot.group_2.toLowerCase();
+    if (sortKey === 'group3_only') return shot.group_3.toLowerCase();
+    if (sortKey === 'relation_only') return shot.relation.toLowerCase();
+
+    // Handle component columns
+    if (sortKey.startsWith('component_')) {
+        const componentId = sortKey.replace('component_', '');
+        // Find which phase this component belongs to
+        let targetPhase = '';
+        let targetComponent = '';
+        if (phaseComponents) {
+            for (const [phase, components] of Object.entries(phaseComponents)) {
+                if (components.includes(componentId)) {
+                    targetPhase = phase;
+                    targetComponent = componentId;
+                    break;
+                }
+            }
+        }
+        // For component sorting, you'd need the submitted date from latestComponents
+        // This requires passing latestComponents into the sort function
+        // Or storing component submission data on the shot object
+        return 0; // Placeholder - needs implementation
+    }
+
+    const underscoreIdx = sortKey.indexOf('_');
+    if (underscoreIdx === -1) return '';
+    const phase = sortKey.substring(0, underscoreIdx);
+    const field = sortKey.substring(underscoreIdx + 1);
+    const pd = shot.phases[phase];
+    if (!pd) return '';
+
+    if (field === 'submitted') {
+        const d = new Date(pd.submitted_at_utc || '');
+        return isNaN(d.getTime()) ? 0 : d.getTime();
+    }
+    if (field === 'take') return parseInt(pd.take || '0', 10) || 0;
+    if (field === 'work') return (pd.work_status || '').toLowerCase();
+    if (field === 'appr') return (pd.approval_status || '').toLowerCase();
+    return '';
+};
