@@ -1,0 +1,61 @@
+const smartSortGroup2 = (a: string, b: string, dir: 'asc' | 'desc' = 'asc') => {
+    const isNumA = /^\d+$/.test(a);
+    const isNumB = /^\d+$/.test(b);
+
+    let cmp: number;
+    if (isNumA && isNumB) {
+        cmp = parseInt(a, 10) - parseInt(b, 10);
+    } else if (isNumA) {
+        cmp = -1; // numeric always comes first in asc
+    } else if (isNumB) {
+        cmp = 1;
+    } else {
+        cmp = naturalCompare(a, b);
+    }
+
+    return dir === 'asc' ? cmp : -cmp;
+};
+
+
+const buildGroupedData = (
+    shots: ShotPivot[],
+    group2Dir: 'asc' | 'desc' = 'asc',
+): Group1Data[] => {
+    const map = new Map<string, Map<string, ShotPivot[]>>();
+
+    for (const shot of shots) {
+        if (!map.has(shot.group_1)) map.set(shot.group_1, new Map());
+        const g2map = map.get(shot.group_1)!;
+        if (!g2map.has(shot.group_2)) g2map.set(shot.group_2, []);
+        g2map.get(shot.group_2)!.push(shot);
+    }
+
+    const sortedGroup1Keys = Array.from(map.keys()).sort((a, b) =>
+        a.toLowerCase().localeCompare(b.toLowerCase()),
+    );
+
+    return sortedGroup1Keys.map(group1 => {
+        const g2map = map.get(group1)!;
+        const sortedGroup2Keys = Array.from(g2map.keys()).sort((a, b) =>
+            smartSortGroup2(a, b, group2Dir),
+        );
+
+        const group2s: Group2Data[] = sortedGroup2Keys.map(group2 => ({
+            group2,
+            shots: g2map.get(group2)!,
+        }));
+
+        return { group1, group2s, allShots: group2s.flatMap(g => g.shots) };
+    });
+};
+
+
+if (colId === 'group_2_name') return 'group2_only';
+
+const group2Dir: 'asc' | 'desc' =
+    sortKey === 'group2_only' && sortDir === 'desc' ? 'desc' : 'asc';
+
+const grouped = useMemo(
+    () => buildGroupedData(sortedShots, group2Dir),
+    [sortedShots, group2Dir],
+);
