@@ -13,7 +13,6 @@ import { useFetchShotThumbnails, useFetchLatestShotComponents } from './hooks';
    Phase Colors
    ────────────────────────────────────────────────────────────────────────── */
 const SHOT_PHASES: { [key: string]: Colors } = {
-    // existing phases
     lay:        { lineColor: '#3295FD', backgroundColor: '#004288' },
     anm:        { lineColor: '#FD5E63', backgroundColor: '#5c0003' },
     gnz:        { lineColor: '#C061FD', backgroundColor: '#340055' },
@@ -21,7 +20,6 @@ const SHOT_PHASES: { [key: string]: Colors } = {
     matnuke:    { lineColor: '#FE7DB3', backgroundColor: '#3d0019' },
     fx:         { lineColor: '#FDCD44', backgroundColor: '#CCA537' },
     cmp:        { lineColor: '#D5F762', backgroundColor: '#4a6101' },
-    // new phases — colors from task list
     dsp:        { lineColor: '#FFD35D', backgroundColor: '#FFB54C' },
     cloth:      { lineColor: '#FE9880', backgroundColor: '#FE8359' },
     cfxhair:    { lineColor: '#FDA342', backgroundColor: '#FD8D03' },
@@ -35,16 +33,10 @@ const SHOT_PHASES: { [key: string]: Colors } = {
 
 const DEFAULT_PHASE_COLORS: Colors = { lineColor: '#888', backgroundColor: '#444' };
 
-/* Case-insensitive color lookup so camelCase pipeline keys (rtcMat) match
-   lowercase SHOT_PHASES keys (rtcmat). */
 const getPhaseColors = (phase: string): Colors => {
     return SHOT_PHASES[phase.toLowerCase()] || DEFAULT_PHASE_COLORS;
 };
 
-/* Build the phase display order. Known phases (from SHOT_PHASES) come first
-   in their defined order. Pipeline-only phases are appended after.
-   Uses the pipeline key's original casing so downstream lookups into
-   phaseComponents[phase] hit. */
 const getOrderedPhases = (phaseComponents: { [key: string]: string[] }): string[] => {
     const knownOrder    = Object.keys(SHOT_PHASES);
     const settingPhases = Object.keys(phaseComponents || {});
@@ -52,16 +44,25 @@ const getOrderedPhases = (phaseComponents: { [key: string]: string[] }): string[
     settingPhases.forEach(s => { settingByLower[s.toLowerCase()] = s; });
 
     const ordered: string[] = [];
-    // Known phases first, using the pipeline's actual casing when present
     knownOrder.forEach(p => {
         if (settingByLower[p]) ordered.push(settingByLower[p]);
-        else ordered.push(p); // no pipeline entry, fall back to hardcoded key
+        else ordered.push(p);
     });
-    // Any pipeline phases not in knownOrder, appended in their original casing
     settingPhases.forEach(s => {
         if (!knownOrder.includes(s.toLowerCase())) ordered.push(s);
     });
     return ordered;
+};
+
+/* Component IDs for a phase, filtered to exclude entries that share the
+   phase's own name (those would render as a redundant "ANM SUBMITTED"
+   inside the ANM phase, etc.). */
+const getPhaseComponentIds = (
+    phase: string,
+    phaseComponents: { [key: string]: string[] },
+): string[] => {
+    const ids = (phaseComponents && phaseComponents[phase]) || [];
+    return ids.filter(id => id.toLowerCase() !== phase.toLowerCase());
 };
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -120,20 +121,31 @@ const buildColumns = (phaseComponents: { [key: string]: string[] }): Column[] =>
     const phaseCols: Column[] = orderedPhases.flatMap(p => {
         const colors  = getPhaseColors(p);
         const label   = p.toUpperCase();
-        const colBase = p.toLowerCase(); // column IDs stay lowercase for stable storage
+        const colBase = p.toLowerCase();
 
         const base: Column[] = [
-            { id: `${colBase}_work_status`,     label: `${label} WORK`,      colors },
-            { id: `${colBase}_approval_status`, label: `${label} APPR`,      colors },
-            { id: `${colBase}_take`,            label: `${label} TAKE`,      colors },
-            { id: `${colBase}_submitted_at`,    label: `${label} SUBMITTED`, colors },
+            { id: `${colBase}_work_status`,     label: `${label} WORK`, colors },
+            { id: `${colBase}_approval_status`, label: `${label} APPR`, colors },
+            { id: `${colBase}_take`,            label: `${label} TAKE`, colors },
         ];
-        const componentIds = (phaseComponents && phaseComponents[p]) || [];
+
+        const componentIds = getPhaseComponentIds(p, phaseComponents);
+
+        if (componentIds.length === 0) {
+            // Fallback: phase has no pipeline components, show phase-level submitted_at
+            base.push({
+                id:    `${colBase}_submitted_at`,
+                label: `${label} SUBMITTED`,
+                colors,
+            });
+        }
+
         const compCols: Column[] = componentIds.map(id => ({
             id,
             label: `${id.toUpperCase()} SUBMITTED`,
             colors,
         }));
+
         return [...base, ...compCols];
     });
 
@@ -296,12 +308,10 @@ const ShotRow: React.FC<ShotRowProps> = ({
                 const bottomLine  = isLastRow ? borderLine : 'none';
                 const isLastPhase = phaseIdx === orderedPhases.length - 1;
 
-                // Phase data may live under original-case or lower-case key
                 const phaseData =
                     (shot.phases && shot.phases[phase]) ||
                     (shot.phases && shot.phases[phase.toLowerCase()]);
 
-                // Column IDs use lowercase phase so column visibility state is stable
                 const colBase      = phase.toLowerCase();
                 const workCol      = `${colBase}_work_status`;
                 const apprCol      = `${colBase}_approval_status`;
@@ -318,7 +328,7 @@ const ShotRow: React.FC<ShotRowProps> = ({
                         ? APPROVAL_STATUS[phaseData.approval_status]
                         : undefined;
 
-                const componentIds  = (phaseComponents && phaseComponents[phase]) || [];
+                const componentIds  = getPhaseComponentIds(phase, phaseComponents);
                 const hasComponents = componentIds.length > 0;
 
                 return (
@@ -351,23 +361,22 @@ const ShotRow: React.FC<ShotRowProps> = ({
                                     borderBottom: bottomLine,
                                 }}
                             >
-                                {(phaseData && phaseData.take) || '-'}
+                                {(phaseData && phaseData.take) || '–'}
                             </TableCell>
                         )}
 
-                        {/* Submitted At */}
-                        {columnsState[submittedCol] !== false && (
+                        {/* Fallback Submitted At — only when phase has no pipeline components */}
+                        {!hasComponents && columnsState[submittedCol] !== false && (
                             <TableCell
                                 style={{
                                     whiteSpace:   'nowrap',
                                     borderBottom: bottomLine,
-                                    borderRight:
-                                        !hasComponents && isLastPhase ? borderLine : 'none',
+                                    borderRight:  isLastPhase ? borderLine : 'none',
                                 }}
                             >
                                 {phaseData && phaseData.submitted_at_utc
                                     ? dateTimeFormat.format(new Date(phaseData.submitted_at_utc))
-                                    : '-'}
+                                    : '–'}
                             </TableCell>
                         )}
 
@@ -396,7 +405,7 @@ const ShotRow: React.FC<ShotRowProps> = ({
 
                             const text = submittedAt
                                 ? dateTimeFormat.format(new Date(submittedAt))
-                                : '-';
+                                : '–';
 
                             const isLastComponentOfLastPhase =
                                 isLastPhase && compIdx === componentIds.length - 1;
