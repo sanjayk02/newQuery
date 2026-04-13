@@ -57,6 +57,17 @@ const getOrderedPhases = (phaseComponents: { [key: string]: string[] }): string[
     return ordered;
 };
 
+/* Component IDs for a phase, filtered to exclude entries that share the
+   phase's own name (those would render as a redundant "ANM SUBMITTED"
+   inside the ANM phase, etc.). */
+const getPhaseComponentIds = (
+    phase: string,
+    phaseComponents: { [key: string]: string[] },
+): string[] => {
+    const ids = (phaseComponents && phaseComponents[phase]) || [];
+    return ids.filter(id => id.toLowerCase() !== phase.toLowerCase());
+};
+
 /* ── Status Maps ────────────────────────────────────────────────────────── */
 
 type Status = Readonly<{ displayName: string; color: string }>;
@@ -119,7 +130,7 @@ const buildColumns = (phaseComponents: { [key: string]: string[] }): Column[] =>
             { id: `${colBase}_take`,            label: `${label} TAKE`, colors },
         ];
 
-        const componentIds = (phaseComponents && phaseComponents[p]) || [];
+        const componentIds = getPhaseComponentIds(p, phaseComponents);
         const compCols: Column[] = componentIds.map(id => ({
             id,
             label: `${id.toUpperCase()} SUBMITTED`,
@@ -142,7 +153,6 @@ export const getShotSortValue = (
     if (sortKey === 'group3_only')   return shot.group_3.toLowerCase();
     if (sortKey === 'relation_only') return shot.relation.toLowerCase();
 
-    // Component sort: "component:<componentId>" → latest submission timestamp
     if (sortKey.startsWith('component:')) {
         const componentId = sortKey.substring('component:'.length);
         const compKey = `${shot.group_1}-${shot.group_2}-${shot.group_3}-${shot.relation}`;
@@ -161,7 +171,6 @@ export const getShotSortValue = (
         return isNaN(d.getTime()) ? 0 : d.getTime();
     }
 
-    // Phase columns
     const underscoreIdx = sortKey.indexOf('_');
     if (underscoreIdx === -1) return '';
     const phase = sortKey.substring(0, underscoreIdx);
@@ -186,7 +195,6 @@ function getOrderKey(
     if (colId === 'group_3_name') return 'group3_only';
     if (colId === 'relation')     return 'relation_only';
 
-    // Phase columns
     const match = colId.match(/^([a-z0-9]+)_(work_status|approval_status|take)$/);
     if (match) {
         const [, phase, field] = match;
@@ -195,7 +203,6 @@ function getOrderKey(
         if (field === 'take')            return `${phase}_take`;
     }
 
-    // Component columns — colId is the component name itself
     const allComponents = Object.values(phaseComponents || {}).flat();
     if (allComponents.includes(colId)) {
         return `component:${colId}`;
@@ -207,11 +214,11 @@ function getOrderKey(
 /* ── Table Head ─────────────────────────────────────────────────────────── */
 
 const GroupTableHead: React.FC<{
-    columns:      Column[];
-    columnsState: ColumnState;
-    sortKey:      string;
-    sortDir:      'asc' | 'desc';
-    onSortChange: (key: string) => void;
+    columns:         Column[];
+    columnsState:    ColumnState;
+    sortKey:         string;
+    sortDir:         'asc' | 'desc';
+    onSortChange:    (key: string) => void;
     phaseComponents: { [key: string]: string[] };
 }> = ({ columns, sortKey, sortDir, onSortChange, phaseComponents }) => (
     <TableHead>
@@ -220,9 +227,8 @@ const GroupTableHead: React.FC<{
                 const lineColor  = col.colors && col.colors.lineColor;
                 const borderLine = lineColor ? `solid 3px ${lineColor}` : 'none';
                 const isWork     = col.id.endsWith('_work_status');
-                const orderKey = getOrderKey(col.id, phaseComponents);
+                const orderKey   = getOrderKey(col.id, phaseComponents);
                 const isActive   = orderKey !== null && orderKey === sortKey;
-
 
                 return (
                     <TableCell
@@ -291,10 +297,10 @@ const ShotDataRow: React.FC<{
 
             {/* Phase columns (dynamic) */}
             {orderedPhases.map((phase, phaseIdx) => {
-                const colors     = getPhaseColors(phase);
-                const lineColor  = colors.lineColor;
-                const borderLine = `solid 3px ${lineColor}`;
-                const bottomLine = isLastRow ? borderLine : 'none';
+                const colors      = getPhaseColors(phase);
+                const lineColor   = colors.lineColor;
+                const borderLine  = `solid 3px ${lineColor}`;
+                const bottomLine  = isLastRow ? borderLine : 'none';
                 const isLastPhase = phaseIdx === orderedPhases.length - 1;
 
                 const phaseData =
@@ -315,11 +321,12 @@ const ShotDataRow: React.FC<{
                         ? APPROVAL_STATUS[phaseData.approval_status]
                         : undefined;
 
-                const componentIds  = (phaseComponents && phaseComponents[phase]) || [];
+                const componentIds  = getPhaseComponentIds(phase, phaseComponents);
                 const hasComponents = componentIds.length > 0;
 
                 return (
                     <React.Fragment key={phase}>
+                        {/* Work Status */}
                         {columnsState[workCol] !== false && (
                             <TableCell style={{
                                 color:      (workStatus && workStatus.color) || '',
@@ -329,6 +336,8 @@ const ShotDataRow: React.FC<{
                                 {(workStatus && workStatus.displayName) || '–'}
                             </TableCell>
                         )}
+
+                        {/* Approval Status */}
                         {columnsState[apprCol] !== false && (
                             <TableCell style={{
                                 color:      (approvalStatus && approvalStatus.color) || '',
@@ -337,6 +346,8 @@ const ShotDataRow: React.FC<{
                                 {(approvalStatus && approvalStatus.displayName) || '–'}
                             </TableCell>
                         )}
+
+                        {/* Take */}
                         {columnsState[takeCol] !== false && (
                             <TableCell style={{
                                 whiteSpace:  'nowrap',
@@ -346,7 +357,7 @@ const ShotDataRow: React.FC<{
                             </TableCell>
                         )}
 
-                        {/* Dynamic component columns */}
+                        {/* Dynamic component columns from pipeline settings */}
                         {componentIds.map((componentId, compIdx) => {
                             if (columnsState[componentId] === false) return null;
 
@@ -393,6 +404,7 @@ const ShotDataRow: React.FC<{
 };
 
 /* ── Group2 Header Row ──────────────────────────────────────────────────── */
+
 const Group2HeaderRow: React.FC<{
     group2:          string;
     shots:           ShotPivot[];
@@ -438,7 +450,7 @@ const Group2HeaderRow: React.FC<{
             {/* Empty phase cells (dynamic) */}
             {orderedPhases.map(phase => {
                 const colBase      = phase.toLowerCase();
-                const componentIds = (phaseComponents && phaseComponents[phase]) || [];
+                const componentIds = getPhaseComponentIds(phase, phaseComponents);
                 return (
                     <React.Fragment key={phase}>
                         {columnsState[`${colBase}_work_status`] !== false && <TableCell />}
@@ -457,6 +469,7 @@ const Group2HeaderRow: React.FC<{
 };
 
 /* ── Group1 Header Row ──────────────────────────────────────────────────── */
+
 const Group1HeaderRow: React.FC<{
     group1:          string;
     allShots:        ShotPivot[];
@@ -503,7 +516,7 @@ const Group1HeaderRow: React.FC<{
             {/* Empty phase cells (dynamic) */}
             {orderedPhases.map(phase => {
                 const colBase      = phase.toLowerCase();
-                const componentIds = (phaseComponents && phaseComponents[phase]) || [];
+                const componentIds = getPhaseComponentIds(phase, phaseComponents);
                 return (
                     <React.Fragment key={phase}>
                         {columnsState[`${colBase}_work_status`] !== false && <TableCell />}
@@ -579,6 +592,16 @@ const ShotsDataTableGroup: React.FC<ShotsDataTableProps> = ({
 }) => {
     if (project == null) return null;
 
+    // Hooks must run before any code that depends on their results
+    const shotsForThumbnail = shots.map(s => ({
+        groups:   [s.group_1, s.group_2, s.group_3],
+        relation: s.relation,
+    }));
+    const { thumbnails }       = useFetchShotThumbnails(project, shotsForThumbnail);
+    const { latestComponents } = useFetchLatestShotComponents(
+        project, shotsForThumbnail, phaseComponents,
+    );
+
     const sortedShots = [...shots];
     if (sortKey) {
         sortedShots.sort((a, b) => {
@@ -611,15 +634,6 @@ const ShotsDataTableGroup: React.FC<ShotsDataTableProps> = ({
             [`${g1}/${g2}`]: !isGroup2Expanded(g1, g2),
         }));
 
-    const shotsForThumbnail = shots.map(s => ({
-        groups:   [s.group_1, s.group_2, s.group_3],
-        relation: s.relation,
-    }));
-    const { thumbnails }       = useFetchShotThumbnails(project, shotsForThumbnail);
-    const { latestComponents } = useFetchLatestShotComponents(
-        project, shotsForThumbnail, phaseComponents,
-    );
-
     const allColumns     = buildColumns(phaseComponents);
     const visibleColumns = allColumns.filter(
         col => col.fixed || columnsState[col.id] !== false,
@@ -633,6 +647,7 @@ const ShotsDataTableGroup: React.FC<ShotsDataTableProps> = ({
                 sortKey={sortKey}
                 sortDir={sortDir === 'asc' || sortDir === 'desc' ? sortDir : 'asc'}
                 onSortChange={onSortChange}
+                phaseComponents={phaseComponents}
             />
             <TableBody>
                 {grouped.map(g1data => (
