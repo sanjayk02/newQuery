@@ -1,0 +1,51 @@
+const sortedAllShots = useMemo(() => {
+    if (!isGroupView || !shots || shots.length === 0) return shots || [];
+    if (shots.length < total) return [];
+
+    const smartCmp = (a: string, b: string, dir: 'asc' | 'desc' = 'asc') => {
+        const isNumA = /^\d+$/.test(a);
+        const isNumB = /^\d+$/.test(b);
+        let cmp: number;
+        if (isNumA && isNumB) {
+            cmp = parseInt(a, 10) - parseInt(b, 10);
+        } else if (isNumA) {
+            cmp = -1;
+        } else if (isNumB) {
+            cmp = 1;
+        } else {
+            cmp = a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+        }
+        return dir === 'asc' ? cmp : -cmp;
+    };
+
+    // Determine NAME 2 direction from current sort state
+    const group2Dir: 'asc' | 'desc' =
+        sortKey === 'group2_only' && sortDir === 'desc' ? 'desc' : 'asc';
+
+    const arr = [...shots];
+    arr.sort((a, b) => {
+        // 1. NAME 1 — always alphabetical ascending
+        const g1 = a.group_1.toLowerCase().localeCompare(b.group_1.toLowerCase());
+        if (g1 !== 0) return g1;
+
+        // 2. NAME 2 — smart sort, direction from sortKey/sortDir
+        const g2 = smartCmp(a.group_2, b.group_2, group2Dir);
+        if (g2 !== 0) return g2;
+
+        // 3. NAME 3 (or phase column) by sortDir
+        const aVal = getShotSortValue(a, sortKey);
+        const bVal = getShotSortValue(b, sortKey);
+
+        const aEmpty = aVal === null || aVal === undefined || aVal === '' || aVal === 0;
+        const bEmpty = bVal === null || bVal === undefined || bVal === '' || bVal === 0;
+        if (aEmpty && bEmpty) return 0;
+        if (aEmpty) return 1;
+        if (bEmpty) return -1;
+
+        if (aVal === bVal) return 0;
+        return sortDir === 'asc'
+            ? (aVal > bVal ? 1 : -1)
+            : (aVal < bVal ? 1 : -1);
+    });
+    return arr;
+}, [shots, total, isGroupView, sortKey, sortDir]);
