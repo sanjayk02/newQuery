@@ -1,0 +1,17 @@
+function getOrderKey(colId: string): string | null {
+  if (colId === 'group_1_name') return 'group1_only';
+  if (colId === 'group_2_name') return 'group2_only';
+  if (colId === 'group_3_name') return 'group3_only';
+  if (colId === 'relation') return 'relation_only';
+  
+  // Match work_status, approval_status, take, AND submitted_at
+  const match = colId.match(/^([a-z0-9]+)_(work_status|approval_status|take|submitted_at)$/);
+  if (match) {
+    const [, phase, field] = match;
+    if (field === 'work_status') return `${phase}_work`;
+    if (field === 'approval_status') return `${phase}_appr`;
+    if (field === 'take') return `${phase}_take`;
+    if (field === 'submitted_at') return `${phase}_submitted`;  // Add this
+  }
+  return null;
+}
