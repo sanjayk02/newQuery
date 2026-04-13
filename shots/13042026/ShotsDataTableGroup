@@ -131,6 +131,16 @@ const buildColumns = (phaseComponents: { [key: string]: string[] }): Column[] =>
         ];
 
         const componentIds = getPhaseComponentIds(p, phaseComponents);
+
+        if (componentIds.length === 0) {
+            // Fallback: phase has no pipeline components, show phase-level submitted_at
+            base.push({
+                id:    `${colBase}_submitted_at`,
+                label: `${label} SUBMITTED`,
+                colors,
+            });
+        }
+
         const compCols: Column[] = componentIds.map(id => ({
             id,
             label: `${id.toUpperCase()} SUBMITTED`,
@@ -195,12 +205,13 @@ function getOrderKey(
     if (colId === 'group_3_name') return 'group3_only';
     if (colId === 'relation')     return 'relation_only';
 
-    const match = colId.match(/^([a-z0-9]+)_(work_status|approval_status|take)$/);
+    const match = colId.match(/^([a-z0-9]+)_(work_status|approval_status|take|submitted_at)$/);
     if (match) {
         const [, phase, field] = match;
         if (field === 'work_status')     return `${phase}_work`;
         if (field === 'approval_status') return `${phase}_appr`;
         if (field === 'take')            return `${phase}_take`;
+        if (field === 'submitted_at')    return `${phase}_submitted`;
     }
 
     const allComponents = Object.values(phaseComponents || {}).flat();
@@ -300,17 +311,17 @@ const ShotDataRow: React.FC<{
                 const colors      = getPhaseColors(phase);
                 const lineColor   = colors.lineColor;
                 const borderLine  = `solid 3px ${lineColor}`;
-                const bottomLine  = isLastRow ? borderLine : 'none';
                 const isLastPhase = phaseIdx === orderedPhases.length - 1;
 
                 const phaseData =
                     (shot.phases && shot.phases[phase]) ||
                     (shot.phases && shot.phases[phase.toLowerCase()]);
 
-                const colBase = phase.toLowerCase();
-                const workCol = `${colBase}_work_status`;
-                const apprCol = `${colBase}_approval_status`;
-                const takeCol = `${colBase}_take`;
+                const colBase      = phase.toLowerCase();
+                const workCol      = `${colBase}_work_status`;
+                const apprCol      = `${colBase}_approval_status`;
+                const takeCol      = `${colBase}_take`;
+                const submittedCol = `${colBase}_submitted_at`;
 
                 const workStatus =
                     phaseData && phaseData.work_status && phaseData.work_status !== '-'
@@ -350,10 +361,21 @@ const ShotDataRow: React.FC<{
                         {/* Take */}
                         {columnsState[takeCol] !== false && (
                             <TableCell style={{
-                                whiteSpace:  'nowrap',
-                                borderRight: !hasComponents && isLastPhase ? borderLine : 'none',
+                                whiteSpace: 'nowrap',
                             }}>
                                 {(phaseData && phaseData.take) || '–'}
+                            </TableCell>
+                        )}
+
+                        {/* Fallback Submitted At — only when phase has no pipeline components */}
+                        {!hasComponents && columnsState[submittedCol] !== false && (
+                            <TableCell style={{
+                                whiteSpace:  'nowrap',
+                                borderRight: isLastPhase ? borderLine : 'none',
+                            }}>
+                                {phaseData && phaseData.submitted_at_utc
+                                    ? dateTimeFormat.format(new Date(phaseData.submitted_at_utc))
+                                    : '–'}
                             </TableCell>
                         )}
 
@@ -449,13 +471,15 @@ const Group2HeaderRow: React.FC<{
 
             {/* Empty phase cells (dynamic) */}
             {orderedPhases.map(phase => {
-                const colBase      = phase.toLowerCase();
-                const componentIds = getPhaseComponentIds(phase, phaseComponents);
+                const colBase       = phase.toLowerCase();
+                const componentIds  = getPhaseComponentIds(phase, phaseComponents);
+                const hasComponents = componentIds.length > 0;
                 return (
                     <React.Fragment key={phase}>
                         {columnsState[`${colBase}_work_status`] !== false && <TableCell />}
                         {columnsState[`${colBase}_approval_status`] !== false && <TableCell />}
                         {columnsState[`${colBase}_take`] !== false && <TableCell />}
+                        {!hasComponents && columnsState[`${colBase}_submitted_at`] !== false && <TableCell />}
                         {componentIds.map(cid => (
                             columnsState[cid] !== false ? <TableCell key={cid} /> : null
                         ))}
@@ -515,13 +539,15 @@ const Group1HeaderRow: React.FC<{
 
             {/* Empty phase cells (dynamic) */}
             {orderedPhases.map(phase => {
-                const colBase      = phase.toLowerCase();
-                const componentIds = getPhaseComponentIds(phase, phaseComponents);
+                const colBase       = phase.toLowerCase();
+                const componentIds  = getPhaseComponentIds(phase, phaseComponents);
+                const hasComponents = componentIds.length > 0;
                 return (
                     <React.Fragment key={phase}>
                         {columnsState[`${colBase}_work_status`] !== false && <TableCell />}
                         {columnsState[`${colBase}_approval_status`] !== false && <TableCell />}
                         {columnsState[`${colBase}_take`] !== false && <TableCell />}
+                        {!hasComponents && columnsState[`${colBase}_submitted_at`] !== false && <TableCell />}
                         {componentIds.map(cid => (
                             columnsState[cid] !== false ? <TableCell key={cid} /> : null
                         ))}
@@ -592,7 +618,6 @@ const ShotsDataTableGroup: React.FC<ShotsDataTableProps> = ({
 }) => {
     if (project == null) return null;
 
-    // Hooks must run before any code that depends on their results
     const shotsForThumbnail = shots.map(s => ({
         groups:   [s.group_1, s.group_2, s.group_3],
         relation: s.relation,
