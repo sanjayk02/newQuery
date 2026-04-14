@@ -1,0 +1,30 @@
+const groupTotals = useMemo(() => {
+    const group1ShotCount: { [g1: string]: number } = {};
+    const group1Group2Set: { [g1: string]: Set<string> } = {};
+    const group2ShotCount: { [key: string]: number } = {};  // key = `${g1}/${g2}`
+
+    (sortedAllShots || []).forEach(shot => {
+        const g1 = shot.group_1;
+        const g2 = shot.group_2;
+        const key = `${g1}/${g2}`;
+
+        group1ShotCount[g1] = (group1ShotCount[g1] || 0) + 1;
+        if (!group1Group2Set[g1]) group1Group2Set[g1] = new Set();
+        group1Group2Set[g1].add(g2);
+
+        group2ShotCount[key] = (group2ShotCount[key] || 0) + 1;
+    });
+
+    const group1: { [g1: string]: { totalShots: number; totalGroup2s: number } } = {};
+    Object.keys(group1ShotCount).forEach(g1 => {
+        group1[g1] = {
+            totalShots:   group1ShotCount[g1],
+            totalGroup2s: group1Group2Set[g1].size,
+        };
+    });
+
+    return {
+        group1,
+        group2: group2ShotCount,   // key = `${g1}/${g2}`, value = total shots in that group2
+    };
+}, [sortedAllShots]);
