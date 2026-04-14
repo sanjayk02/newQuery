@@ -1,0 +1,5 @@
+visibleGroup2s={g1data.group2s.length}
+totalGroup2s={
+    (group1Totals[g1data.group1] && group1Totals[g1data.group1].totalGroup2s) 
+    || g1data.group2s.length
+}
