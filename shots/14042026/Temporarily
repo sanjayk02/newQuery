@@ -1,0 +1,4 @@
+   // Temporarily add this log near where group1Totals is computed
+   console.log('DRK101 unique group_2 values:', 
+     Array.from(new Set(sortedAllShots.filter(s => s.group_1 === 'DRK101').map(s => s.group_2)))
+   );
