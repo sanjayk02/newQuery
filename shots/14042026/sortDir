@@ -1,0 +1,33 @@
+<TableCell
+    key={col.id}
+    onClick={orderKey ? () => onSortChange(orderKey) : undefined}
+    style={{
+        backgroundColor: (col.colors && col.colors.backgroundColor) || undefined,
+        borderTop:       lineColor ? borderLine : 'none',
+        borderLeft:      isWork && lineColor ? borderLine : 'none',
+        whiteSpace:      'nowrap',
+        cursor:          orderKey ? 'pointer' : 'default',
+        userSelect:      'none',
+        color:           isActive ? '#fff' : undefined,
+    }}
+>
+    <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        lineHeight: 1,
+    }}>
+        <span>{col.label}</span>
+        {isActive && (
+            <span style={{
+                fontSize: 10,
+                color: '#fcfeffff',
+                lineHeight: '10px',
+                fontWeight: 'bold',
+                marginTop: 2,
+            }}>
+                {sortDir === 'asc' ? '▲' : '▼'}
+            </span>
+        )}
+    </div>
+</TableCell>
