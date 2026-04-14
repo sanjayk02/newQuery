@@ -1,0 +1,22 @@
+<Group2HeaderRow
+    group2={g2data.group2}
+    shots={g2data.shots}
+    visibleShots={g2data.shots.length}
+    totalShots={group2Totals[`${g1data.group1}/${g2data.group2}`] || g2data.shots.length}
+    isExpanded={isGroup2Expanded(g1data.group1, g2data.group2)}
+    onToggle={() => toggleGroup2(g1data.group1, g2data.group2)}
+    columnsState={columnsState}
+    phaseComponents={phaseComponents}
+/>
+
+
+const Group2HeaderRow: React.FC<{
+    group2:          string;
+    shots:           ShotPivot[];
+    visibleShots:    number;
+    totalShots:      number;
+    isExpanded:      boolean;
+    onToggle:        () => void;
+    columnsState:    ColumnState;
+    phaseComponents: { [key: string]: string[] };
+}> = ({ group2, visibleShots, totalShots, isExpanded, onToggle, columnsState, phaseComponents }) => {
