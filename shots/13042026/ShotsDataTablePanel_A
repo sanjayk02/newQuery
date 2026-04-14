@@ -1,0 +1,415 @@
+import React, {
+    FC,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react';
+import { RouteComponentProps } from "react-router-dom";
+import { CircularProgress, Container, Paper, styled } from '@material-ui/core';
+import { TablePaginationProps } from '@material-ui/core/TablePagination';
+import { useShotsPivot, useFetchPipelineSettingShotComponents } from './hooks';
+import { PageProps, ShotPivot } from './types';
+import ShotsDataTable from './ShotsDataTable';
+import ShotsDataTableFooter from './ShotsDataTableFooter';
+import { useCurrentProject } from '../../hooks';
+import { useCurrentStudio } from '../../../studio/hooks';
+import { queryConfig } from '../../../new-pipeline-setting/api';
+import ShotDataTableToolbar, {
+    ViewMode,
+    ColumnState,
+    buildDefaultColumnState,
+} from './ShotDataTableToolbar';
+
+import ShotsDataTableGroup, { getShotSortValue } from './ShotsDataTableGroup';
+
+
+/* ── Styled Components ─────────────────────────────────────────────────── */
+const StyledContainer = styled(Container)(({ theme }) => ({
+    position: 'relative',
+    display: 'flex',
+    flexDirection: 'column',
+    padding: 0,
+    '& > *': {
+        display: 'flex',
+        overflow: 'hidden',
+        padding: theme.spacing(1),
+        paddingBottom: 0,
+    },
+    '& > *:last-child': {
+        paddingBottom: theme.spacing(1),
+    },
+}));
+
+const StyledPaper = styled(Paper)({
+    width: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'auto',
+    flex: '1 1 auto',
+});
+
+const StyledContentDiv = styled('div')(({ theme }) => ({
+    backgroundColor: theme.palette.background.paper,
+    display: 'flex',
+    flexDirection: 'row',
+    gap: theme.spacing(2),
+    width: 'fit-content',
+    minWidth: '100%',
+}));
+
+const StyledTableDiv = styled('div')({
+    paddingBottom: 8,
+    overflowX: 'auto',
+    width: '100%',
+    flex: '1 1 auto',
+    height: '100%',
+});
+
+const ToolBarWrapper = styled('div')(({ theme }) => ({
+    display: 'flex',
+    flexDirection: 'column',
+    gap: theme.spacing(1),
+}));
+
+const FooterWrapper = styled('div')(({ theme }) => ({
+    display:         'flex',
+    justifyContent:  'flex-end',
+    width:           '100%',
+    backgroundColor: theme.palette.background.paper,
+    paddingRight:  theme.spacing(25),
+}));
+
+/* ── Types ─────────────────────────────────────────────────────────────── */
+
+type Filters = {
+    shotGroups:     string[];
+    approvalStatus: string[];
+    workStatus:     string[];
+};
+
+/* ── Main Component ─────────────────────────────────────────────────────── */
+
+const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
+    const [viewMode,     setViewMode]     = useState<ViewMode>('list');
+    const [searchValue,  setSearchValue]  = useState<string>('');
+    const [columnsState, setColumnsState] = useState<ColumnState>({});
+    const [filters,      setFilters]      = useState<Filters>({
+        shotGroups:     [],
+        approvalStatus: [],
+        workStatus:     [],
+    });
+    const [pageProps, setPageProps] = useState<PageProps>({
+        page:        0,
+        rowsPerPage: 15,
+    });
+
+    const [sortKey, setSortKey] = useState<string>('group1_only');
+    const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+    const [groupSortDir, setGroupSortDir] = useState<'asc' | 'desc'>('asc');
+
+    const { currentProject } = useCurrentProject();
+    const { phaseComponents } = useFetchPipelineSettingShotComponents(currentProject);
+
+    // Seed columnsState from phaseComponents once it arrives
+    useEffect(() => {
+        if (Object.keys(phaseComponents || {}).length > 0 &&
+            Object.keys(columnsState).length === 0) {
+            setColumnsState(buildDefaultColumnState(phaseComponents));
+        }
+    }, [phaseComponents, columnsState]);
+
+    // reset page when search or filters change
+    const prevSearchRef   = useRef(searchValue);
+    const prevApprovalRef = useRef(JSON.stringify(filters.approvalStatus));
+    const prevWorkRef     = useRef(JSON.stringify(filters.workStatus));
+
+    const searchOrFilterChanged =
+        prevSearchRef.current   !== searchValue ||
+        prevApprovalRef.current !== JSON.stringify(filters.approvalStatus) ||
+        prevWorkRef.current     !== JSON.stringify(filters.workStatus);
+
+    const effectivePage = searchOrFilterChanged ? 0 : pageProps.page;
+
+    useEffect(() => {
+        if (searchOrFilterChanged) {
+            prevSearchRef.current   = searchValue;
+            prevApprovalRef.current = JSON.stringify(filters.approvalStatus);
+            prevWorkRef.current     = JSON.stringify(filters.workStatus);
+            setPageProps(prev => ({ ...prev, page: 0 }));
+        }
+    }, [
+        searchValue,
+        JSON.stringify(filters.approvalStatus),
+        JSON.stringify(filters.workStatus),
+        JSON.stringify(filters.shotGroups),
+    ]);
+
+    const isGroupView    = viewMode === 'group';
+    const backendPage    = isGroupView ? 1 : effectivePage + 1;  // API is 1-based
+    const backendPerPage = isGroupView ? 10000 : pageProps.rowsPerPage;
+
+    const { shots, total, groupCounts, loading } = useShotsPivot({
+        project:        currentProject,
+        page:           backendPage,
+        perPage:        backendPerPage,
+        nameKey:        searchValue,
+        approvalStatus: filters.approvalStatus,
+        workStatus:     filters.workStatus,
+        orderKey:       isGroupView ? 'group1_only' : sortKey,
+        direction:      isGroupView ? 'ASC' : sortDir.toUpperCase(),
+        shotsGroups:    filters.shotGroups,
+    });
+
+    /* ── Sort ALL shots into canonical hierarchical order ────────────── */
+    const sortedAllShots = useMemo(() => {
+        if (!isGroupView || !shots || shots.length === 0) return shots || [];
+        if (shots.length < total) return [];
+
+        const smartCmp = (a: string, b: string, dir: 'asc' | 'desc' = 'asc') => {
+            const isNumA = /^\d+$/.test(a);
+            const isNumB = /^\d+$/.test(b);
+            let cmp: number;
+            if (isNumA && isNumB) {
+                cmp = parseInt(a, 10) - parseInt(b, 10);
+            } else if (isNumA) {
+                cmp = -1;
+            } else if (isNumB) {
+                cmp = 1;
+            } else {
+                cmp = a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+            }
+            return dir === 'asc' ? cmp : -cmp;
+        };
+
+        const group2Dir: 'asc' | 'desc' =
+            sortKey === 'group2_only' && sortDir === 'desc' ? 'desc' : 'asc';
+
+        const arr = [...shots];
+        arr.sort((a, b) => {
+            // 1. NAME 1 — direction from groupSortDir
+            const g1cmp = a.group_1.toLowerCase().localeCompare(b.group_1.toLowerCase());
+            const g1 = groupSortDir === 'asc' ? g1cmp : -g1cmp;
+            if (g1 !== 0) return g1;
+
+            // 2. NAME 2 — smart sort, direction from sortKey/sortDir
+            const g2 = smartCmp(a.group_2, b.group_2, group2Dir);
+            if (g2 !== 0) return g2;
+
+            // 3. NAME 3 (or phase column) by sortDir
+            const aVal = getShotSortValue(a, sortKey);
+            const bVal = getShotSortValue(b, sortKey);
+
+            const aEmpty = aVal === null || aVal === undefined || aVal === '' || aVal === 0;
+            const bEmpty = bVal === null || bVal === undefined || bVal === '' || bVal === 0;
+            if (aEmpty && bEmpty) return 0;
+            if (aEmpty) return 1;
+            if (bEmpty) return -1;
+
+            if (aVal === bVal) return 0;
+            return sortDir === 'asc'
+                ? (aVal > bVal ? 1 : -1)
+                : (aVal < bVal ? 1 : -1);
+        });
+        return arr;
+    }, [shots, total, isGroupView, sortKey, sortDir, groupSortDir]);
+
+    /* ── Build group1 / group2 totals from full dataset ──────────────── */
+    const groupTotals = useMemo(() => {
+        const group1ShotCount: { [g1: string]: number } = {};
+        const group1Group2Set: { [g1: string]: Set<string> } = {};
+        const group2ShotCount: { [key: string]: number } = {};
+
+        (sortedAllShots || []).forEach(shot => {
+            const g1 = shot.group_1;
+            const g2 = shot.group_2;
+            const key = `${g1}/${g2}`;
+
+            group1ShotCount[g1] = (group1ShotCount[g1] || 0) + 1;
+            if (!group1Group2Set[g1]) group1Group2Set[g1] = new Set();
+            group1Group2Set[g1].add(g2);
+
+            group2ShotCount[key] = (group2ShotCount[key] || 0) + 1;
+        });
+
+        const group1: { [g1: string]: { totalShots: number; totalGroup2s: number } } = {};
+        Object.keys(group1ShotCount).forEach(g1 => {
+            group1[g1] = {
+                totalShots:   group1ShotCount[g1],
+                totalGroup2s: group1Group2Set[g1].size,
+            };
+        });
+
+        return {
+            group1,
+            group2: group2ShotCount,
+        };
+    }, [sortedAllShots]);
+
+    const pagedShots: ShotPivot[] = useMemo(() => {
+        if (!isGroupView) return shots;
+        const start = effectivePage * pageProps.rowsPerPage;
+        const end   = start + pageProps.rowsPerPage;
+        return sortedAllShots.slice(start, end);
+    }, [isGroupView, sortedAllShots, shots, effectivePage, pageProps.rowsPerPage]);
+
+    const displayTotal = total;
+
+    // Keep last non-empty groupCounts so filter menu doesn't empty during reload
+    const stableGroupCounts = useRef<{ [key: string]: number }>({});
+    if (Object.keys(groupCounts).length > 0) {
+        stableGroupCounts.current = groupCounts;
+    }
+
+    const name1Options = useMemo(() => {
+        const entries = Object.entries(stableGroupCounts.current || {})
+            .filter(([key]) => key !== 'Ungrouped');
+
+        const sorted = entries.sort((a, b) => b[1] - a[1]);
+
+        return sorted.map(([key, count]) => ({
+            id: key,
+            label: `${key} (${count})`,
+        }));
+    }, [stableGroupCounts.current, filters.shotGroups]);
+
+    const handleSortChange = (key: string) => {
+        if (sortKey === key) {
+            const newDir = sortDir === 'asc' ? 'desc' : 'asc';
+            setSortDir(newDir);
+        } else {
+            setSortKey(key);
+            setSortDir('asc');
+        }
+    };
+
+    const handleGroupSortToggle = () => {
+        setGroupSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+    };
+
+    // timezone
+    const { currentStudio } = useCurrentStudio();
+    const [timeZone, setTimeZone] = useState<string | undefined>();
+
+    useEffect(() => {
+        if (currentStudio == null) return;
+        const controller = new AbortController();
+        (async () => {
+            try {
+                const res: string | null = await queryConfig(
+                    'studio',
+                    currentStudio.key_name,
+                    'timezone',
+                ).catch(e => {
+                    if (e.name === 'AbortError') return;
+                    throw e;
+                });
+                if (res != null) setTimeZone(res);
+            } catch (e) {
+                console.error(e);
+            }
+        })();
+        return () => controller.abort();
+    }, [currentStudio]);
+
+    const dateTimeFormat = new Intl.DateTimeFormat(
+        undefined,
+        {
+            timeZone,
+            dateStyle: 'medium',
+            timeStyle: 'medium',
+        },
+    );
+
+    const handleRowsPerPageChange: TablePaginationProps['onChangeRowsPerPage'] = event => {
+        setPageProps({ page: 0, rowsPerPage: parseInt(event.target.value) });
+    };
+
+    const handlePageChange: TablePaginationProps['onChangePage'] = (_, newPage) => {
+        setPageProps(prev => ({ ...prev, page: newPage }));
+    };
+
+    const tableFooter = (
+        <ShotsDataTableFooter
+            count={displayTotal}
+            page={effectivePage}
+            rowsPerPage={pageProps.rowsPerPage}
+            onChangePage={handlePageChange}
+            onChangeRowsPerPage={handleRowsPerPageChange}
+        />
+    );
+
+    return (
+        <StyledContainer maxWidth="xl">
+            <ToolBarWrapper>
+                <ShotDataTableToolbar
+                    viewMode={viewMode}
+                    onViewChange={(mode: ViewMode) => setViewMode(mode)}
+                    searchValue={searchValue}
+                    onSearchChange={(value: string) => setSearchValue(value)}
+                    filters={filters}
+                    onFilterChange={(newFilters: Filters) => setFilters(newFilters)}
+                    columnsState={columnsState}
+                    onColumnsChange={setColumnsState}
+                    shotGroupOptions={name1Options}
+                    groupSortDir={groupSortDir}
+                    onGroupSortToggle={handleGroupSortToggle}
+                    phaseComponents={phaseComponents}
+                />
+            </ToolBarWrapper>
+
+            <StyledTableDiv>
+                <StyledPaper>
+                    {loading ? (
+                        <div style={{
+                            padding: 20,
+                            display: 'flex',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                        }}>
+                            <CircularProgress />
+                        </div>
+                    ) : (
+                        <StyledContentDiv>
+                            {viewMode === 'group' ? (
+                                <ShotsDataTableGroup
+                                    project={currentProject}
+                                    shots={pagedShots}
+                                    total={groupCounts}
+                                    group1Totals={groupTotals.group1}
+                                    group2Totals={groupTotals.group2}
+                                    phaseComponents={phaseComponents}
+                                    dateTimeFormat={dateTimeFormat}
+                                    columnsState={columnsState}
+                                    tableFooter={<></>}
+                                    sortKey={sortKey}
+                                    sortDir={sortDir}
+                                    onSortChange={handleSortChange}
+                                />
+                            ) : (
+                                <ShotsDataTable
+                                    project={currentProject}
+                                    shots={shots}
+                                    total={groupCounts}
+                                    phaseComponents={phaseComponents}
+                                    tableFooter={<></>}
+                                    dateTimeFormat={dateTimeFormat}
+                                    columnsState={columnsState}
+                                    sortKey={sortKey}
+                                    sortDir={sortDir}
+                                    onSortChange={handleSortChange}
+                                />
+                            )}
+                        </StyledContentDiv>
+                    )}
+                </StyledPaper>
+            </StyledTableDiv>
+
+            <FooterWrapper>
+                {tableFooter}
+            </FooterWrapper>
+        </StyledContainer>
+    );
+};
+
+export default ShotsDataTablePanel;
