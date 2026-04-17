@@ -1,0 +1,18 @@
+                    >
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                            <span style={{ fontSize: 12, fontWeight: 500, textAlign: 'center' }}>
+                                {col.label}
+                            </span>
+                            {isActive && (
+                                <span style={{
+                                    fontSize: 11,
+                                    color: '#fcfeff',
+                                    lineHeight: '11px',
+                                    fontWeight: 'bold',
+                                    marginTop: 2,
+                                }}>
+                                    {sortDir === 'asc' ? '▲' : '▼'}
+                                </span>
+                            )}
+                        </div>
+                    </TableCell>
