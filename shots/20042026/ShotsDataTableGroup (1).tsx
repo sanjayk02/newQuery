@@ -1,0 +1,766 @@
+import React, { useMemo, useState } from 'react';
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableRow,
+} from '@material-ui/core';
+import {
+    KeyboardArrowDown as ExpandIcon,
+    KeyboardArrowRight as CollapseIcon,
+} from '@material-ui/icons';
+import { ShotPivot, Colors, Column, ColumnState, ShotsDataTableProps } from './types';
+import { useFetchShotThumbnails, useFetchLatestShotComponents } from './hooks';
+
+/* ── Phase Config ───────────────────────────────────────────────────────── */
+
+const SHOT_PHASES: { [key: string]: Colors } = {
+    lay:        { lineColor: '#3295FD', backgroundColor: '#004288' },
+    anm:        { lineColor: '#FD5E63', backgroundColor: '#5c0003' },
+    gnz:        { lineColor: '#C061FD', backgroundColor: '#340055' },
+    mat:        { lineColor: '#FE7DB3', backgroundColor: '#5f0028' },
+    matnuke:    { lineColor: '#FE7DB3', backgroundColor: '#3d0019' },
+    fx:         { lineColor: '#FDCD44', backgroundColor: '#CCA537' },
+    cmp:        { lineColor: '#D5F762', backgroundColor: '#4a6101' },
+    dsp:        { lineColor: '#FFD35D', backgroundColor: '#FFB54C' },
+    cloth:      { lineColor: '#FE9880', backgroundColor: '#FE8359' },
+    cfxhair:    { lineColor: '#FDA342', backgroundColor: '#FD8D03' },
+    crd:        { lineColor: '#FF8C12', backgroundColor: '#E88600' },
+    drw:        { lineColor: '#FDC0FF', backgroundColor: '#FDAFFB' },
+    rtcgnz:     { lineColor: '#D38AFF', backgroundColor: '#C061FD' },
+    rtcmat:     { lineColor: '#FFA3C5', backgroundColor: '#FE7DB3' },
+    rtcmatnuke: { lineColor: '#FFC4B4', backgroundColor: '#FEAD92' },
+    rtcdrw:     { lineColor: '#FFC3FC', backgroundColor: '#FDAFFB' },
+};
+
+const DEFAULT_PHASE_COLORS: Colors = { lineColor: '#888', backgroundColor: '#444' };
+
+const getPhaseColors = (phase: string): Colors => {
+    return SHOT_PHASES[phase.toLowerCase()] || DEFAULT_PHASE_COLORS;
+};
+
+const getOrderedPhases = (phaseComponents: { [key: string]: string[] }): string[] => {
+    const knownOrder    = Object.keys(SHOT_PHASES);
+    const settingPhases = Object.keys(phaseComponents || {});
+    const settingByLower: { [key: string]: string } = {};
+    settingPhases.forEach(s => { settingByLower[s.toLowerCase()] = s; });
+
+    const ordered: string[] = [];
+    knownOrder.forEach(p => {
+        if (settingByLower[p]) ordered.push(settingByLower[p]);
+        else ordered.push(p);
+    });
+    settingPhases.forEach(s => {
+        if (!knownOrder.includes(s.toLowerCase())) ordered.push(s);
+    });
+    return ordered;
+};
+
+/* Component IDs for a phase, filtered to exclude entries that share the
+   phase's own name (those would render as a redundant "ANM SUBMITTED"
+   inside the ANM phase, etc.). */
+const getPhaseComponentIds = (
+    phase: string,
+    phaseComponents: { [key: string]: string[] },
+): string[] => {
+    const ids = (phaseComponents && phaseComponents[phase]) || [];
+    return ids.filter(id => id.toLowerCase() !== phase.toLowerCase());
+};
+
+/* ── Status Maps ────────────────────────────────────────────────────────── */
+
+type Status = Readonly<{ displayName: string; color: string }>;
+
+const APPROVAL_STATUS: { [key: string]: Status } = {
+    check:          { displayName: 'Check',           color: '#ca25ed' },
+    clientReview:   { displayName: 'Client Review',   color: '#005fbd' },
+    dirReview:      { displayName: 'Dir Review',      color: '#007fff' },
+    epdReview:      { displayName: 'EPD Review',      color: '#4fa7ff' },
+    clientOnHold:   { displayName: 'Client On Hold',  color: '#d69b00' },
+    dirOnHold:      { displayName: 'Dir On Hold',     color: '#ffcc00' },
+    epdOnHold:      { displayName: 'EPD On Hold',     color: '#ffdd55' },
+    execRetake:     { displayName: 'Exec Retake',     color: '#a60000' },
+    clientRetake:   { displayName: 'Client Retake',   color: '#c60000' },
+    dirRetake:      { displayName: 'Dir Retake',      color: '#ff0000' },
+    epdRetake:      { displayName: 'EPD Retake',      color: '#ff4f4f' },
+    clientApproved: { displayName: 'Client Approved', color: '#1d7c39' },
+    dirApproved:    { displayName: 'Dir Approved',    color: '#27ab4f' },
+    epdApproved:    { displayName: 'EPD Approved',    color: '#5cda82' },
+    svApproved:     { displayName: 'SV Approved',     color: '#83e29f' },
+    other:          { displayName: 'Other',           color: '#9a9a9a' },
+    omit:           { displayName: 'Omit',            color: '#646464' },
+};
+
+const WORK_STATUS: { [key: string]: Status } = {
+    check:        { displayName: 'Check',         color: '#e287f5' },
+    cgsvOnHold:   { displayName: 'CGSV On Hold',  color: '#ffdd55' },
+    svOnHold:     { displayName: 'SV On Hold',    color: '#ffe373' },
+    leadOnHold:   { displayName: 'Lead On Hold',  color: '#fff04f' },
+    cgsvRetake:   { displayName: 'CGSV Retake',   color: '#ff4f4f' },
+    svRetake:     { displayName: 'SV Retake',     color: '#ff8080' },
+    leadRetake:   { displayName: 'Lead Retake',   color: '#ffbbbb' },
+    cgsvApproved: { displayName: 'CGSV Approved', color: '#5cda82' },
+    svApproved:   { displayName: 'SV Approved',   color: '#83e29f' },
+    leadApproved: { displayName: 'Lead Approved', color: '#b9eec9' },
+    svOther:      { displayName: 'SV Other',      color: '#9a9a9a' },
+    leadOther:    { displayName: 'Lead Other',    color: '#dbdbdb' },
+};
+
+/* ── Column Builder ─────────────────────────────────────────────────────── */
+
+const buildColumns = (phaseComponents: { [key: string]: string[] }): Column[] => {
+    const fixed: Column[] = [
+        { id: 'thumbnail',    label: 'THUMBNAIL', fixed: true },
+        { id: 'group_1_name', label: 'NAME 1',    fixed: true },
+        { id: 'group_2_name', label: 'NAME 2',    fixed: true },
+        { id: 'group_3_name', label: 'NAME 3',    fixed: true },
+    ];
+
+    const orderedPhases = getOrderedPhases(phaseComponents);
+
+    const phaseCols: Column[] = orderedPhases.flatMap(p => {
+        const colors  = getPhaseColors(p);
+        const label   = p.toUpperCase();
+        const colBase = p.toLowerCase();
+
+        const base: Column[] = [
+            { id: `${colBase}_approval_status`, label: `${label} APPR`, colors },
+            { id: `${colBase}_work_status`,     label: `${label} WORK`, colors },
+            { id: `${colBase}_take`,            label: `${label} TAKE`, colors },
+        ];
+
+        const componentIds = getPhaseComponentIds(p, phaseComponents);
+
+        if (componentIds.length === 0) {
+            // Fallback: phase has no pipeline components, show phase-level submitted_at
+            base.push({
+                id:    `${colBase}_submitted_at`,
+                label: `${label} SUBMITTED`,
+                colors,
+            });
+        }
+
+        const compCols: Column[] = componentIds.map(id => ({
+            id,
+            label: `${id.toUpperCase()} SUBMITTED`,
+            colors,
+        }));
+
+        return [...base, ...compCols];
+    });
+
+    return [...fixed, ...phaseCols, { id: 'relation', label: 'RELATION' }];
+};
+
+/* ── Sort Helpers ───────────────────────────────────────────────────────── */
+
+export const getShotSortValue = (
+    shot: ShotPivot,
+    sortKey: string,
+    latestComponents?: { [key: string]: any[] },
+): any => {
+    if (sortKey === 'group3_only')   return shot.group_3.toLowerCase();
+    if (sortKey === 'relation_only') return shot.relation.toLowerCase();
+
+    if (sortKey.startsWith('component:')) {
+        const componentId = sortKey.substring('component:'.length);
+        const compKey = `${shot.group_1}-${shot.group_2}-${shot.group_3}-${shot.relation}`;
+        const componentList = (latestComponents && latestComponents[compKey]) || [];
+        const item =
+            componentList.find((x: any) => x.component === componentId) ||
+            componentList.find(
+                (x: any) =>
+                    x.component &&
+                    x.component.toLowerCase() === componentId.toLowerCase(),
+            );
+        const submittedAt =
+            item && item.latest_document && item.latest_document.submitted_at_utc;
+        if (!submittedAt) return 0;
+        const d = new Date(submittedAt);
+        return isNaN(d.getTime()) ? 0 : d.getTime();
+    }
+
+    const underscoreIdx = sortKey.indexOf('_');
+    if (underscoreIdx === -1) return '';
+    const phase = sortKey.substring(0, underscoreIdx);
+    const field = sortKey.substring(underscoreIdx + 1);
+    const pd    = shot.phases[phase];
+    if (!pd) return '';
+
+    if (field === 'submitted') {
+        const d = new Date(pd.submitted_at_utc || '');
+        return isNaN(d.getTime()) ? 0 : d.getTime();
+    }
+    if (field === 'take') return parseInt(pd.take || '0', 10) || 0;
+    if (field === 'work') return (pd.work_status     || '').toLowerCase();
+    if (field === 'appr') return (pd.approval_status || '').toLowerCase();
+    return '';
+};
+
+function getOrderKey(
+    colId: string,
+    phaseComponents: { [key: string]: string[] },
+): string | null {
+    
+    if (colId === 'group_2_name') return 'group2_only';
+    if (colId === 'group_3_name') return 'group3_only';
+    if (colId === 'relation')     return 'relation_only';
+
+    const match = colId.match(/^([a-z0-9]+)_(work_status|approval_status|take|submitted_at)$/);
+    if (match) {
+        const [, phase, field] = match;
+        if (field === 'work_status')     return `${phase}_work`;
+        if (field === 'approval_status') return `${phase}_appr`;
+        if (field === 'take')            return `${phase}_take`;
+        if (field === 'submitted_at')    return `${phase}_submitted`;
+    }
+
+    const allComponents = Object.values(phaseComponents || {}).flat();
+    if (allComponents.includes(colId)) {
+        return `component:${colId}`;
+    }
+
+    return null;
+}
+
+/* ── Table Head ─────────────────────────────────────────────────────────── */
+
+const GroupTableHead: React.FC<{
+    columns:         Column[];
+    columnsState:    ColumnState;
+    sortKey:         string;
+    sortDir:         'asc' | 'desc';
+    onSortChange:    (key: string) => void;
+    phaseComponents: { [key: string]: string[] };
+}> = ({ columns, sortKey, sortDir, onSortChange, phaseComponents }) => (
+    <TableHead>
+        <TableRow>
+            {columns.map(col => {
+                const lineColor  = col.colors && col.colors.lineColor;
+                const borderLine = lineColor ? `solid 3px ${lineColor}` : 'none';
+                const isAppr     = col.id.endsWith('_approval_status');
+                const orderKey   = getOrderKey(col.id, phaseComponents);
+                const isActive   = orderKey !== null && orderKey === sortKey;
+
+                return (
+                    <TableCell
+                        key={col.id}
+                        onClick={orderKey ? () => onSortChange(orderKey) : undefined}
+                        style={{
+                            backgroundColor: (col.colors && col.colors.backgroundColor) || undefined,
+                            borderTop:       lineColor ? borderLine : 'none',
+                            borderLeft:      isAppr && lineColor ? borderLine : 'none',
+                            whiteSpace:      'nowrap',
+                            cursor:          orderKey ? 'pointer' : 'default',
+                            userSelect:      'none',
+                            color:           isActive ? '#fff' : undefined,
+                        }}
+                    >
+                        <div style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            lineHeight: 1,
+                        }}>
+                            <span>{col.label}</span>
+                            {isActive && (
+                                <span style={{
+                                    fontSize: 10,
+                                    color: '#fcfeffff',
+                                    lineHeight: '10px',
+                                    fontWeight: 'bold',
+                                    marginTop: 2,
+                                }}>
+                                    {sortDir === 'asc' ? '▲' : '▼'}
+                                </span>
+                            )}
+                        </div>
+                    </TableCell>
+                );
+            })}
+        </TableRow>
+    </TableHead>
+);
+
+/* ── Shot Data Row ──────────────────────────────────────────────────────── */
+
+const ShotDataRow: React.FC<{
+    shot:             ShotPivot;
+    thumbnails:       { [key: string]: string };
+    dateTimeFormat:   Intl.DateTimeFormat;
+    columnsState:     ColumnState;
+    isLastRow:        boolean;
+    phaseComponents:  { [key: string]: string[] };
+    latestComponents: { [key: string]: any[] };
+}> = ({ shot, thumbnails, dateTimeFormat, columnsState, isLastRow, phaseComponents, latestComponents }) => {
+    const thumbKey = `${shot.group_1}-${shot.group_2}-${shot.group_3}-${shot.relation}`;
+    const compKey  = `${shot.group_1}-${shot.group_2}-${shot.group_3}-${shot.relation}`;
+
+    const orderedPhases = getOrderedPhases(phaseComponents);
+
+    return (
+        <TableRow>
+            {/* Thumbnail */}
+            <TableCell>
+                {thumbnails[thumbKey] ? (
+                    <img src={thumbnails[thumbKey]} alt="" style={{ width: 80, height: 'auto' }} />
+                ) : (
+                    <span style={{ color: '#bdbdbd', fontSize: 10 }}>No Thumbnail</span>
+                )}
+            </TableCell>
+
+            {/* NAME 1 — empty, shown in group_1 header */}
+            <TableCell />
+
+            {/* NAME 2 — empty, shown in group_2 header */}
+            <TableCell />
+
+            {/* NAME 3 */}
+            <TableCell style={{ fontWeight: 500 }}>
+                {shot.group_3}
+            </TableCell>
+
+            {/* Phase columns (dynamic) */}
+            {orderedPhases.map((phase, phaseIdx) => {
+                const colors      = getPhaseColors(phase);
+                const lineColor   = colors.lineColor;
+                const borderLine  = `solid 3px ${lineColor}`;
+                const isLastPhase = phaseIdx === orderedPhases.length - 1;
+
+                const phaseData =
+                    (shot.phases && shot.phases[phase]) ||
+                    (shot.phases && shot.phases[phase.toLowerCase()]);
+
+                const colBase      = phase.toLowerCase();
+                const workCol      = `${colBase}_work_status`;
+                const apprCol      = `${colBase}_approval_status`;
+                const takeCol      = `${colBase}_take`;
+                const submittedCol = `${colBase}_submitted_at`;
+
+                const workStatus =
+                    phaseData && phaseData.work_status && phaseData.work_status !== '-'
+                        ? WORK_STATUS[phaseData.work_status]
+                        : undefined;
+                const approvalStatus =
+                    phaseData && phaseData.approval_status && phaseData.approval_status !== '-'
+                        ? APPROVAL_STATUS[phaseData.approval_status]
+                        : undefined;
+
+                const componentIds  = getPhaseComponentIds(phase, phaseComponents);
+                const hasComponents = componentIds.length > 0;
+
+                return (
+                    <React.Fragment key={phase}>
+                        {/* Approval Status */}
+                        {columnsState[apprCol] !== false && (
+                            <TableCell style={{
+                                color:      (approvalStatus && approvalStatus.color) || '',
+                                borderLeft: borderLine,
+                                whiteSpace: 'nowrap',
+                            }}>
+                                {(approvalStatus && approvalStatus.displayName) || '–'}
+                            </TableCell>
+                        )}
+
+                        {/* Work Status */}
+                        {columnsState[workCol] !== false && (
+                            <TableCell style={{
+                                color:      (workStatus && workStatus.color) || '',
+                                whiteSpace: 'nowrap',
+                            }}>
+                                {(workStatus && workStatus.displayName) || '–'}
+                            </TableCell>
+                        )}
+
+                        {/* Take */}
+                        {columnsState[takeCol] !== false && (
+                            <TableCell style={{
+                                whiteSpace: 'nowrap',
+                            }}>
+                                {(phaseData && phaseData.take) || '–'}
+                            </TableCell>
+                        )}
+
+                        {/* Fallback Submitted At — only when phase has no pipeline components */}
+                        {!hasComponents && columnsState[submittedCol] !== false && (
+                            <TableCell style={{
+                                whiteSpace:  'nowrap',
+                                borderRight: isLastPhase ? borderLine : 'none',
+                            }}>
+                                {phaseData && phaseData.submitted_at_utc
+                                    ? dateTimeFormat.format(new Date(phaseData.submitted_at_utc))
+                                    : '–'}
+                            </TableCell>
+                        )}
+
+                        {/* Dynamic component columns from pipeline settings */}
+                        {componentIds.map((componentId, compIdx) => {
+                            if (columnsState[componentId] === false) return null;
+
+                            const componentList =
+                                (latestComponents && latestComponents[compKey]) || [];
+                            const item =
+                                componentList.find((x: any) => x.component === componentId) ||
+                                componentList.find(
+                                    (x: any) =>
+                                        x.component &&
+                                        x.component.toLowerCase() === componentId.toLowerCase(),
+                                );
+                            const submittedAt =
+                                item && item.latest_document && item.latest_document.submitted_at_utc;
+                            const text = submittedAt
+                                ? dateTimeFormat.format(new Date(submittedAt))
+                                : '–';
+
+                            const isLastComponentOfLastPhase =
+                                isLastPhase && compIdx === componentIds.length - 1;
+
+                            return (
+                                <TableCell
+                                    key={componentId}
+                                    style={{
+                                        whiteSpace:  'nowrap',
+                                        borderRight: isLastComponentOfLastPhase ? borderLine : 'none',
+                                    }}
+                                >
+                                    {text}
+                                </TableCell>
+                            );
+                        })}
+                    </React.Fragment>
+                );
+            })}
+
+            {/* Relation */}
+            {columnsState['relation'] !== false && (
+                <TableCell>{shot.relation}</TableCell>
+            )}
+        </TableRow>
+    );
+};
+
+/* ── Group2 Header Row ──────────────────────────────────────────────────── */
+
+const Group2HeaderRow: React.FC<{
+    group2:          string;
+    shots:           ShotPivot[];
+    visibleShots:    number;
+    totalShots:      number;
+    isExpanded:      boolean;
+    onToggle:        () => void;
+    columnsState:    ColumnState;
+    phaseComponents: { [key: string]: string[] };
+}> = ({ group2, visibleShots, totalShots, isExpanded, onToggle, columnsState, phaseComponents }) => {
+    const orderedPhases = getOrderedPhases(phaseComponents);
+
+    return (
+        <TableRow
+            onClick={onToggle}
+            style={{
+                cursor: 'pointer',
+                backgroundColor: 'rgba(255,255,255,0.04)',
+            }}
+        >
+            <TableCell />
+            <TableCell />
+
+            {/* NAME 2 */}
+            <TableCell style={{
+                fontWeight: 500,
+                color: '#ffffff',
+                whiteSpace: 'nowrap',
+            }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {isExpanded
+                        ? <ExpandIcon fontSize="small" />
+                        : <CollapseIcon fontSize="small" />
+                    }
+                    {group2}
+                    <span style={{ color: '#00b7ff', fontSize: 11 }}>
+                        ({visibleShots} / {totalShots})
+                    </span>
+                </span>
+            </TableCell>
+
+            <TableCell />
+
+            {/* Empty phase cells (dynamic) */}
+            {orderedPhases.map(phase => {
+                const colBase       = phase.toLowerCase();
+                const componentIds  = getPhaseComponentIds(phase, phaseComponents);
+                const hasComponents = componentIds.length > 0;
+                return (
+                    <React.Fragment key={phase}>
+                        {columnsState[`${colBase}_approval_status`] !== false && <TableCell />}
+                        {columnsState[`${colBase}_work_status`] !== false && <TableCell />}
+                        {columnsState[`${colBase}_take`] !== false && <TableCell />}
+                        {!hasComponents && columnsState[`${colBase}_submitted_at`] !== false && <TableCell />}
+                        {componentIds.map(cid => (
+                            columnsState[cid] !== false ? <TableCell key={cid} /> : null
+                        ))}
+                    </React.Fragment>
+                );
+            })}
+
+            {columnsState['relation'] !== false && <TableCell />}
+        </TableRow>
+    );
+};
+
+/* ── Group1 Header Row ──────────────────────────────────────────────────── */
+
+const Group1HeaderRow: React.FC<{
+    group1:          string;
+    allShots:        ShotPivot[];
+    visibleGroup2s:  number;
+    totalGroup2s:     number;
+    isExpanded:      boolean;
+    onToggle:        () => void;
+    columnsState:    ColumnState;
+    visibleCols:     number;
+    phaseComponents: { [key: string]: string[] };
+}> = ({ group1, allShots, visibleGroup2s, totalGroup2s, isExpanded, onToggle, columnsState, phaseComponents }) => {
+    const orderedPhases = getOrderedPhases(phaseComponents);
+
+    return (
+        <TableRow
+            onClick={onToggle}
+            style={{
+                cursor: 'pointer',
+                backgroundColor: 'rgba(255,255,255,0.07)',
+            }}
+        >
+            <TableCell />
+
+            {/* NAME 1 */}
+            <TableCell style={{
+                fontWeight: 500,
+                color: '#ffffff',
+                whiteSpace: 'nowrap',
+            }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {isExpanded
+                        ? <ExpandIcon fontSize="small" />
+                        : <CollapseIcon fontSize="small" />
+                    }
+                    {group1}
+                    <span style={{ color: '#00b7ff', fontSize: 11 }}>
+                        ({visibleGroup2s} / {totalGroup2s})
+                    </span>
+                </span>
+            </TableCell>
+
+            <TableCell />
+            <TableCell />
+
+            {/* Empty phase cells (dynamic) */}
+            {orderedPhases.map(phase => {
+                const colBase       = phase.toLowerCase();
+                const componentIds  = getPhaseComponentIds(phase, phaseComponents);
+                const hasComponents = componentIds.length > 0;
+                return (
+                    <React.Fragment key={phase}>
+                        {columnsState[`${colBase}_approval_status`] !== false && <TableCell />}
+                        {columnsState[`${colBase}_work_status`] !== false && <TableCell />}
+                        {columnsState[`${colBase}_take`] !== false && <TableCell />}
+                        {!hasComponents && columnsState[`${colBase}_submitted_at`] !== false && <TableCell />}
+                        {componentIds.map(cid => (
+                            columnsState[cid] !== false ? <TableCell key={cid} /> : null
+                        ))}
+                    </React.Fragment>
+                );
+            })}
+
+            {columnsState['relation'] !== false && <TableCell />}
+        </TableRow>
+    );
+};
+
+/* ── Grouped Data Builder ───────────────────────────────────────────────── */
+
+type Group2Data = { group2: string; shots:  ShotPivot[] };
+type Group1Data = { group1: string; group2s: Group2Data[]; allShots: ShotPivot[] };
+
+const naturalCompare = (a: string, b: string) =>
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+
+const smartSortGroup2 = (a: string, b: string, dir: 'asc' | 'desc' = 'asc') => {
+    const isNumA = /^\d+$/.test(a);
+    const isNumB = /^\d+$/.test(b);
+
+    let cmp: number;
+    if (isNumA && isNumB) {
+        cmp = parseInt(a, 10) - parseInt(b, 10);
+    } else if (isNumA) {
+        cmp = -1; // numeric always comes first in asc
+    } else if (isNumB) {
+        cmp = 1;
+    } else {
+        cmp = naturalCompare(a, b);
+    }
+
+    return dir === 'asc' ? cmp : -cmp;
+};
+
+
+const buildGroupedData = (
+    shots: ShotPivot[],
+    group2Dir: 'asc' | 'desc' = 'asc',
+): Group1Data[] => {
+    const map = new Map<string, Map<string, ShotPivot[]>>();
+
+    for (const shot of shots) {
+        if (!map.has(shot.group_1)) map.set(shot.group_1, new Map());
+        const g2map = map.get(shot.group_1)!;
+        if (!g2map.has(shot.group_2)) g2map.set(shot.group_2, []);
+        g2map.get(shot.group_2)!.push(shot);
+    }
+
+    const sortedGroup1Keys = Array.from(map.keys()).sort((a, b) =>
+        a.toLowerCase().localeCompare(b.toLowerCase()),
+    );
+
+    return sortedGroup1Keys.map(group1 => {
+        const g2map = map.get(group1)!;
+        const sortedGroup2Keys = Array.from(g2map.keys()).sort((a, b) =>
+            smartSortGroup2(a, b, group2Dir),
+        );
+
+        const group2s: Group2Data[] = sortedGroup2Keys.map(group2 => ({
+            group2,
+            shots: g2map.get(group2)!,
+        }));
+
+        return { group1, group2s, allShots: group2s.flatMap(g => g.shots) };
+    });
+};
+
+/* ── Main Component ─────────────────────────────────────────────────────── */
+
+const ShotsDataTableGroup: React.FC<ShotsDataTableProps> = ({
+    project,
+    shots,
+    dateTimeFormat,
+    columnsState,
+    sortKey,
+    sortDir,
+    onSortChange,
+    phaseComponents,
+    group1Totals = {},
+    group2Totals = {},
+}) => {
+    if (project == null) return null;
+
+    const shotsForThumbnail = shots.map(s => ({
+        groups:   [s.group_1, s.group_2, s.group_3],
+        relation: s.relation,
+    }));
+    const { thumbnails }       = useFetchShotThumbnails(project, shotsForThumbnail);
+    const { latestComponents } = useFetchLatestShotComponents(
+        project, shotsForThumbnail, phaseComponents,
+    );
+
+    const sortedShots = [...shots];
+    if (sortKey) {
+        sortedShots.sort((a, b) => {
+            const aVal = getShotSortValue(a, sortKey, latestComponents);
+            const bVal = getShotSortValue(b, sortKey, latestComponents);
+            const aEmpty = aVal === null || aVal === undefined || aVal === '' || aVal === 0;
+            const bEmpty = bVal === null || bVal === undefined || bVal === '' || bVal === 0;
+            if (aEmpty && bEmpty) return 0;
+            if (aEmpty) return 1;
+            if (bEmpty) return -1;
+            if (aVal === bVal) return 0;
+            return sortDir === 'asc' ? (aVal > bVal ? 1 : -1) : (aVal < bVal ? 1 : -1);
+        });
+    }
+    const group2Dir: 'asc' | 'desc' =
+        sortKey === 'group2_only' && (sortDir === 'asc' || sortDir === 'desc') ? sortDir : 'asc';
+        
+
+    const grouped = useMemo(() => buildGroupedData(sortedShots, group2Dir), [sortedShots, group2Dir]);
+
+    const [expandedGroup1, setExpandedGroup1] = useState<{ [key: string]: boolean }>({});
+    const [expandedGroup2, setExpandedGroup2] = useState<{ [key: string]: boolean }>({});
+
+    const isGroup1Expanded = (g1: string) => expandedGroup1[g1] !== false;
+    const isGroup2Expanded = (g1: string, g2: string) => expandedGroup2[`${g1}/${g2}`] !== false;
+
+    const toggleGroup1 = (g1: string) =>
+        setExpandedGroup1(prev => ({ ...prev, [g1]: !isGroup1Expanded(g1) }));
+
+    const toggleGroup2 = (g1: string, g2: string) =>
+        setExpandedGroup2(prev => ({
+            ...prev,
+            [`${g1}/${g2}`]: !isGroup2Expanded(g1, g2),
+        }));
+
+    const allColumns     = buildColumns(phaseComponents);
+    const visibleColumns = allColumns.filter(
+        col => col.fixed || columnsState[col.id] !== false,
+    );
+
+    return (
+        <Table stickyHeader style={{ tableLayout: 'fixed', width: 'auto' }}>
+            <GroupTableHead
+                columns={visibleColumns}
+                columnsState={columnsState}
+                sortKey={sortKey}
+                sortDir={sortDir === 'asc' || sortDir === 'desc' ? sortDir : 'asc'}
+                onSortChange={onSortChange}
+                phaseComponents={phaseComponents}
+            />
+            <TableBody>
+                {grouped.map(g1data => (
+                    <React.Fragment key={g1data.group1}>
+                        <Group1HeaderRow
+                            group1={g1data.group1}
+                            allShots={g1data.allShots}
+                            visibleGroup2s={g1data.group2s.length}
+                            totalGroup2s={
+                                (group1Totals[g1data.group1] && group1Totals[g1data.group1].totalGroup2s) 
+                                || g1data.group2s.length}
+                            isExpanded={isGroup1Expanded(g1data.group1)}
+                            onToggle={() => toggleGroup1(g1data.group1)}
+                            columnsState={columnsState}
+                            visibleCols={visibleColumns.length}
+                            phaseComponents={phaseComponents}
+                        />
+
+                        {isGroup1Expanded(g1data.group1) && g1data.group2s.map(g2data => (
+                            <React.Fragment key={`${g1data.group1}/${g2data.group2}`}>
+                                <Group2HeaderRow
+                                    group2={g2data.group2}
+                                    shots={g2data.shots}
+                                    visibleShots={g2data.shots.length}
+                                    totalShots={group2Totals[`${g1data.group1}/${g2data.group2}`] || g2data.shots.length}
+                                    isExpanded={isGroup2Expanded(g1data.group1, g2data.group2)}
+                                    onToggle={() => toggleGroup2(g1data.group1, g2data.group2)}
+                                    columnsState={columnsState}
+                                    phaseComponents={phaseComponents}
+                                />
+                                {isGroup2Expanded(g1data.group1, g2data.group2) &&
+                                    g2data.shots.map((shot, idx) => (
+                                        <ShotDataRow
+                                            key={`${shot.group_1}-${shot.group_2}-${shot.group_3}-${shot.relation}-${idx}`}
+                                            shot={shot}
+                                            thumbnails={thumbnails}
+                                            dateTimeFormat={dateTimeFormat}
+                                            columnsState={columnsState}
+                                            isLastRow={idx === g2data.shots.length - 1}
+                                            phaseComponents={phaseComponents}
+                                            latestComponents={latestComponents}
+                                        />
+                                    ))
+                                }
+                            </React.Fragment>
+                        ))}
+                    </React.Fragment>
+                ))}
+            </TableBody>
+        </Table>
+    );
+};
+
+export default ShotsDataTableGroup;
