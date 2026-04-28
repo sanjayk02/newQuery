@@ -632,14 +632,18 @@ const ColumnSelector: React.FC<{
       <FilterButtonWrap>
         <Button
           variant="contained"
-          color="primary"
-          startIcon={<ViewColumnIcon />}
-          endIcon={<ArrowDropDownIcon />}
+          startIcon={<ViewColumnIcon style={{ color: '#00b7ff' }} />}
+          endIcon={<ArrowDropDownIcon style={{ color: '#00b7ff' }} />}
           onClick={() => setOpen(true)}
           style={{
             borderRadius: 4,
             paddingLeft: 5,
             paddingRight: 5,
+            backgroundColor: '#2c3e50',
+            color: '#00b7ff',
+            fontWeight: 500,
+            textTransform: 'none',
+            boxShadow: 'none',
           }}
         >
           {`COLUMNS (${activeColumnCount + 4}/${allColumns.length})`}
