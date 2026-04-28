@@ -57,17 +57,6 @@ const ToggleContainer = styled(Box)({
   borderRadius: 4,
 });
 
-const SearchContainer = styled(Box)(({ theme }) => ({
-  display: "flex",
-  alignItems: "center",
-  backgroundColor: theme.palette.background.default,
-  borderRadius: 6,
-  padding: "4px 12px",
-  border: `1px solid ${theme.palette.divider}`,
-  height: 30,
-  width: 200,
-}));
-
 // Asset-style rounded pill wrapper for COLUMNS button
 const FilterButtonWrap = styled('div')({
   border: '1px solid rgba(55, 35, 165, 0.08)',
@@ -880,31 +869,29 @@ const ShotDataTableToolbar: React.FC<Props> = ({
       </LeftSection>
 
       <RightSection>
-        <SearchContainer>
-          <TextField
-            placeholder={searchValue.trim().length >= 3 ? "Searching groups" : "Search groups..."}
-            variant="outlined"
-            value={searchValue}
-            onChange={(e) => onSearchChange(e.target.value)}
-            InputProps={{
-              style: {
-                height: 28,
-                width: 320,
-                fontSize: 12,
-              },
-              endAdornment: searchValue.trim().length >= 3 ? (
-                <InputAdornment position="end">
-                  <IconButton
-                    size="small"
-                    onClick={() => onSearchChange('')}
-                  >
-                    <ClearIcon style={{ fontSize: 16, color: '#888' }} />
-                  </IconButton>
-                </InputAdornment>
-              ) : null,
-            }}
-          />
-        </SearchContainer>
+        <TextField
+          placeholder={searchValue.trim().length >= 3 ? "Searching groups" : "Search groups..."}
+          variant="outlined"
+          value={searchValue}
+          onChange={(e) => onSearchChange(e.target.value)}
+          InputProps={{
+            style: {
+              height: 28,
+              width: 320,
+              fontSize: 12,
+            },
+            endAdornment: searchValue.trim().length >= 3 ? (
+              <InputAdornment position="end">
+                <IconButton
+                  size="small"
+                  onClick={() => onSearchChange('')}
+                >
+                  <ClearIcon style={{ fontSize: 16, color: '#888' }} />
+                </IconButton>
+              </InputAdornment>
+            ) : null,
+          }}
+        />
 
         <FilterMenu
           filters={filters}
