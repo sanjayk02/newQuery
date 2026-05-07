@@ -673,7 +673,11 @@ const AssetGroupedDataRow: React.FC<AssetGroupedDataRowProps> = ({
 
   // Hover state — gives the row a light-blue highlight on mouse over.
   const [isHovered, setIsHovered] = useState(false);
-  const showRowBg = isRowSelected || isHovered;
+
+  // Highlight colors. Selected wins over hover when both are true.
+  const SELECTED_BG = 'rgba(173, 216, 230, 0.4)'; // light blue — click/selected color
+  const HOVER_BG    = 'rgba(173, 216, 230, 0.4)'; // change THIS for the hover color
+  const rowBg       = isRowSelected ? SELECTED_BG : (isHovered ? HOVER_BG : undefined);
 
   return (
     <TableRow
@@ -690,8 +694,8 @@ const AssetGroupedDataRow: React.FC<AssetGroupedDataRowProps> = ({
           <TableCell
             key={col.id}
             align={col.id === "group_1_name" || col.id === "thumbnail" ? "left" : "center"}
-            style={showRowBg
-              ? { ...baseStyle, backgroundColor: 'rgba(173, 216, 230, 0.4)' }
+            style={rowBg
+              ? { ...baseStyle, backgroundColor: rowBg }
               : baseStyle}
           >
             {renderAssetField(asset, col, dateTimeFormat, latestComponents, thumbnails)}
