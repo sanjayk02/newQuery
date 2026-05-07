@@ -1,0 +1,979 @@
+import React, { useCallback, useMemo, useState } from "react";
+import {
+  Box,
+  IconButton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Typography,
+  makeStyles,
+} from "@material-ui/core";
+import ExpandMoreIcon from "@material-ui/icons/ExpandMore";
+import ChevronRightIcon from "@material-ui/icons/ChevronRight";
+import { PivotGroup, SortDir } from "./types";
+import { components } from "react-select";
+
+/* ____________________________________________________________________________________
+    Colors and styling constants for the grouped data table. Adjust these to match your design.
+  ____________________________________________________________________________________*/
+const COLORS = {
+  PAGE_BG: "#3d3d3dff",
+  TABLE_BG: "#3d3d3dff",
+  HEADER_BG: "#3d3d3dff",
+  HEADER_BORDER: "#3d3d3dff",
+  GRID_LINE: "#555555",
+  ROW_BG: "#3d3d3dff",
+  GROUP_BG: "#3a3838ff",
+  GROUP_TEXT: "#00b7ff",
+  TEXT: "#e0e0e0",
+  MUTED: "#bdbdbd",
+
+  // top/bottom edge line for NON-phase columns
+  COL_EDGE: "#6b6b6b",
+
+/* ____________________________________________________________________________________
+    Pipeline phase colors. Each phase has a line color for the vertical rails and a
+    background color for the header and rows. Adjust these to match your project's pipeline design.
+  ____________________________________________________________________________________*/
+  PHASE: {
+    mdl: { lineColor: "#3295fd", backgroundColor: "#354d68" },
+    rig: { lineColor: "#c061fd", backgroundColor: "#5e3568" },
+    bld: { lineColor: "#fc2f8c", backgroundColor: "#5a0028" },
+    dsn: { lineColor: "#98f2bf", backgroundColor: "#045660" },
+    ldv: { lineColor: "#fe5cff", backgroundColor: "#683566" },
+  },
+};
+
+/* ____________________________________________________________________________________
+    UI controls - REDUCED FOR COMPACTNESS
+  ____________________________________________________________________________________*/
+const UI = {
+  ROW_HEIGHT: 54, // Reduced from 54
+  ROW_PAD_Y: 2,
+  ROW_PAD_X: 2, // Reduced from 8
+
+  // ✅ move NAME + THUMB a bit left
+  NAME_PAD_X: 2, // Reduced from 4
+  THUMB_PAD_X: 4, // Reduced from 6
+
+  ROW_GAP_PX: 0,
+  GROUP_ROW_GAP_PX: 0,
+  PHASE_GAP_PX: 0,
+
+  RAIL_PX: 3, // Reduced from 3
+
+  THUMB_WIDTH: 100, // Reduced from 90
+  NAME_WIDTH: 90, // Reduced from 150
+  RELATION_WIDTH: 50, // Reduced from 70
+  PHASE_COL_WIDTH: 85, // Reduced from 97 - KEY REDUCTION
+
+  // ✅ "top & bottom line" thickness in header
+  COL_EDGE_PX: 3, // Reduced from 2
+
+  // ✅ thumbs width/height
+  THUMB_BOX_W: 100, // Reduced from 50
+  THUMB_BOX_H: 80, // Reduced from 28
+  THUMB_RADIUS: 2,
+
+  
+  // ✅ Font sizes matching your image
+  FONT_SIZE_HEADER: 12,    // Column headers
+  FONT_SIZE_CONTENT: 13,   // Content text
+  FONT_SIZE_GROUP: 13,     // Group header text
+};
+
+/* ____________________________________________________________________________________
+    Type definitions for columns. Each column has an ID, label, and optional metadata for
+    sorting and styling. The 'phase' and 'kind' fields are used to identify phase-specific
+    columns and apply appropriate styling and sorting logic. The 'isComponent' flag is used
+    to identify dynamic component columns based on the project's pipeline configuration.
+  ____________________________________________________________________________________*/
+type ColumnId = string;
+
+type Column = {
+  id: ColumnId;
+  label: string;
+  sortable?: boolean;
+  phase?: keyof typeof COLORS.PHASE; // mdl|rig|bld|dsn|ldv
+  kind?: "work" | "appr" | "submitted" | "take";
+  isComponent?: boolean; // true for dynamic component columns (mdlRend, bldAnm, etc.)
+  headerMode?: "phaseKind" | "label";
+};
+
+/* ____________________________________________________________________________________
+    Function to extract the value used for sorting based on the column type. 
+    Handles different logic for "take" columns, "submitted" columns, and dynamic component columns. This ensures
+    consistent sorting behavior across different column types.
+  ____________________________________________________________________________________*/
+const getSortValue = (
+  asset: any,
+  key: string,
+  latestComponents?: Record<string, any>
+) => {
+
+  /* ----------------------------------------
+     TAKE columns (numeric)
+  ---------------------------------------- */
+  const takeMatch = key.match(/^(mdl|rig|bld|dsn|ldv)_take$/i);
+
+  if (takeMatch) {
+    const val = asset[key];
+    return val ? parseInt(String(val).replace(/\D/g, ""), 10) : 0;
+  }
+
+
+  /* ----------------------------------------
+     Phase Submitted columns
+     mdl_submitted, rig_submitted etc
+  ---------------------------------------- */
+  if (key.endsWith("_submitted")) {
+    const date = new Date(asset[key + "_at_utc"] || asset[key]);
+    return isNaN(date.getTime()) ? 0 : date.getTime();
+  }
+
+
+  /* ----------------------------------------
+     Dynamic Component Submitted columns
+     mdlRend, bldAnm, bldRend, dsnImg etc
+  ---------------------------------------- */
+  if (latestComponents) {
+
+    const cleanRelation = (asset.relation || "")
+      .toString()
+      .trim()
+      .replace(/^_+|_+$/g, "");
+
+    const assetKey = `${asset.group_1}-${cleanRelation}`;
+
+    const componentList = latestComponents && latestComponents[assetKey] || [];
+
+    const componentData =
+      componentList.find((item: any) => item.component === key) ||
+      componentList.find(
+        (item: any) =>
+          item.component &&
+          item.component.toLowerCase() === key.toLowerCase()
+      );
+
+    if (
+      componentData && 
+      componentData.latest_document && 
+      componentData.latest_document.submitted_at_utc) {
+
+      const date = new Date(
+        componentData.latest_document.submitted_at_utc
+      );
+
+      return isNaN(date.getTime()) ? 0 : date.getTime();
+    }
+  }
+
+
+  /* ----------------------------------------
+     Default fallback
+  ---------------------------------------- */
+  return asset[key] || "";
+};
+
+
+type Props = {
+  groups?: PivotGroup[];
+  thumbnails?: { [key: string]: string };
+
+  // sorting
+  sortKey: string;
+  sortDir: SortDir;
+  onSortChange: (key: string) => void;
+
+  // group name sorting
+  groupSortDir?: SortDir;
+  onGroupSortToggle?: () => void;
+
+  dateTimeFormat: Intl.DateTimeFormat;
+  hiddenColumns?: Set<string>;
+
+  /** ✅ IMPORTANT: pass footer from Panel so it renders (sticky) */
+  tableFooter?: React.ReactNode;
+
+  latestComponents?: any;
+/* ____________________________________________________________________________________
+    phaseComponents is a mapping of pipeline phases to their respective dynamic components.
+  ____________________________________________________________________________________*/
+  phaseComponents?: { [phase: string]: string[] };
+
+  // row selection (single click highlights the row)
+  selectedRowId?: string | null;
+  onRowSelect?:   (rowId: string | null) => void;
+};
+
+/* ____________________________________________________________________________________
+    Function to build dynamic component columns based on the project's pipeline configuration.
+    For each phase, we check if there are any components defined in the phaseComponents config.
+    If there are, we create a column for each component with appropriate metadata for sorting and styling.
+    This allows the table to adapt to different projects with varying pipeline setups without hardcoding column definitions.
+  ____________________________________________________________________________________*/
+function buildComponentColumns(
+  phase: keyof typeof COLORS.PHASE,
+  phaseComponents: { [phase: string]: string[] } | undefined,
+): Column[] {
+  const componentIds = (phaseComponents && phaseComponents[phase]) || [];
+  return componentIds.map((id) => ({
+    id,
+    label: `${id.toUpperCase()} Submitted`,
+    sortable: true,
+    phase,
+    isComponent: true,
+    headerMode: "label" as const,
+  }));
+}
+
+/* ____________________________________________________________________________________
+    Function to build the full list of columns for the grouped data table. This includes fixed columns
+    like thumbnail and name, as well as dynamic phase columns (WORK/APPR/TAKE) and component columns 
+    based on the phaseComponents config.
+    The column definitions include metadata for sorting and styling, which is used throughout the 
+    table rendering logic to ensure consistent behavior and appearance.
+  ____________________________________________________________________________________*/
+function buildColumns(phaseComponents: { [phase: string]: string[] } | undefined): Column[] {
+  return [
+    { id: "thumbnail",    label: "THUMB" },
+    { id: "group_1_name", label: "NAME", sortable: true },
+
+    // MDL Phase
+    { id: "mdl_appr", label: "MDL Appr", sortable: true, phase: "mdl" as const, kind: "appr" as const },
+    { id: "mdl_work", label: "MDL Work", sortable: true, phase: "mdl" as const, kind: "work" as const },
+    { id: "mdl_take", label: "MDL TAKE", sortable: true, phase: "mdl" as const, kind: "take" as const },
+    ...buildComponentColumns("mdl", phaseComponents),
+
+    // RIG Phase
+    { id: "rig_appr", label: "RIG Appr", sortable: true, phase: "rig" as const, kind: "appr" as const },
+    { id: "rig_work", label: "RIG Work", sortable: true, phase: "rig" as const, kind: "work" as const },
+    { id: "rig_take", label: "RIG TAKE", sortable: true, phase: "rig" as const, kind: "take" as const },
+    ...buildComponentColumns("rig", phaseComponents),
+
+    // BLD Phase
+    { id: "bld_appr", label: "BLD Appr", sortable: true, phase: "bld" as const, kind: "appr" as const },
+    { id: "bld_work", label: "BLD Work", sortable: true, phase: "bld" as const, kind: "work" as const },
+    { id: "bld_take", label: "BLD TAKE", sortable: true, phase: "bld" as const, kind: "take" as const },
+    ...buildComponentColumns("bld", phaseComponents),
+
+    // DSN Phase
+    { id: "dsn_appr", label: "DSN Appr", sortable: true, phase: "dsn" as const, kind: "appr" as const },
+    { id: "dsn_work", label: "DSN Work", sortable: true, phase: "dsn" as const, kind: "work" as const },
+    { id: "dsn_take", label: "DSN TAKE", sortable: true, phase: "dsn" as const, kind: "take" as const },
+    ...buildComponentColumns("dsn", phaseComponents),
+
+    // LDV Phase
+    { id: "ldv_appr", label: "LDV Appr", sortable: true, phase: "ldv" as const, kind: "appr" as const },
+    { id: "ldv_work", label: "LDV Work", sortable: true, phase: "ldv" as const, kind: "work" as const },
+    { id: "ldv_take", label: "LDV TAKE", sortable: true, phase: "ldv" as const, kind: "take" as const },
+    ...buildComponentColumns("ldv", phaseComponents),
+
+    { id: "relation", label: "Relation", sortable: true },
+  ];
+}
+
+/* ____________________________________________________________________________________
+    Styles for the grouped data table using Material-UI's makeStyles. This includes styles for the
+    root container, scroller, table, group headers, and sort indicators. The styles are designed to
+    match the compact design in your image, with adjustments to padding, font sizes, and colors.
+  ____________________________________________________________________________________*/
+const useStyles = makeStyles(() => ({
+  root: {
+    width: "100%",
+    display: "flex",
+    flexDirection: "column",
+    background: COLORS.PAGE_BG,
+    overflow: "hidden",
+  },
+
+  // Scroller doesn't need to scroll — table fills 100% width
+  scroller: {
+    width: "100%",
+    overflowX: "visible",
+    overflowY: "visible",
+    whiteSpace: "pre-wrap",
+  },
+
+  // Table sizes to 100% so all columns fit without horizontal scroll — same behaviour as list view
+  table: {
+    background: COLORS.TABLE_BG,
+    width: "100%",
+    tableLayout: "fixed",
+    borderCollapse: "separate",
+    borderSpacing: 0,
+  },
+
+  groupHeader: {
+    '&:hover': {
+      backgroundColor: `${COLORS.GROUP_BG}dd !important`,
+    },
+  },
+  
+  sortIndicator: {
+    transition: 'color 0.2s ease-in-out',
+  },
+  
+  activeSort: {
+    color: '#00b7ff !important',
+  },
+}));
+
+/* ____________________________________________________________________________________
+    Utility functions for rendering cell content and applying styling logic. This includes:
+    - isEmptyValue: checks if a value is considered empty for display purposes
+    - formatForDisplay: formats a value for display, replacing empty values with a dash
+    - getPhaseMetadata: extracts the start and end columns for each phase to apply rail styling
+    - formatSubmitted: formats submission dates for display in component columns
+    - statusColor: determines the color for approval/work status text based on keywords
+    - renderThumbnail: renders the thumbnail image for an asset
+  ____________________________________________________________________________________*/
+const isEmptyValue = (value: any): boolean => {
+  if (value === null || value === undefined) return true;
+  const str = String(value).trim();
+  return str === '' || str === '-' || str === '—' || str === 'null' || str === 'undefined';
+};
+
+const formatForDisplay = (value: any): string => {
+  if (isEmptyValue(value)) return '—';
+  return String(value).trim();
+};
+
+function getPhaseMetadata(visibleCols: Column[]) {
+  const map: Record<string, { start: string; end: string }> = {};
+  visibleCols.forEach((col) => {
+    if (!col.phase) return;
+    if (!map[col.phase]) map[col.phase] = { start: col.id, end: col.id };
+    else map[col.phase].end = col.id;
+  });
+  return map;
+}
+
+function formatSubmitted(val: any, dateTimeFormat: Intl.DateTimeFormat) {
+  if (isEmptyValue(val)) return '—';
+
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return '—';
+
+    const formatted = dateTimeFormat.format(d);
+    
+
+    return formatted.replace('AM', '\nAM').replace('PM', '\nPM'); // Remove AM/PM for compactness
+  } catch {
+    return '—';
+  }
+}
+
+function statusColor(status?: string) {
+  if (isEmptyValue(status)) return COLORS.MUTED;
+  
+  const s = (status || "").toLowerCase();
+  if (s.includes("approved")) return "#32cd32";
+  if (s.includes("review")) return "#ffa500";
+  if (s.includes("retake")) return "#ff4f4f";
+  if (s.includes("hold")) return "#ffdd55";
+  if (s === "check") return "#e221e2";
+  return COLORS.MUTED;
+}
+
+function renderThumbnail(asset: any, thumbnails?: { [key: string]: string }) {
+  const url = asset.thumbnail_url || asset.thumbnail;
+  const Key = `${asset.group_1}-${asset.relation}`;
+  const thumbUrl = url || (thumbnails && thumbnails[Key]) || null;
+  
+  return (
+    <Box display="flex" alignItems="center" justifyContent="flex-start">
+      <Box
+        display="flex"
+        alignItems="center"
+        justifyContent="center"
+      >
+        {thumbUrl ? (
+          <img
+            src={thumbUrl}
+            alt=""
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              display: "block",
+            }}
+          />
+        ) : (
+          <Typography style={{ 
+            fontSize: 12,
+            }}>
+            No Thumbnail
+          </Typography>
+        )}
+      </Box>
+    </Box>
+  );
+}
+/* ____________________________________________________________________________________
+    Main function to render the content of a cell based on the column type and asset data.
+    Handles different rendering logic for thumbnails, group names, relations, phase columns, and dynamic component columns.
+      - For phase columns (WORK/APPR), it extracts the relevant status and applies color coding.
+      - For TAKE columns, it extracts the numeric take value.
+      - For dynamic component columns, it looks up the latest submission date for that component and formats it.
+    This function centralizes all the logic for how different types of data should be displayed in the table cells.
+  ____________________________________________________________________________________*/
+function renderAssetField(
+  asset: any,
+  col: Column,
+  dateTimeFormat: Intl.DateTimeFormat,
+  latestComponents?: Record<string, any>,
+  thumbnails?: { [key: string]: string }
+) {
+  {/* THUMBNAIL */}
+  if (col.id === "thumbnail") return renderThumbnail(asset, thumbnails);
+
+  {/* GROUP 1 NAME */}
+  if (col.id === "group_1_name") {
+    return (
+      <Typography noWrap style={{ 
+        fontSize: UI.FONT_SIZE_CONTENT, 
+        fontWeight: 500 
+      }}>
+        {formatForDisplay(asset.group_1 || asset.group_1_name)}
+      </Typography>
+    );
+  }
+
+  {/* RELATION */}
+  if (col.id === "relation") {
+    return (
+      <Typography style={{ 
+        fontSize: UI.FONT_SIZE_CONTENT, 
+        fontWeight: 500 
+      }}>
+        {formatForDisplay(asset.relation)}
+      </Typography>
+    );
+  }
+
+  {/* Component columns — identified by col.isComponent flag set in buildComponentColumns() */}
+  if (col.isComponent) {
+    const cleanRelation = (asset.relation || "").toString().trim();
+    const assetKey = `${asset.group_1}-${cleanRelation}`;
+    const componentList: any[] = (latestComponents && latestComponents[assetKey]) || [];
+
+    // Match by component name directly — works for any project config, no hardcoding needed
+    const componentData =
+      componentList.find((item: any) => item.component === col.id) ||
+      componentList.find((item: any) => item.component && item.component.toLowerCase() === col.id.toLowerCase());
+
+    const submittedAt = (componentData && componentData.latest_document && componentData.latest_document.submitted_at_utc) || null;
+    const submittedText = submittedAt ? formatSubmitted(submittedAt, dateTimeFormat) : "—";
+
+    return (
+      <Typography
+        style={{
+          fontSize: UI.FONT_SIZE_CONTENT,
+          whiteSpace: "normal",
+          lineHeight: 1.2,
+        }}
+      >
+        {submittedText}
+      </Typography>
+    );
+  }
+
+  {/* Phase columns (WORK/APPR/SUBMITTED/TAKE) */}
+  if (col.kind === "appr" || col.kind === "work") {
+    const field = col.kind === "work" ? "work_status" : "approval_status";
+    const raw = col.phase ? asset[col.phase + "_" + field] : undefined;
+
+    if (isEmptyValue(raw)) {
+      return <Typography style={{ fontSize: UI.FONT_SIZE_CONTENT }}>—</Typography>;
+    }
+
+    const text = String(raw).trim();
+
+    // Split prefix and status at first capital letter
+    const match = text.match(/^([a-z]+)([A-Z].*)$/);
+
+    let prefix = "";
+    let status = text;
+
+    if (match) {
+      prefix = match[1];
+      status = match[2];
+    }
+
+    return (
+      <Box
+        display="flex"
+        flexDirection="column"
+        alignItems="center"
+        lineHeight={1}
+      >
+        {prefix && (
+          <Typography
+            style={{
+              fontSize: UI.FONT_SIZE_CONTENT,
+              fontWeight: 400,
+              color: "#32cd32", // prefix color (you can change)
+            }}
+          >
+            {prefix}
+          </Typography>
+        )}
+
+        <Typography
+          style={{
+            fontSize: UI.FONT_SIZE_CONTENT,
+            fontWeight: 400,
+            color: statusColor(status),
+          }}
+        >
+          {status}
+        </Typography>
+      </Box>
+    );
+  }
+
+  {/* Phase columns (WORK/APPR/SUBMITTED/TAKE) */}
+  if (col.kind === "take") {
+    const takeValue = col.phase ? asset[col.phase + "_take"] : undefined;
+    let takeText = '—';
+    
+    if (!isEmptyValue(takeValue)) {
+      const rawTake = String(takeValue).trim();
+      takeText = rawTake.slice(-4); // Last 4 characters as fallback
+    }
+    
+    return (
+      <Typography style={{ 
+        fontSize: UI.FONT_SIZE_CONTENT, 
+        fontWeight: 400
+      }}>
+        {takeText}
+      </Typography>
+    );
+  }
+
+}
+
+/* ____________________________________________________________________________________
+    Function to build the style object for a table cell based on the column metadata and phase configuration.
+    This function applies different background colors, text colors, padding, font sizes, and borders based on:
+      - Whether the cell is in the header row or a group row
+      - The phase of the column (if any) to apply phase-specific colors and vertical rails
+      - The position of the column within its phase to apply edge lines and gaps
+    The logic is designed to create a visually distinct table that clearly separates different phases 
+    and highlights important information while maintaining a compact layout.
+  ____________________________________________________________________________________*/
+function buildCellStyle(
+  col: Column,
+  phaseMeta: Record<string, { start: string; end: string }>,
+  opts: { header?: boolean; isGroupRow?: boolean } = {}
+): React.CSSProperties {
+  const { header = false, isGroupRow = false } = opts;
+
+  const meta          = col.phase ? phaseMeta[col.phase] : null;
+  const isPhaseStart  = !!(meta && meta.start === col.id);
+  const isPhaseEnd    = !!(meta && meta.end === col.id);
+
+  const phaseCfg      = col.phase ? COLORS.PHASE[col.phase] : null;
+  const edgeColor     = col.phase ? phaseCfg!.lineColor : COLORS.COL_EDGE;
+
+  const headerBg      = col.phase ? phaseCfg!.backgroundColor : COLORS.HEADER_BG;
+
+  const paddingX =
+    col.id === "group_1_name" ? UI.NAME_PAD_X : col.id === "thumbnail" ? UI.THUMB_PAD_X : UI.ROW_PAD_X;
+
+  const style: React.CSSProperties = {
+    backgroundColor: header ? headerBg : COLORS.ROW_BG,
+    color: header ? "#fff" : COLORS.TEXT,
+    whiteSpace: "normal",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    height: UI.ROW_HEIGHT,
+    padding: `${header ? 4 : UI.ROW_PAD_Y}px ${paddingX}px`,
+    fontSize: header ? UI.FONT_SIZE_HEADER : UI.FONT_SIZE_CONTENT,
+    fontWeight: header ? 500 : 300,
+    borderLeft: "0px",
+    borderRight: "0px",
+    borderBottom: header
+      ? "1px solid " + COLORS.HEADER_BORDER
+      : (isGroupRow ? UI.GROUP_ROW_GAP_PX : UI.ROW_GAP_PX) + "px solid " + COLORS.TABLE_BG,
+  };
+
+  // Shadow logic for header top/bottom lines
+  const shadows: string[] = [];
+  if (header) {
+    shadows.push(`inset 0 ${UI.COL_EDGE_PX}px 0 0 ${edgeColor}`);
+    // shadows.push(`inset 0 -${UI.COL_EDGE_PX}px 0 0 ${edgeColor}`);
+  }
+
+  // Phase rails logic
+  if (col.phase) {
+    const rail = phaseCfg!.lineColor;
+    if (isPhaseStart) shadows.push(`inset ${UI.RAIL_PX}px 0 0 0 ${rail}`);
+    if (isPhaseEnd) shadows.push(`inset -${UI.RAIL_PX}px 0 0 0 ${rail}`);
+
+    // Gap after phase end
+    if (isPhaseEnd) style.borderRight = `1px solid ${phaseCfg!.lineColor}`;
+  } else {
+    // Standard column logic
+    if (col.id === "thumbnail") {
+      style.borderRight = "0px";
+    } else if (col.id === "component") {
+      // ✅ ADDED: Proper terminal rail border for COMPONENT column
+      style.borderRight = `solid ${UI.RAIL_PX}px ${COLORS.COL_EDGE}`; 
+      
+      // Add top/bottom rail shadow in header to complete the box look
+      if (header) {
+          shadows.push(`inset -${UI.RAIL_PX}px 0 0 0 ${COLORS.COL_EDGE}`);
+      }
+    } else {
+      style.borderRight = "1px solid " + (header ? COLORS.HEADER_BORDER : COLORS.GRID_LINE);
+    }
+  }
+
+  if (shadows.length) style.boxShadow = shadows.join(", ");
+
+  return style;
+}
+
+/* ____________________________________________________________________________________
+    Main component to render the grouped data table. This component receives the grouped asset data,
+    sorting state, column visibility settings, and pipeline configuration as props. It builds the full
+    list of columns based on the phaseComponents config, applies column visibility logic, and renders
+    the table with appropriate styles and content for each cell. The component also handles toggling
+    group collapse state and sorting when column headers are clicked.
+  ____________________________________________________________________________________*/
+/* ──────────────────────────────────────────────────────────────────────────
+  Per-row data component for the grouped table.
+  Owns its own hover state so the row gets a light-blue highlight on mouse
+  enter, and persists that highlight (same color) when clicked/selected.
+  ────────────────────────────────────────────────────────────────────────── */
+type AssetGroupedDataRowProps = {
+  asset: any;
+  visibleColumns: Column[];
+  phaseMeta: Record<string, { start: string; end: string }>;
+  dateTimeFormat: Intl.DateTimeFormat;
+  latestComponents?: any;
+  thumbnails?: { [key: string]: string };
+  selectedRowId?: string | null;
+  onRowSelect?: (rowId: string | null) => void;
+};
+
+const AssetGroupedDataRow: React.FC<AssetGroupedDataRowProps> = ({
+  asset, visibleColumns, phaseMeta, dateTimeFormat, latestComponents, thumbnails,
+  selectedRowId, onRowSelect,
+}) => {
+  // Stable row identity for the selection highlight.
+  const rowId = `${asset.project}|${asset.group_1}|${asset.name}|${asset.relation}|${asset.component}`;
+  const isRowSelected = selectedRowId === rowId;
+
+  // Hover state — gives the row a light-blue highlight on mouse over.
+  const [isHovered, setIsHovered] = useState(false);
+  const showRowBg = isRowSelected || isHovered;
+
+  return (
+    <TableRow
+      onClick={() => onRowSelect && onRowSelect(rowId)}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={{ cursor: onRowSelect ? 'pointer' : 'default' }}
+    >
+      {visibleColumns.map((col) => {
+        // buildCellStyle sets a backgroundColor on every cell, which would
+        // hide any row-level background. Override per-cell when row is selected/hovered.
+        const baseStyle = buildCellStyle(col, phaseMeta);
+        return (
+          <TableCell
+            key={col.id}
+            align={col.id === "group_1_name" || col.id === "thumbnail" ? "left" : "center"}
+            style={showRowBg
+              ? { ...baseStyle, backgroundColor: 'rgba(173, 216, 230, 0.4)' }
+              : baseStyle}
+          >
+            {renderAssetField(asset, col, dateTimeFormat, latestComponents, thumbnails)}
+          </TableCell>
+        );
+      })}
+    </TableRow>
+  );
+};
+
+const AssetsGroupedDataTable: React.FC<Props> = ({
+  groups = [],
+  thumbnails,
+  sortKey,
+  sortDir,
+  onSortChange,
+  dateTimeFormat,
+  hiddenColumns = new Set(),
+  tableFooter,
+  latestComponents,
+  phaseComponents,
+  selectedRowId,
+  onRowSelect,
+}) => {
+  const classes = useStyles();
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  const toggle = useCallback((key: string) => {
+    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+
+  // Build full column list from this project's phase component config
+  const ALL_COLUMNS = useMemo(() => buildColumns(phaseComponents), [phaseComponents]);
+
+  /* ____________________________________________________________________________________
+    Column visibility logic for the grouped data table. This function determines whether a
+    given column should be hidden based on the current hiddenColumns set and the column's
+    type (fixed, component, or phase). Fixed columns are always visible, component columns
+    use their own ID, and phase columns are mapped to panel storage keys.
+    ____________________________________________________________________________________*/
+  const isGroupedColHidden = useCallback(
+    (groupColId: string, col?: Column) => {
+      if (!hiddenColumns || hiddenColumns.size === 0) return false;
+
+      // fixed columns — always visible
+      if (groupColId === "thumbnail" || groupColId === "group_1_name") return false;
+      if (groupColId === "relation") return hiddenColumns.has("relation");
+
+      // Component columns — id is the component name (e.g. "mdlRend", "bldAnm")
+      if (col && col.isComponent) return hiddenColumns.has(groupColId);
+
+      // Phase columns — map grouped IDs to panel storage keys
+      const m = groupColId.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted|take)$/i);
+      if (!m) return hiddenColumns.has(groupColId);
+
+      const phase = m[1].toLowerCase();
+      const kind  = m[2].toLowerCase();
+
+      if (kind === "work") return hiddenColumns.has(`${phase}_work_status`);
+      if (kind === "appr") return hiddenColumns.has(`${phase}_approval_status`);
+      if (kind === "take") return hiddenColumns.has(`${phase}_take`);
+      return hiddenColumns.has(`${phase}_submitted_at`);
+    },
+    [hiddenColumns],
+  );
+
+  const visibleColumns = useMemo(() => {
+    return ALL_COLUMNS.filter((c) => !isGroupedColHidden(c.id, c));
+  }, [ALL_COLUMNS, isGroupedColHidden]);
+
+  const phaseMeta = useMemo(() => getPhaseMetadata(visibleColumns), [visibleColumns]);
+
+  /* ____________________________________________________________________________________
+    Main render function for the grouped data table. Renders the table header with sortable columns,
+    and the table body with group rows and asset rows. Applies appropriate styles and content rendering
+    logic for each cell based on the column definitions and asset data. Handles group collapsing and
+    sorting interactions. The tableFooter prop is rendered as a sticky footer if provided.
+  ____________________________________________________________________________________*/
+  return (
+    <Box className={classes.root}>
+      <Box className={classes.scroller}>
+        <Table size="small" stickyHeader className={classes.table}>
+          {/* Percentage-based column widths — fills viewport exactly like the list view */}
+          <colgroup>
+            {(() => {
+              const total = visibleColumns.length;
+              return visibleColumns.map((col) => {
+                let pct: string;
+                if (col.id === "thumbnail")    pct = "6%";
+                else if (col.id === "group_1_name") pct = "6%";
+                else if (col.id === "relation")     pct = "3.5%";
+                else {
+                  // All phase/component columns share remaining space equally
+                  const fixedCols = visibleColumns.filter(
+                    c => c.id === "thumbnail" || c.id === "group_1_name" || c.id === "relation"
+                  ).length;
+                  const phaseCols = total - fixedCols;
+                  const remaining = 100 - 6 - 6 - 3.5; // ~84.5%
+                  pct = `${(remaining / phaseCols).toFixed(2)}%`;
+                }
+                return <col key={col.id} style={{ width: pct }} />;
+              });
+            })()}
+          </colgroup>
+
+          <TableHead>
+            <TableRow>
+              {visibleColumns.map((col) => (
+                <TableCell
+                  key={col.id}
+                  align={col.id === "group_1_name" || col.id === "thumbnail" ? "left" : "center"}
+                  onClick={() => col.sortable && onSortChange(col.id)}
+                  style={{
+                    ...buildCellStyle(col, phaseMeta, { header: true }),
+                    whiteSpace: "pre-wrap",
+                    cursor: col.sortable ? "pointer" : "default",
+                    zIndex: 5,
+                  }}
+                >
+                  <Box
+                    display="flex"
+                    flexDirection="column"
+                    alignItems={col.id === "group_1_name" || col.id === "thumbnail" ? "flex-start" : "center"}
+                  >
+                    <Typography style={{ 
+                      fontSize: UI.FONT_SIZE_HEADER, 
+                      fontWeight: 500,
+                      lineHeight: 1,
+                      textAlign: "center", 
+                    }}>
+                    {col.isComponent ? (
+                      <>
+                        {col.id.toUpperCase()}
+                        <br />
+                        Submitted
+                      </>
+                    ) : col.phase ? (
+                      <>
+                        {col.phase.toUpperCase()}
+                        <br />
+                        {col.kind ? col.kind.toUpperCase() : ""}
+                      </>
+                    ) : (
+                      col.label
+                    )}
+                    </Typography>
+
+                    {sortKey === col.id && (
+                      <span style={{
+                        fontSize: 11,
+                        color: '#fcfeffff',
+                        lineHeight: '11px',
+                        fontWeight: 'bold',
+                        marginTop: 2,
+                      }}>
+                        {sortDir === "asc" ? "▲" : "▼"}
+                      </span>
+                    )}
+                  </Box>
+                </TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+
+          <TableBody>
+            {groups.map((group) => {
+              const groupName = group.top_group_node || "UNASSIGNED";
+              const isCollapsed = !!collapsed[groupName];
+              const visibleCount = (group.items || []).length;
+              const totalCount = (group as any).totalCount || visibleCount;
+
+              const sortedItems = [...(group.items || [])];
+              if (sortKey && sortDir !== "none") {
+                sortedItems.sort((a: any, b: any) => {
+                  const aVal = getSortValue(a, sortKey, latestComponents);
+                  const bVal = getSortValue(b, sortKey, latestComponents);
+
+                  const aEmpty = aVal === null || aVal === undefined || aVal === 0 || aVal === "";
+                  const bEmpty = bVal === null || bVal === undefined || bVal === 0 || bVal === "";
+
+                  // push empty values to bottom
+                  if (aEmpty && bEmpty) return 0;
+                  if (aEmpty) return 1;
+                  if (bEmpty) return -1;
+
+                  if (aVal === bVal) return 0;
+
+                  return sortDir === "asc"
+                    ? aVal > bVal ? 1 : -1
+                    : aVal < bVal ? 1 : -1;
+                });
+              }
+
+              return (
+                <React.Fragment key={groupName}>
+                  {/* Group row (click only expands/collapses) */}
+                  <TableRow
+                    className={classes.groupHeader}
+                    onClick={() => {
+                      // ✅ Group row click should ONLY expand/collapse
+                      toggle(groupName);
+                    }}
+                    style={{ cursor: "pointer" }}
+                  >
+                    <TableCell
+                      colSpan={visibleColumns.length}
+                      style={{
+                        backgroundColor: COLORS.GROUP_BG,
+                        color: COLORS.GROUP_TEXT,
+                        borderBottom: UI.GROUP_ROW_GAP_PX + "px solid " + COLORS.TABLE_BG,
+                        padding: 0,
+                        fontWeight: 500,
+                        position: "relative",
+                      }}
+                    >
+                      <Box display="flex" alignItems="center" justifyContent="space-between">
+                        <Box display="flex" alignItems="center">
+                          <IconButton
+                            size="small"
+                            style={{ color: COLORS.GROUP_TEXT, padding: 0 }}
+                            onClick={(e) => {
+                              // ✅ clicking the chevron should only toggle (and not bubble to other handlers)
+                              e.stopPropagation();
+                              toggle(groupName);
+                            }}
+                          >
+                            {isCollapsed ? (
+                              <ChevronRightIcon fontSize="small" />
+                            ) : (
+                              <ExpandMoreIcon fontSize="small" />
+                            )}
+                          </IconButton>
+
+                          <Typography
+                            style={{
+                              color: COLORS.GROUP_TEXT,
+                              fontSize: UI.FONT_SIZE_GROUP,
+                              fontWeight: 900,
+                            }}
+                          >
+                            {groupName.toUpperCase()}
+                          </Typography>
+                          <Typography
+                            style={{
+                              fontSize: UI.FONT_SIZE_GROUP - 1,
+                              fontWeight: 800,
+                              marginLeft: 1,
+                            }}>
+                             ({visibleCount} of {totalCount})
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+
+                  {/* Data rows */}
+                  {!isCollapsed &&
+                    sortedItems.map((asset: any, idx: number) => (
+                      <AssetGroupedDataRow
+                        key={groupName + "-" + idx}
+                        asset={asset}
+                        visibleColumns={visibleColumns}
+                        phaseMeta={phaseMeta}
+                        dateTimeFormat={dateTimeFormat}
+                        latestComponents={latestComponents}
+                        thumbnails={thumbnails}
+                        selectedRowId={selectedRowId}
+                        onRowSelect={onRowSelect}
+                      />
+                    ))}
+                </React.Fragment>
+              );
+            })}
+          </TableBody>
+
+          {/* ✅ Sticky footer pagination */}
+          {tableFooter ? tableFooter : null}
+        </Table>
+      </Box>
+      
+    </Box>
+  );
+};
+
+export default AssetsGroupedDataTable;
