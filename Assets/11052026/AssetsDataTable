@@ -1,0 +1,792 @@
+/* _________________________________________________________________________________
+  
+  Module Name:
+  AssetsDataTable.tsx
+  
+  Module Description:
+  React component that renders a data table displaying asset information for a project.
+  
+  Details:
+  - Fetches and displays asset thumbnails.
+  - Supports sorting by various asset attributes.
+  - Allows hiding/showing of specific columns.
+  - Compact mode for minimal column display.
+
+  * Update and Modification History:
+    * - 29-10-2025 - SanjayK PSI - Initial creation sorting pagination implementation.
+    * - 07-11-2025 - SanjayK PSI - Column visibility toggling implementation.
+    * - 20-11-2025 - SanjayK PSI - Fixed typo in filter property names handling.
+    * - 24-11-2025 - SanjayK PSI - Added detailed doc comments for functions and types.
+    * - 05-02-2026 - SanjayK PSI - Added components for column visibility drawer and filter status selection.
+    * - 09-02-2026 - SanjayK PSI - Added take number column and updated column sections for asset data table.
+    
+  Function:
+    * - AssetsDataTable: Main component rendering the assets data table.
+    * - RecordTableHead: Renders the table header with sortable columns.
+    * - AssetRow: Renders individual rows for each asset.
+    * - Styled components for consistent theming.
+    * - MultIineTooltipTableCell: Table cell with multi-line tooltip support.
+    * - Constants for asset phases, approval statuses, and work statuses.
+    * - Column definitions for the data table.
+    * - NON_FIXED_IDS: Array of column IDs excluding fixed columns.
+    * - isOnlyFixedVisible: Utility to check if only fixed columns are visible.
+    * - TooltipTableCellProps: Props for the MultiLineTooltipTableCell component.
+    * - Status: Type defining display name and color for statuses.
+    * - Columns: Configuration for the data table columns.
+    * - ASSET_PHASES, APPROVAL_STATUS, WORK_STATUS: Mappings for phases and statuses.
+    * - getPhaseData: Utility to extract phase-related data from an asset.
+    * - isHidden: Utility to check if a column is hidden.
+    * - RecordTableHead: Renders the table header with sortable columns
+  * 
+  ___________________________________________________________________________________ */
+import React from "react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Tooltip,
+  TableSortLabel,
+  Box,
+} from "@material-ui/core";
+import {
+  AssetRowProps,
+  AssetsDataTableProps,
+  Colors,
+  Column,
+  RecordTableHeadProps,
+  SortDir,
+  Asset,
+} from "./types";
+
+const ASSET_PHASES: { [key: string]: Colors } = {
+  dsn: {
+    lineColor: '#98f2fb',
+    backgroundColor: '#045660',
+  },
+  mdl: {
+    lineColor: '#3295fd',
+    backgroundColor: '#354d68',
+  },
+  rig: {
+    lineColor: '#c061fd',
+    backgroundColor: '#5e3568',
+  },
+  bld: {
+    lineColor: '#fc2f8c',
+    backgroundColor: '#5a0028',
+  },
+  ldv: {
+    lineColor: '#fe5cff',
+    backgroundColor: '#683566',
+  },
+};
+
+type Status = Readonly<{
+  displayName: string,
+  color: string,
+}>;
+
+const APPROVAL_STATUS: { [key: string]: Status } = {
+  check: {
+    displayName: 'Check',
+    color: '#ca25ed',
+  },
+  clientReview: {
+    displayName: 'Client Review',
+    color: '#005fbd',
+  },
+  dirReview: {
+    displayName: 'Dir Review',
+    color: '#007fff',
+  },
+  epdReview: {
+    displayName: 'EPD Review',
+    color: '#4fa7ff',
+  },
+  clientOnHold: {
+    displayName: 'Client On Hold',
+    color: '#d69b00',
+  },
+  dirOnHold: {
+    displayName: 'Dir On Hold',
+    color: '#ffcc00',
+  },
+  epdOnHold: {
+    displayName: 'EPD On Hold',
+    color: '#ffdd55',
+  },
+  execRetake: {
+    displayName: 'Exec Retake',
+    color: '#a60000',
+  },
+  clientRetake: {
+    displayName: 'Client Retake',
+    color: '#c60000',
+  },
+  dirRetake: {
+    displayName: 'Dir Retake',
+    color: '#ff0000',
+  },
+  epdRetake: {
+    displayName: 'EPD Retake',
+    color: '#ff4f4f',
+  },
+  clientApproved: {
+    displayName: 'Client Approved',
+    color: '#1d7c39',
+  },
+  dirApproved: {
+    displayName: 'Dir Approved',
+    color: '#27ab4f',
+  },
+  epdApproved: {
+    displayName: 'EPD Approved',
+    color: '#5cda82',
+  },
+  other: {
+    displayName: 'Other',
+    color: '#9a9a9a',
+  },
+  omit: {
+    displayName: 'Omit',
+    color: '#646464',
+  },
+  approved: {
+    displayName: 'Approved',
+    color: '#32cd32',
+  },
+  review: {
+    displayName: 'Review',
+    color: '#ffa500',
+  },
+};
+
+const WORK_STATUS: { [key: string]: Status } = {
+  check: { displayName: "Check", color: "#e287f5" },
+  cgsvOnHold: { displayName: "CGSV On Hold", color: "#ffdd55" },
+  svOnHold: { displayName: "SV On Hold", color: "#ffe373" },
+  leadOnHold: { displayName: "Lead On Hold", color: "#fff04f" },
+  cgsvRetake: { displayName: "CGSV Retake", color: "#ff4f4f" },
+  svRetake: { displayName: "SV Retake", color: "#ff8080" },
+  leadRetake: { displayName: "Lead Retake", color: "#ffbbbb" },
+  cgsvApproved: { displayName: "CGSV Approved", color: "#5cda82" },
+  svApproved: { displayName: "SV Approved", color: "#83e29f" },
+  leadApproved: { displayName: "Lead Approved", color: "#b9eec9" },
+  svOther: { displayName: "SV Other", color: "#9a9a9a" },
+  leadOther: { displayName: "Lead Other", color: "#dbdbdb" },
+  review: { displayName: "Review", color: "#ffa500" },
+  inProgress: { displayName: "In Progress", color: "#00bfff" },
+  notStarted: { displayName: "Not Started", color: "#d3d3d3" },
+  approved: { displayName: "Approved", color: "#32cd32" },
+};
+
+/* ──────────────────────────────────────────────────────────────────────────
+  Builds the dynamic component columns for a given phase based on the project's
+  pipeline configuration. Each component column will have a label like "COMPONENT Submitted"
+  and will be sortable by the component's submission date.
+  ───────────────────────────────────────────────────────────────────────── */
+function buildComponentColumns(
+  phase: string,
+  colors: Colors,
+  phaseComponents: { [phase: string]: string[] } | undefined,
+): Column[] {
+  const componentIds = (phaseComponents && phaseComponents[phase]) || [];
+  return componentIds.map((id) => ({
+    id,
+    label: `${id.toUpperCase()} Submitted`,
+    colors,
+    sortable: true,
+    sortKey: id,
+  }));
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+  Builds the complete list of columns for the assets data table, including fixed columns (Thumbnail, Name)
+  and dynamic columns for each pipeline phase based on the project's configuration. Dynamic component columns
+  are generated for each phase using the buildComponentColumns function.
+  ───────────────────────────────────────────────────────────────────────── */
+function buildColumns(phaseComponents: { [phase: string]: string[] } | undefined): Column[] {
+  return [
+    { id: "thumbnail",    label: "Thumbnail" },
+    { id: "group_1_name", label: "Name", sortable: true, sortKey: "group_1" },
+
+    // DSN Phase
+    { id: "dsn_approval_status", label: "DSN APPR", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_appr" },
+    { id: "dsn_work_status",     label: "DSN WORK", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_work" },
+    { id: "dsn_take",            label: "DSN TAKE", colors: ASSET_PHASES.dsn, sortable: true, sortKey: "dsn_take" },
+    ...buildComponentColumns("dsn", ASSET_PHASES.dsn, phaseComponents), // Dynamic component columns
+
+    // MDL Phase
+    { id: "mdl_approval_status", label: "MDL APPR", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_appr" },
+    { id: "mdl_work_status",     label: "MDL WORK", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_work" },
+    { id: "mdl_take",            label: "MDL TAKE", colors: ASSET_PHASES.mdl, sortable: true, sortKey: "mdl_take" },
+    ...buildComponentColumns("mdl", ASSET_PHASES.mdl, phaseComponents), // Dynamic component columns
+
+    // RIG Phase
+    { id: "rig_approval_status", label: "RIG APPR", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_appr" },
+    { id: "rig_work_status",     label: "RIG WORK", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_work" },
+    { id: "rig_take",            label: "RIG TAKE", colors: ASSET_PHASES.rig, sortable: true, sortKey: "rig_take" },
+    ...buildComponentColumns("rig", ASSET_PHASES.rig, phaseComponents), // Dynamic component columns
+
+    // BLD Phase
+    { id: "bld_approval_status", label: "BLD APPR", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_appr" },
+    { id: "bld_work_status",     label: "BLD WORK", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_work" },
+    { id: "bld_take",            label: "BLD TAKE", colors: ASSET_PHASES.bld, sortable: true, sortKey: "bld_take" },
+    ...buildComponentColumns("bld", ASSET_PHASES.bld, phaseComponents), // Dynamic component columns
+
+    // LDV Phase
+    { id: "ldv_approval_status", label: "LDV APPR", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_appr" },
+    { id: "ldv_work_status",     label: "LDV WORK", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_work" },
+    { id: "ldv_take",            label: "LDV TAKE", colors: ASSET_PHASES.ldv, sortable: true, sortKey: "ldv_take" },
+    ...buildComponentColumns("ldv", ASSET_PHASES.ldv, phaseComponents), // Dynamic component columns
+
+    { id: "relation", label: "Relation", sortable: true, sortKey: "relation" },
+  ];
+}
+
+const FIXED_IDS = new Set(["thumbnail", "group_1_name"]);
+
+/* ──────────────────────────────────────────────────────────────────────────
+  Utility function to determine if only fixed columns are visible based on the current column configuration and hidden columns set.
+  This is used to toggle compact mode in the table when all non-fixed columns are hidden.
+  ───────────────────────────────────────────────────────────────────────── */
+const isOnlyFixedVisible = (cols: Column[], hidden: Set<string>) =>
+  cols.filter(c => !FIXED_IDS.has(c.id)).every(c => hidden.has(c.id));
+
+type TooltipTableCellProps = {
+  tooltipText: string;
+  status?: Status;
+  leftBorderStyle: string;
+  rightBorderStyle: string;
+  bottomBorderStyle: string;
+  children?: React.ReactNode;
+};
+
+/* ──────────────────────────────────────────────────────────────────────────
+  Utility function to determine if a value should be considered empty for display purposes.
+  This treats null, undefined, empty strings, and certain placeholder values as empty.
+  ───────────────────────────────────────────────────────────────────────── */
+const isEmptyValue = (value: any): boolean => {
+  if (value === null || value === undefined) return true;
+  const str = String(value).trim();
+  return str === '' || str === '-' || str === '—' || str === 'null' || str === 'undefined';
+};
+
+/* ──────────────────────────────────────────────────────────────────────────
+  Utility function to format a value for display in the table. It checks 
+  if the value is empty using the isEmptyValue function,
+  and returns a placeholder if it is, or the trimmed string representation 
+  of the value if it's not.
+  ───────────────────────────────────────────────────────────────────────── */
+const formatForDisplay = (value: any): string => {
+  if (isEmptyValue(value)) return '—';
+  return String(value).trim();
+};
+
+/* ──────────────────────────────────────────────────────────────────────────
+  A custom table cell component that supports displaying a tooltip with 
+  multi-line text when clicked. It also applies conditional styling based 
+  on the provided status and border styles.
+  The cell displays either the provided children or a default text based on
+  the status, and shows the tooltip if there is tooltip text available.
+  ───────────────────────────────────────────────────────────────────────── */
+const MultiLineTooltipTableCell: React.FC<TooltipTableCellProps> = ({
+  tooltipText,
+  status,
+  leftBorderStyle,
+  rightBorderStyle,
+  bottomBorderStyle = "none",
+  children,
+}) => {
+  const [open, setOpen] = React.useState(false);
+  const hasTooltipText = tooltipText && tooltipText.trim().length > 0;
+
+  const displayText = children || (status ? status.displayName : "—");
+
+  return (
+    <TableCell
+      style={{
+        textAlign: "center",
+        verticalAlign: "middle",
+        padding: "8px",
+        color: status ? status.color : "",
+        borderLeft: leftBorderStyle,
+        borderRight: rightBorderStyle,
+        borderBottom: bottomBorderStyle,
+      }}
+      onClick={hasTooltipText ? () => setOpen(true) : undefined}
+    >
+      {hasTooltipText ? (
+        <Tooltip
+          title={
+            <div style={{ fontSize: "0.8rem", whiteSpace: "pre-wrap" }}>
+              {tooltipText}
+            </div>
+          }
+          onClose={() => setOpen(false)}
+          open={open}
+          arrow
+        >
+          <span>{displayText}</span>
+        </Tooltip>
+      ) : (
+        <span>{displayText}</span>
+      )}
+    </TableCell>
+  );
+};       
+
+/* ──────────────────────────────────────────────────────────────────────────
+  Component that renders the table header for the assets data table. 
+  It displays column labels and handles sorting interactions.
+  Each column can be styled based on its configuration, and sortable columns 
+  will show a sort indicator when active.
+  The component receives the current sort key and direction to determine how 
+  to display the sort state for each column.
+  ───────────────────────────────────────────────────────────────────────── */
+const RecordTableHead: React.FC<RecordTableHeadProps & {
+  onSortChange: (sortKey: string) => void;
+  currentSortKey: string;
+  currentSortDir: SortDir;
+  headerCellStylesById?: Record<string, React.CSSProperties>;
+}> = ({
+  columns, onSortChange, currentSortKey, currentSortDir, headerCellStylesById = {},
+}) => {
+  const getSortDir = (id: string, activeKey: string, activeDir: SortDir): SortDir =>
+    activeKey === id ? activeDir : "none";
+
+  const createSortHandler = (id: string) => () => onSortChange(id);
+
+  return (
+    <TableHead>
+      <TableRow>
+        {columns.map((column) => {
+          // Group columns by phase using the colors reference — more reliable than
+          // string-prefix matching, since component column IDs like "bldAnm" don't
+          // follow the "phase_field" naming convention.
+          const inPhaseIds = column.colors
+            ? columns
+                .filter(c => c.colors === column.colors)
+                .map(c => c.id)
+            : [];
+          const firstId = inPhaseIds[0];
+          const lastId  = inPhaseIds[inPhaseIds.length - 1];
+
+          const hasPhase = Boolean(column.colors);
+          const rail = hasPhase ? `solid 3px ${column.colors!.lineColor}` : "none";
+
+          const sortKey = column.sortKey || column.id;
+          const sortDir = getSortDir(sortKey, currentSortKey, currentSortDir);
+
+          return (
+            <TableCell
+              key={column.id}
+              style={{
+                backgroundColor: column.colors ? column.colors.backgroundColor : "none",
+                borderTop: hasPhase ? rail : "none",
+                borderLeft: hasPhase && firstId === column.id ? rail : "none",
+                borderRight: hasPhase && lastId  === column.id ? rail : "none",
+                ...(headerCellStylesById[column.id] || {}),
+                cursor: column.sortable ? "pointer" : "default",
+              }}
+              onClick={column.sortable ? createSortHandler(sortKey) : undefined}
+            >
+              {column.sortable ? (
+                <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center">
+                  <span style={{ fontSize: 12, fontWeight: 500, textAlign: 'center' }}>
+                    {column.label}
+                  </span>
+                  {sortDir !== "none" && (
+                    <span style={{ 
+                      fontSize: 11,
+                      color: '#fcfeffff',
+                      lineHeight: '11px',
+                      fontWeight: 'bold',
+                      marginTop: 2,
+                    }}>
+                      {sortDir === "asc" ? "▲" : "▼"}
+                    </span>
+                  )}
+                </Box>
+              ) : (
+                column.label
+              )}
+            </TableCell>
+          );
+        })}
+      </TableRow>
+    </TableHead>
+  );
+};
+
+/* ──────────────────────────────────────────────────────────────────────────
+  Component that renders a single row in the assets data table for a given asset.
+  It displays the asset's thumbnail, name, and status for each phase and component.
+  The component uses helper functions to extract and format the relevant data for each cell,
+  and applies conditional styling based on the asset's status and the current column configuration.
+  It also handles the display of tooltips for phase and component cells, showing detailed information when available.
+  The component receives the asset data, thumbnails, date formatting function, 
+  and configuration for which columns are hidden and which components belong to each phase.
+  ───────────────────────────────────────────────────────────────────────── */
+const AssetRow: React.FC<AssetRowProps & {
+  hiddenColumns: Set<string>;
+  compact: boolean;
+  selectedRowId?: string | null;
+  onRowSelect?: (rowId: string | null) => void;
+}> = ({
+  asset, thumbnails, dateTimeFormat, isLastRow, hiddenColumns, compact, phaseComponents, latestComponents,
+  selectedRowId, onRowSelect,
+}) => {
+  const isHidden = (id: string) => hiddenColumns.has(id);
+
+  // Stable row identity for selection.
+  const rowId = `${asset.project}|${asset.group_1}|${asset.name}|${asset.relation}|${asset.component}`;
+  const isRowSelected = selectedRowId === rowId;
+
+  // Hover state — gives the row a highlight on mouse over.
+  const [isHovered, setIsHovered] = React.useState(false);
+
+  // Highlight colors. Selected wins over hover when both are true.
+  const SELECTED_BG = 'rgba(78, 144, 167, 0.79)';  // click/selected color
+  const HOVER_BG    = 'rgba(173, 216, 230, 0.4)';  // change THIS for the hover color
+  const rowBg       = isRowSelected ? SELECTED_BG : (isHovered ? HOVER_BG : undefined);
+
+  // ================= COMPONENT HELPERS =================
+  const getComponentCellData = (
+    asset: any,
+    componentName: string
+  ) => {
+    const assetKey = `${asset.group_1}-${asset.relation}`;
+    const componentList: any[] = latestComponents && latestComponents[assetKey] ? latestComponents[assetKey] : [];
+
+    const item =
+      componentList.find(
+        (x: any) =>
+          x.component === componentName ||
+          (
+            x.latest_document && 
+            x.latest_document.component === componentName)
+      ) ||
+      componentList.find(
+        (x: any) =>
+          x.component && x.component.toLowerCase() === componentName.toLowerCase() ||
+          (
+            x.latest_document && 
+            x.latest_document.component && 
+            x.latest_document.component.toLowerCase() === componentName.toLowerCase())
+      );
+
+    if (item && item.latest_document) {
+      return {
+        component: item.component || item.latest_document.component,
+        phase: item.latest_document.phase,
+        submittedAt: item.latest_document.submitted_at_utc,
+      };
+    }
+
+    return null;
+  };
+
+  /* ──────────────────────────────────────────────────────────────────────────
+    Helper function to get the display text for a component cell. 
+    It retrieves the relevant data for the component and formats the submission date for display. 
+    If no data is available, it returns a placeholder.
+    ───────────────────────────────────────────────────────────────────────── */
+  const getComponentDisplayText = (
+    asset: any,
+    componentName: string
+  ): string => {
+    const data = getComponentCellData(asset, componentName);
+
+    if (!data || !data.submittedAt) return "—";
+
+    return dateTimeFormat.format(new Date(data.submittedAt));
+  };
+
+  /* ──────────────────────────────────────────────────────────────────────────
+    Helper function to get the tooltip text for a component cell. 
+    It retrieves the relevant data for the component and formats the submission date for display. 
+    If no data is available, it returns a placeholder.
+    ───────────────────────────────────────────────────────────────────────── */
+  const getComponentTooltip = (
+    asset: any,
+    componentName: string
+  ): string => {
+    const data = getComponentCellData(asset, componentName);
+
+    if (!data) {
+      return "No submission available";
+    }
+
+    const submittedText = data.submittedAt
+      ? dateTimeFormat.format(new Date(data.submittedAt))
+      : "—";
+
+    return [
+      `Component: ${data.component}`,
+      `Phase: ${data.phase}`,
+      `Submitted: ${submittedText}`,
+    ].join("\n");
+  };
+
+  /* ──────────────────────────────────────────────────────────────────────────
+    Helper function to extract the work status, approval status, 
+      and take number for a given phase from the asset data.
+    It constructs the relevant keys based on the phase name, 
+    retrieves the values, and maps them to display statuses.
+    It also formats the take number for display, returning a placeholder if it's empty.
+    ───────────────────────────────────────────────────────────────────────── */
+  const getPhaseData = (phase: string) => {
+    const workStatusKey     = `${phase}_work_status` as keyof Asset;
+    const approvalStatusKey = `${phase}_approval_status` as keyof Asset;
+    // const submittedAtKey    = `${phase}_submitted_at_utc` as keyof Asset;
+    const takeKey           = `${phase}_take` as keyof Asset;
+
+    const workStatusValue     = asset[workStatusKey];
+    const approvalStatusValue = asset[approvalStatusKey];
+    // const submittedAtValue    = asset[submittedAtKey];
+    const takeValue           = asset[takeKey];
+
+    // Status lookup with fallback for empty values
+    let workStatus: Status | undefined = undefined;
+    if (!isEmptyValue(workStatusValue)) {
+        const raw = String(workStatusValue);
+        workStatus = WORK_STATUS[raw] || 
+        WORK_STATUS[raw.toLowerCase()] || 
+        WORK_STATUS[raw.charAt(0).toLowerCase() + raw.slice(1)];
+
+        // Use a generic status if the key is not found
+        if (!workStatus) {
+            workStatus = WORK_STATUS.svOther;
+        }
+    }
+    
+    let approvalStatus: Status | undefined = undefined;
+    if (!isEmptyValue(approvalStatusValue)) {
+        const raw = String(approvalStatusValue);
+        approvalStatus = APPROVAL_STATUS[raw] || 
+        APPROVAL_STATUS[raw.toLowerCase()] || 
+        APPROVAL_STATUS[raw.charAt(0).toLowerCase() + raw.slice(1)];
+
+        // Use a generic status if the key is not found
+        if (!approvalStatus) {
+            approvalStatus = APPROVAL_STATUS.other;
+        }
+    }
+
+    const takeText = !isEmptyValue(takeValue) ? String(takeValue) : '—';
+
+    return { 
+      workStatus, 
+      approvalStatus, 
+      // localTimeText,
+      takeText,
+      tooltipText: "" };
+  };
+
+
+  return (
+    <TableRow
+      onClick={() => onRowSelect && onRowSelect(rowId)}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={{
+        backgroundColor: rowBg,
+        cursor: onRowSelect ? 'pointer' : 'default',
+      }}
+    >
+      {!isHidden("thumbnail") && (
+        <TableCell style={compact ? { width: 140, minWidth: 140, maxWidth: 140 } : undefined}>
+          {thumbnails[`${asset.group_1}-${asset.relation}`] ? (
+            <img
+              src={thumbnails[`${asset.group_1}-${asset.relation}`]}
+              alt={`${asset.group_1} thumbnail`}
+              style={{ width: "100px", height: "auto" }}
+            />
+          ) : (
+            <span>No Thumbnail</span>
+          )}
+        </TableCell>
+      )}
+
+      {/* NAME */}
+      {!isHidden("group_1_name") && (
+        <TableCell style={compact ? { minWidth: 220 } : undefined}>
+          {formatForDisplay(asset.group_1)}
+        </TableCell>
+      )}
+
+      {/* PHASES */}
+      {(Object.entries(ASSET_PHASES) as Array<[string, { lineColor: string }]>).map(
+          ([phase, { lineColor }]) => {
+            const ids = {
+              work: `${phase}_work_status`,
+              appr: `${phase}_approval_status`,
+              take: `${phase}_take`,
+            };
+
+            const componentIds = phaseComponents && phaseComponents[phase] || [];
+            
+            const visibleIds = [
+              ids.appr,
+              ids.work,
+              ids.take,
+              ...componentIds
+            ]
+              .filter((id): id is string => typeof id === "string" && !!id)
+              .filter((id) => !isHidden(id));
+
+            if (visibleIds.length === 0) return null;
+
+            const firstId = visibleIds[0];
+            const lastId  = visibleIds[visibleIds.length - 1];
+            const rail = `solid 3px ${lineColor}`;
+
+            const { workStatus, approvalStatus, /* localTimeText, */ takeText, tooltipText } = getPhaseData(phase);
+
+            return (
+              <React.Fragment key={`${asset.group_1}-${asset.relation}-${phase}`}>
+                {/* APPR */}
+                {!isHidden(ids.appr) && (
+                  <MultiLineTooltipTableCell
+                    tooltipText={tooltipText}
+                    status={approvalStatus}
+                    leftBorderStyle={firstId === ids.appr ? rail : "none"}
+                    rightBorderStyle={lastId  === ids.appr ? rail : "none"}
+                    bottomBorderStyle={isLastRow ? rail : "none"}
+                  />
+                )}
+
+                {/* WORK */}
+                {!isHidden(ids.work) && (
+                  <MultiLineTooltipTableCell
+                    tooltipText={tooltipText}
+                    status={workStatus}
+                    leftBorderStyle={firstId === ids.work ? rail : "none"}
+                    rightBorderStyle={lastId  === ids.work ? rail : "none"}
+                    bottomBorderStyle={isLastRow ? rail : "none"}
+                  />
+                )}
+
+                {/* TAKE */}
+                {!isHidden(ids.take) && (
+                  <TableCell
+                    style={{
+                      borderLeft: firstId === ids.take ? rail : "none",
+                      borderRight: lastId === ids.take ? rail : "none",
+                      borderBottom: isLastRow ? rail : "none",
+                    }}
+                  >
+                    {takeText}
+                  </TableCell>
+                )}
+
+                {/* ================= MANUAL COMPONENTS ================= */}
+                {/* PIPELINE SETTING COMPONENTS */}
+                {componentIds.map((componentId) =>
+                  !isHidden(componentId) && (
+                    <MultiLineTooltipTableCell
+                      key={`${asset.group_1}-${asset.relation}-${componentId}`}
+                      tooltipText={getComponentTooltip(asset, componentId)}
+                      status={undefined}
+                      leftBorderStyle={firstId === componentId ? rail : "none"}
+                      rightBorderStyle={lastId === componentId ? rail : "none"}
+                      bottomBorderStyle={isLastRow ? rail : "none"}
+                    >
+                      {getComponentDisplayText(asset, componentId)}
+                    </MultiLineTooltipTableCell>
+                  )
+                )}
+              </React.Fragment>
+            );
+          }
+        )}
+
+      {/* RELATION */}
+      {!isHidden("relation") && !compact && (
+        <TableCell>{formatForDisplay(asset.relation)}</TableCell>
+      )}
+    </TableRow>
+  );
+};
+
+/* ──────────────────────────────────────────────────────────────────────────
+  Main component that renders the assets data table for a given project. 
+  It fetches asset thumbnails, builds the column configuration based on the project's pipeline phases,
+  and renders the table header and body with the appropriate data and styling.
+  The component supports sorting, column visibility toggling, and displays detailed information 
+  for each asset and its phases/components.
+  It receives the project data, list of assets, table footer, date formatting function, 
+  sorting handlers, hidden columns configuration, and phase components configuration as props.
+  If no project is provided, it returns null to avoid rendering an empty table.
+  ───────────────────────────────────────────────────────────────────────── */
+const AssetsDataTable: React.FC<AssetsDataTableProps> = ({
+  project,
+  assets,
+  tableFooter,
+  dateTimeFormat,
+  onSortChange,
+  currentSortKey,
+  currentSortDir,
+  hiddenColumns = new Set(),
+  phaseComponents,
+  latestComponents,
+  thumbnails,
+  selectedRowId,
+  onRowSelect,
+}) => {
+  if (!project) return null;
+
+  const columns = buildColumns(phaseComponents);
+  const compact = isOnlyFixedVisible(columns, hiddenColumns);
+
+  // Header widths to keep header/body aligned in compact mode
+  const headerCellStylesById: Record<string, React.CSSProperties> = compact
+    ? {
+        thumbnail: { width: 140, minWidth: 140, maxWidth: 140 },
+        group_1_name: { minWidth: 220 },
+      }
+    : {};
+
+  // Visible columns for header — always show fixed columns, hide the rest if toggled off
+  const visibleColumns = columns.filter(
+    (c) => FIXED_IDS.has(c.id) || !hiddenColumns.has(c.id)
+  );
+
+  return (
+    <Table stickyHeader style={{ ...(compact ? { tableLayout: 'fixed' } : {}), width: '100%' }}>
+      <RecordTableHead
+        key="asset-data-table-head"
+        columns={visibleColumns}
+        onSortChange={onSortChange}
+        currentSortKey={currentSortKey}
+        currentSortDir={currentSortDir}
+        headerCellStylesById={headerCellStylesById}
+      />
+
+      <TableBody>
+        {assets.map((asset, index) => (
+          <AssetRow
+            key={`${asset.group_1}-${asset.relation}-${asset.component}-${index}`} // Unique key for each asset row
+            asset={asset}
+            thumbnails={thumbnails}
+            dateTimeFormat={dateTimeFormat}
+            isLastRow={index === assets.length - 1}
+            hiddenColumns={hiddenColumns}
+            compact={compact}
+            phaseComponents={phaseComponents}
+            latestComponents={latestComponents}
+            selectedRowId={selectedRowId}
+            onRowSelect={onRowSelect}
+          />
+        ))}
+      </TableBody>
+
+      {tableFooter || null}
+    </Table>
+  );
+};
+
+export default AssetsDataTable;
