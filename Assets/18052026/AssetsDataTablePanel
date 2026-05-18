@@ -19,7 +19,7 @@
  * - 24-11-2025 - SanjayK PSI - Added detailed doc comments for functions and types.
  * - 05-02-2026 - SanjayK PSI - Added components for column visibility drawer and filter status selection.
  * - 09-02-2026 - SanjayK PSI - Added take number column and updated column sections for asset data table.
- * - 18-05-2026 - SanjayK PSI - Fixed PipelineSetting save to use GROUP.Preference / SECTION.Project enums and send array value. PipelineSetting save now only triggered by the explicit Save button (toggles persist to localStorage only) (#59, #60). Load from PipelineSetting pending.
+ * - 18-05-2026 - SanjayK PSI - PipelineSetting save uses GROUP.Preference / SECTION.Project, array value. Falls back to createValue when updateValue 404s (first save for a project). Triggered only by the explicit Save button (#59, #60). Load from PipelineSetting pending.
  * 
  * @functions
  * - AssetsDataTablePanel: Main panel component for the assets data table, managing state and interactions.
@@ -471,23 +471,35 @@ const AssetsDataTablePanel: React.FC<RouteComponentProps> = () => {
     allowing the application to continue functioning with localStorage as the primary source of truth.
       ───────────────────────────────────────────────────────────────────────── */
 const saveHiddenColumnsToPipelineSetting = async (cols: Set<string>) => {
+  if (!currentProject || !currentProject.key_name) return;
+
+  const { updateValue, createValue } = await import('../../../new-pipeline-setting/api');
+  const { GROUP, SECTION } = await import('../../../new-pipeline-setting/types');
+
+  const value = Array.from(cols);
+  const group = GROUP.Preference;
+  const section = SECTION.Project;
+  const entry = currentProject.key_name;
+
+  // Try update first (subsequent saves). If the value row doesn't exist yet
+  // (first save for this project), the server returns 404 — fall back to create.
   try {
-    if (!currentProject || !currentProject.key_name) return;
+    await updateValue(PIPE_KEY, value, group, section, entry);
+    console.log('Pipeline settings save successful (update)');
+    return;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const isNotFound = /not.?found|404/i.test(msg);
+    if (!isNotFound) {
+      console.warn('PipelineSetting save failed; using local only', e);
+      return;
+    }
+    // Fall through to create
+  }
 
-    // Use updateValue to save the configuration
-    // queryConfig is only for reading, not writing
-    const { updateValue } = await import('../../../new-pipeline-setting/api');
-    const { GROUP, SECTION } = await import('../../../new-pipeline-setting/types');
-
-    await updateValue(
-      PIPE_KEY,                  // key
-      Array.from(cols),          // value
-      GROUP.Preference,          // group
-      SECTION.Project,           // section
-      currentProject.key_name,   // entry (project name)
-    );
-
-    console.log('Pipeline settings save successful');
+  try {
+    await createValue(PIPE_KEY, value, group, section, entry);
+    console.log('Pipeline settings save successful (create)');
   } catch (e) {
     console.warn('PipelineSetting save failed; using local only', e);
   }
