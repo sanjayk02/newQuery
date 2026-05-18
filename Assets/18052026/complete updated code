@@ -1,0 +1,157 @@
+/* Load hidden columns - ONLY from localStorage (no pipeline load) */
+useEffect(() => {
+  let aborted = false;
+  
+  (async () => {
+    if (!currentProject) return;
+    
+    const projectKey = currentProject.key_name;
+    const lsKey = lsKeyForProject(projectKey);
+    
+    console.log('Loading column visibility from localStorage for project:', projectKey);
+    
+    // Only use localStorage
+    try {
+      const raw = localStorage.getItem(lsKey);
+      if (raw) {
+        const arr: string[] = JSON.parse(raw);
+        const sanitized = arr.filter((id) => !FIXED_VISIBLE.has(id));
+        if (!aborted) {
+          setHiddenColumns(new Set(sanitized));
+          console.log('✅ Loaded column visibility from localStorage:', sanitized);
+        }
+        return;
+      }
+    } catch (lsError) {
+      console.warn('localStorage load failed:', lsError);
+    }
+    
+    // Default: empty set (all columns visible)
+    if (!aborted) {
+      console.log('Using default column visibility (all columns visible)');
+      setHiddenColumns(new Set());
+    }
+  })();
+  
+  return () => {
+    aborted = true;
+  };
+}, [currentProject]);
+
+/* Persist hidden columns to localStorage only (automatic) */
+const persistHiddenColumnsLocal = (next: Set<string>) => {
+  const key = lsKeyForProject(
+    currentProject && currentProject.key_name ? currentProject.key_name : undefined,
+  );
+  try {
+    localStorage.setItem(key, JSON.stringify(Array.from(next)));
+    console.log('✅ Saved to localStorage:', Array.from(next));
+  } catch (e) {
+    console.error('localStorage save failed', e);
+  }
+};
+
+/* Save to pipeline settings (only called by SAVE button) */
+const saveHiddenColumnsToPipelineSetting = async (cols: Set<string>) => {
+  try {
+    if (!currentProject || !currentProject.key_name) return;
+    
+    console.log('💾 Manually saving hidden columns to pipeline settings...');
+    
+    const { updateValue } = await import('../../../new-pipeline-setting/api');
+    const { GROUP, SECTION } = await import('../../../new-pipeline-setting/types');
+    
+    const columnsArray = Array.from(cols);
+    
+    await updateValue(
+      PIPE_KEY,
+      columnsArray,
+      GROUP.Preference,
+      SECTION.Project,
+      currentProject.key_name,
+    );
+    
+    console.log('✅ Pipeline settings save successful');
+  } catch (e) {
+    console.error('❌ PipelineSetting save failed:', e);
+  }
+};
+
+/* Toggle column visibility - saves only to localStorage */
+const toggleColumn = (id: string) => {
+  if (FIXED_VISIBLE.has(id)) return;
+  setHiddenColumns((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) {
+      next.delete(id);
+      console.log(`Showing column: ${id}`);
+    } else {
+      next.add(id);
+      console.log(`Hiding column: ${id}`);
+    }
+    // Save only to localStorage immediately
+    persistHiddenColumnsLocal(next);
+    return next;
+  });
+};
+
+/* Show all columns - saves only to localStorage */
+const showAll = () => {
+  const next = new Set<string>();
+  setHiddenColumns(next);
+  persistHiddenColumnsLocal(next);
+  console.log('Showing all columns (saved to localStorage)');
+};
+
+/* Hide all non-fixed columns - saves only to localStorage */
+const hideAllNonFixed = () => {
+  const phases = ['dsn', 'mdl', 'rig', 'bld', 'ldv'];
+  const dynamicIds: string[] = [
+    'dsn_approval_status', 'dsn_work_status', 'dsn_take',
+    'mdl_approval_status', 'mdl_work_status', 'mdl_take',
+    'rig_approval_status', 'rig_work_status', 'rig_take',
+    'bld_approval_status', 'bld_work_status', 'bld_take',
+    'ldv_approval_status', 'ldv_work_status', 'ldv_take',
+    'relation',
+  ];
+  if (phaseComponents) {
+    phases.forEach(phase => {
+      const ids = phaseComponents[phase] || [];
+      ids.forEach(id => dynamicIds.push(id));
+    });
+  }
+  const next = new Set<string>(dynamicIds.filter(id => !FIXED_VISIBLE.has(id)));
+  setHiddenColumns(next);
+  persistHiddenColumnsLocal(next);
+  console.log('Hiding all non-fixed columns (saved to localStorage)');
+};
+
+/* Explicit save to pipeline (called by SAVE button) */
+const handleSaveColumns = async () => {
+  console.log('SAVE button clicked - saving to pipeline settings...');
+  await saveHiddenColumnsToPipelineSetting(hiddenColumns);
+};
+
+/* Count of currently visible togglable columns */
+const visibleCount = useMemo(() => {
+  const phases = ['dsn', 'mdl', 'rig', 'bld', 'ldv'];
+  const togglableIds: string[] = [
+    'dsn_approval_status', 'dsn_work_status', 'dsn_take',
+    'mdl_approval_status', 'mdl_work_status', 'mdl_take',
+    'rig_approval_status', 'rig_work_status', 'rig_take',
+    'bld_approval_status', 'bld_work_status', 'bld_take',
+    'ldv_approval_status', 'ldv_work_status', 'ldv_take',
+    'relation',
+  ];
+  if (phaseComponents) {
+    phases.forEach(phase => {
+      const ids = phaseComponents[phase] || [];
+      ids.forEach(id => togglableIds.push(id));
+    });
+  }
+  let c = 0;
+  togglableIds.forEach((id) => {
+    if (!hiddenColumns.has(id)) c += 1;
+  });
+  return c;
+}, [hiddenColumns, phaseComponents]);
