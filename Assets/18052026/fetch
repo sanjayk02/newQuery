@@ -1,0 +1,3 @@
+fetch('/api/projects/drk/latestShotsOperationInfos?group1=DRK101&group2=018&group3=001_00&relation=com&component=lay&component=gnzNuke', {
+  headers: { 'Authorization': localStorage.getItem('token') || '' }
+}).then(r => r.json()).then(data => console.log('RESPONSE:', JSON.stringify(data, null, 2)));
