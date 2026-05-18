@@ -1,0 +1,178 @@
+/* Load hidden columns - PRIMARY: localStorage, SECONDARY: pipeline settings */
+useEffect(() => {
+  let aborted = false;
+  
+  (async () => {
+    if (!currentProject) return;
+    
+    const projectKey = currentProject.key_name;
+    const lsKey = lsKeyForProject(projectKey);
+    
+    console.log('Loading column visibility for project:', projectKey);
+    
+    // TRY 1: localStorage first (fast, reliable)
+    try {
+      const raw = localStorage.getItem(lsKey);
+      
+      if (raw) {
+        const arr: string[] = JSON.parse(raw);
+        const sanitized = arr.filter((id) => !FIXED_VISIBLE.has(id));
+        if (!aborted) {
+          setHiddenColumns(new Set(sanitized));
+          console.log('✅ Loaded column visibility from localStorage:', sanitized);
+        }
+        return; // Success with localStorage
+      }
+    } catch (lsError) {
+      console.warn('localStorage load failed:', lsError);
+    }
+    
+    // TRY 2: Fallback to pipeline settings (cross-device sync)
+    if (!aborted && currentProject) {
+      try {
+        console.log('Attempting to load from pipeline settings...');
+        
+        // Import the queryConfig function (for reading)
+        const { queryConfig } = await import('../../../new-pipeline-setting/api');
+        
+        // Query the saved value from pipeline settings
+        // Use queryConfig since it's a config value under the project
+        const savedValue = await queryConfig(
+          'project', // section type
+          projectKey, // entry (project name)
+          PIPE_KEY, // key: '/ppiTracker/assets/hiddenColumns'
+        );
+        
+        console.log('Pipeline settings raw response:', savedValue);
+        
+        if (savedValue && Array.isArray(savedValue)) {
+          // Validate the loaded data
+          const sanitized = savedValue.filter((id: string) => !FIXED_VISIBLE.has(id));
+          if (!aborted) {
+            setHiddenColumns(new Set(sanitized));
+            console.log('✅ Loaded column visibility from pipeline settings:', sanitized);
+            
+            // Also save to localStorage for next time (cache)
+            try {
+              localStorage.setItem(lsKey, JSON.stringify(sanitized));
+              console.log('Cached to localStorage for faster下次加载');
+            } catch (e) {
+              console.warn('Failed to cache to localStorage:', e);
+            }
+          }
+          return;
+        } else {
+          console.log('No saved column visibility found in pipeline settings, using defaults');
+        }
+      } catch (pipeError) {
+        console.warn('Pipeline settings load failed, using defaults:', pipeError);
+      }
+    }
+    
+    // Default: empty set (all columns visible)
+    if (!aborted) {
+      console.log('Using default column visibility (all columns visible)');
+      setHiddenColumns(new Set());
+    }
+  })();
+  
+  return () => {
+    aborted = true;
+  };
+}, [currentProject]);
+
+
+
+// Add this function to your API or directly in the component
+const queryHiddenColumnsFromPipeline = async (projectKey: string): Promise<string[] | null> => {
+  try {
+    const { getAuthHeader, setNewToken } = await import('../../../auth/util');
+    const { AuthorizationError } = await import('../../../auth/types');
+    
+    const headers = getAuthHeader();
+    const encodedKey = encodeURIComponent(PIPE_KEY);
+    const url = `/api/pipelineSetting/preference/projects/${encodeURIComponent(projectKey)}/values/${encodedKey}`;
+    
+    const res = await fetch(url, {
+      method: 'GET',
+      headers,
+      mode: 'cors',
+    });
+    
+    if (res.status === 401) {
+      throw new AuthorizationError();
+    }
+    if (res.status === 404) {
+      return null; // Not found
+    }
+    if (!res.ok) {
+      throw new Error(`Failed to fetch: ${res.status}`);
+    }
+    
+    setNewToken(res);
+    const json = await res.json();
+    return json.value as string[];
+  } catch (error) {
+    console.error('Error loading from pipeline:', error);
+    return null;
+  }
+};
+
+// Then in the useEffect:
+const savedValue = await queryHiddenColumnsFromPipeline(projectKey);
+
+
+
+const saveHiddenColumnsToPipelineSetting = async (cols: Set<string>) => {
+  try {
+    if (!currentProject || !currentProject.key_name) return;
+    
+    console.log('Saving hidden columns to pipeline settings...');
+    
+    // Import the updateValue function
+    const { updateValue } = await import('../../../new-pipeline-setting/api');
+    const { GROUP, SECTION } = await import('../../../new-pipeline-setting/types');
+    
+    // Convert Set to Array for storage
+    const columnsArray = Array.from(cols);
+    
+    console.log('Saving:', {
+      key: PIPE_KEY,
+      value: columnsArray,
+      group: GROUP.Preference,
+      section: SECTION.Project,
+      entry: currentProject.key_name
+    });
+    
+    await updateValue(
+      PIPE_KEY, // key
+      columnsArray, // value (array of strings)
+      GROUP.Preference, // group
+      SECTION.Project, // section
+      currentProject.key_name, // entry (project name)
+    );
+    
+    console.log('✅ Pipeline settings save successful');
+  } catch (e) {
+    console.error('❌ PipelineSetting save failed:', e);
+    console.warn('Using local only');
+  }
+};
+
+
+
+const toggleColumn = (id: string) => {
+  if (FIXED_VISIBLE.has(id)) return;
+  setHiddenColumns((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) {
+      next.delete(id);
+      console.log(`Showing column: ${id}`);
+    } else {
+      next.add(id);
+      console.log(`Hiding column: ${id}`);
+    }
+    persistHiddenColumns(next);
+    return next;
+  });
+};
