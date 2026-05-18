@@ -481,21 +481,19 @@ const saveHiddenColumnsToPipelineSetting = async (cols: Set<string>) => {
   const section = SECTION.Project;
   const entry = currentProject.key_name;
 
-  // Try update first (subsequent saves). If the value row doesn't exist yet
-  // (first save for this project), the server returns 404 — fall back to create.
+  // Try update first (subsequent saves). If it fails for any reason — most
+  // commonly because the value row doesn't exist yet (first save for this
+  // project) — fall back to create.
+  let updated = false;
   try {
     await updateValue(PIPE_KEY, value, group, section, entry);
+    updated = true;
     console.log('Pipeline settings save successful (update)');
-    return;
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    const isNotFound = /not.?found|404/i.test(msg);
-    if (!isNotFound) {
-      console.warn('PipelineSetting save failed; using local only', e);
-      return;
-    }
-    // Fall through to create
+    console.log('updateValue failed, attempting createValue fallback', e);
   }
+
+  if (updated) return;
 
   try {
     await createValue(PIPE_KEY, value, group, section, entry);
