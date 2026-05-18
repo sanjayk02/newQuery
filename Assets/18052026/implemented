@@ -1,0 +1,3 @@
+I implemented the save to PipelineSetting per the reviewer's example in AssetsDataTablePanel.tsx. When I tested it in the dev environment, the PATCH request returns 404 because the property /ppiTracker/assets/hiddenColumns doesn't exist under Group: preference.
+I tried to register the property manually via the PipelineSetting admin UI, but got this error:
+Error 1142 (42000): INSERT command denied to user 'central30_pro_ro'@'10.1.24.150' for table 't_propertylist_entry'
