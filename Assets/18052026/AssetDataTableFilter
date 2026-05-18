@@ -1,0 +1,47 @@
+// The renderColumnCheckbox function should just call onToggleColumn without any additional save logic
+const renderColumnCheckbox = (id: string, label: string) => {
+  const isVisible = !hiddenColumns.has(id);
+  return (
+    <FormControlLabel
+      key={id}
+      control={
+        <Checkbox
+          checked={isVisible}
+          onChange={() => onToggleColumn(id)}  // Just calls toggle, no save
+          color="default"
+          style={{color: "#caccc8ff"}}
+        />
+      }
+      label={label}
+      style={{ marginLeft: 6, marginRight: 6 }}
+    />
+  );
+};
+
+// The SHOW ALL button should call onShowAll
+<Button size="small" onClick={handleToggleAllColumns}>
+  {allNonFixedColumnIds ? 'HIDE ALL' : 'SHOW ALL'}
+</Button>
+
+// The handleToggleAllColumns function
+const handleToggleAllColumns = () => {
+  if (allNonFixedColumnIds) {
+    onHideAll();  // Calls hideAllNonFixed
+  } else {
+    onShowAll();  // Calls showAll
+  }
+};
+
+// The SAVE button calls onSaveColumns
+<Button
+  size="small"
+  onClick={async () => {
+    if (onSaveColumns) {
+      await onSaveColumns();   // Only saves to pipeline
+    }
+    setDrawerOpen(false);
+  }}
+  style={{ width: '80px' }}
+>
+  SAVE
+</Button>
