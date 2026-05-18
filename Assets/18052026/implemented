@@ -1,3 +1,16 @@
-I implemented the save to PipelineSetting per the reviewer's example in AssetsDataTablePanel.tsx. When I tested it in the dev environment, the PATCH request returns 404 because the property /ppiTracker/assets/hiddenColumns doesn't exist under Group: preference.
-I tried to register the property manually via the PipelineSetting admin UI, but got this error:
-Error 1142 (42000): INSERT command denied to user 'central30_pro_ro'@'10.1.24.150' for table 't_propertylist_entry'
+// DEBUG: log what components are being requested
+fmt.Printf("[DEBUG ListLatestShotDocuments] param.Component = %v\n", param.Component)
+
+for _, d := range param.Component {
+    fmt.Printf("[DEBUG ListLatestShotDocuments] iterating component: %q\n", d)
+    if d == "cam_data" {
+        fmt.Println("[DEBUG ListLatestShotDocuments] matched 'cam_data', appending projection")
+        projectStage[0].Value = append(projectStage[0].Value.(bson.D), bson.E{
+            Key:   "cam_data_type",
+            Value: "$component_info.cam_data_type",
+        })
+    }
+}
+
+// DEBUG: log the final projectStage so we can see all projections
+fmt.Printf("[DEBUG ListLatestShotDocuments] final projectStage = %+v\n", projectStage)
