@@ -1,60 +1,122 @@
-/* Load hidden columns - ONLY from pipeline settings (NO localStorage) */
+/* Load hidden columns from pipeline settings - FIXED version */
 useEffect(() => {
-  let aborted = false;
+  let isMounted = true;
   
-  (async () => {
+  const loadFromPipeline = async () => {
     if (!currentProject) return;
     
     const projectKey = currentProject.key_name;
-    
     console.log('Loading column visibility from PIPELINE SETTINGS for project:', projectKey);
     
     try {
-      const { queryValue } = await import('../../../new-pipeline-setting/api');
-      const { GROUP, SECTION } = await import('../../../new-pipeline-setting/types');
+      // Import required modules
+      const { getAuthHeader, setNewToken } = await import('../../../auth/util');
+      const { AuthorizationError } = await import('../../../auth/types');
       
-      const savedValue = await queryValue(
-        GROUP.Preference,
-        SECTION.Project,
-        projectKey,
-        PIPE_KEY,
-      );
+      const headers = getAuthHeader();
+      const encodedKey = encodeURIComponent(PIPE_KEY);
+      const url = `/api/pipelineSetting/preference/projects/${encodeURIComponent(projectKey)}/values/${encodedKey}`;
+      
+      console.log('Fetching from URL:', url);
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers,
+        mode: 'cors',
+      });
+      
+      if (response.status === 401) {
+        throw new AuthorizationError();
+      }
+      
+      if (response.status === 404) {
+        console.log('No saved settings found in pipeline (404)');
+        if (isMounted) {
+          setHiddenColumns(new Set());
+        }
+        return;
+      }
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch: ${response.status}`);
+      }
+      
+      setNewToken(response);
+      const json = await response.json();
+      const savedValue = json.value;
       
       console.log('Pipeline settings response:', savedValue);
       
-      if (savedValue && Array.isArray(savedValue)) {
+      if (savedValue && Array.isArray(savedValue) && isMounted) {
         const sanitized = savedValue.filter((id: string) => !FIXED_VISIBLE.has(id));
-        if (!aborted) {
-          setHiddenColumns(new Set(sanitized));
-          console.log('✅ Loaded column visibility from PIPELINE SETTINGS:', sanitized);
-        }
-        return;
-      } else {
-        console.log('No saved column visibility found in pipeline settings, using defaults');
+        setHiddenColumns(new Set(sanitized));
+        console.log('✅ Loaded column visibility from PIPELINE SETTINGS:', sanitized);
+      } else if (isMounted) {
+        console.log('No valid saved settings found, using defaults');
+        setHiddenColumns(new Set());
       }
-    } catch (pipeError) {
-      console.warn('Pipeline settings load failed:', pipeError);
+    } catch (error) {
+      console.error('Pipeline settings load failed:', error);
+      if (isMounted) {
+        console.log('Using default column visibility (all columns visible)');
+        setHiddenColumns(new Set());
+      }
     }
-    
-    // Default: empty set (all columns visible)
-    if (!aborted) {
-      console.log('Using default column visibility (all columns visible)');
-      setHiddenColumns(new Set());
-    }
-  })();
+  };
+  
+  loadFromPipeline();
   
   return () => {
-    aborted = true;
+    isMounted = false;
   };
 }, [currentProject]);
 
-/* NO localStorage persistence at all - only use for caching? Remove if not needed */
-// const persistHiddenColumnsLocal = (next: Set<string>) => {
-//   // Commented out - no localStorage
-//   console.log('localStorage save disabled - using pipeline only');
-// };
 
-/* Toggle column visibility - saves ONLY to state, NO persistence */
+/* Save to pipeline settings (called by SAVE button) */
+const saveHiddenColumnsToPipelineSetting = async (cols: Set<string>) => {
+  try {
+    if (!currentProject || !currentProject.key_name) return;
+    
+    console.log('💾 SAVE button clicked - saving to pipeline settings...');
+    
+    const { getAuthHeader, setNewToken } = await import('../../../auth/util');
+    const { AuthorizationError } = await import('../../../auth/types');
+    
+    const headers = getAuthHeader();
+    const encodedKey = encodeURIComponent(PIPE_KEY);
+    const url = `/api/pipelineSetting/preference/projects/${encodeURIComponent(currentProject.key_name)}/values/${encodedKey}`;
+    
+    const columnsArray = Array.from(cols);
+    
+    const response = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        ...headers,
+        'Content-Type': 'application/json',
+      },
+      mode: 'cors',
+      body: JSON.stringify({ value: columnsArray }),
+    });
+    
+    if (response.status === 401) {
+      throw new AuthorizationError();
+    }
+    
+    if (!response.ok) {
+      throw new Error(`Failed to save: ${response.status}`);
+    }
+    
+    setNewToken(response);
+    console.log('✅ Pipeline settings save successful');
+  } catch (e) {
+    console.error('❌ PipelineSetting save failed:', e);
+  }
+};
+
+
+
+
+/* Toggle column visibility - ONLY updates state, NO persistence */
 const toggleColumn = (id: string) => {
   if (FIXED_VISIBLE.has(id)) return;
   setHiddenColumns((prev) => {
@@ -66,69 +128,7 @@ const toggleColumn = (id: string) => {
       next.add(id);
       console.log(`Hiding column: ${id}`);
     }
-    // ❌ NO save to localStorage
-    // ❌ NO save to pipeline
-    // Only update state
+    // NO save - just update UI
     return next;
   });
-};
-
-/* Show all columns - updates state only */
-const showAll = () => {
-  const next = new Set<string>();
-  setHiddenColumns(next);
-  console.log('Showing all columns (state only - click SAVE to persist)');
-};
-
-/* Hide all non-fixed columns - updates state only */
-const hideAllNonFixed = () => {
-  const phases = ['dsn', 'mdl', 'rig', 'bld', 'ldv'];
-  const dynamicIds: string[] = [
-    'dsn_approval_status', 'dsn_work_status', 'dsn_take',
-    'mdl_approval_status', 'mdl_work_status', 'mdl_take',
-    'rig_approval_status', 'rig_work_status', 'rig_take',
-    'bld_approval_status', 'bld_work_status', 'bld_take',
-    'ldv_approval_status', 'ldv_work_status', 'ldv_take',
-    'relation',
-  ];
-  if (phaseComponents) {
-    phases.forEach(phase => {
-      const ids = phaseComponents[phase] || [];
-      ids.forEach(id => dynamicIds.push(id));
-    });
-  }
-  const next = new Set<string>(dynamicIds.filter(id => !FIXED_VISIBLE.has(id)));
-  setHiddenColumns(next);
-  console.log('Hiding all non-fixed columns (state only - click SAVE to persist)');
-};
-
-/* Save to pipeline settings (ONLY called by SAVE button) */
-const saveHiddenColumnsToPipelineSetting = async (cols: Set<string>) => {
-  try {
-    if (!currentProject || !currentProject.key_name) return;
-    
-    console.log('💾 SAVE button clicked - saving to pipeline settings...');
-    
-    const { updateValue } = await import('../../../new-pipeline-setting/api');
-    const { GROUP, SECTION } = await import('../../../new-pipeline-setting/types');
-    
-    const columnsArray = Array.from(cols);
-    
-    await updateValue(
-      PIPE_KEY,
-      columnsArray,
-      GROUP.Preference,
-      SECTION.Project,
-      currentProject.key_name,
-    );
-    
-    console.log('✅ Pipeline settings save successful');
-  } catch (e) {
-    console.error('❌ PipelineSetting save failed:', e);
-  }
-};
-
-/* Handle SAVE button click */
-const handleSaveColumns = async () => {
-  await saveHiddenColumnsToPipelineSetting(hiddenColumns);
 };
