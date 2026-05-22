@@ -1,32 +1,36 @@
-// CamDataTypeShotKey identifies a single shot for cam_data_type lookup.
-type CamDataTypeShotKey struct {
-	Group1   string
-	Group2   string
-	Group3   string
-	Relation string
-}
+import (
+    "context"
+    "log"  // ← add this if not already imported
 
-// GetLatestCamDataTypes returns the latest cam_data_type per shot for the
-// given batch. Result is keyed by "g1/g2/g3/relation".
-//
-// "Latest" = document with the most recent submitted_at_utc for the shot,
-// across any phase/component. Documents where component_info.cam_data_type
-// is missing or empty are excluded.
-//
-// Pass an empty slice and you get an empty map — no Mongo call is made.
+    "go.mongodb.org/mongo-driver/bson"
+    "go.mongodb.org/mongo-driver/mongo"
+)
+
 func (poi *PublishOperationInfo) GetLatestCamDataTypes(
 	ctx context.Context,
 	project string,
 	shots []CamDataTypeShotKey,
 ) (map[string][]string, error) {
 	result := make(map[string][]string)
+
+	log.Printf("[CamDataType] Repository called — project=%s, shots count=%d", project, len(shots))
+
 	if len(shots) == 0 {
+		log.Printf("[CamDataType] No shots provided, returning empty map")
 		return result, nil
+	}
+
+	// Log first few shots to verify input
+	for i, s := range shots {
+		if i >= 3 {
+			log.Printf("[CamDataType] ... and %d more shots", len(shots)-3)
+			break
+		}
+		log.Printf("[CamDataType] Input shot[%d]: %s/%s/%s/%s", i, s.Group1, s.Group2, s.Group3, s.Relation)
 	}
 
 	col := poi.db.Collection("pc_publishOperationInfo")
 
-	// $or branch per shot — exact tuple match on groups.0/1/2 + relation.
 	orBranches := make(bson.A, 0, len(shots))
 	for _, s := range shots {
 		orBranches = append(orBranches, bson.D{
@@ -68,6 +72,7 @@ func (poi *PublishOperationInfo) GetLatestCamDataTypes(
 
 	cursor, err := col.Aggregate(ctx, pipeline)
 	if err != nil {
+		log.Printf("[CamDataType] ❌ Aggregation error: %v", err)
 		return result, err
 	}
 	defer cursor.Close(ctx)
@@ -80,15 +85,22 @@ func (poi *PublishOperationInfo) GetLatestCamDataTypes(
 		CamDataType []string `bson:"cam_data_type"`
 	}
 	if err = cursor.All(ctx, &rows); err != nil {
+		log.Printf("[CamDataType] ❌ Cursor decode error: %v", err)
 		return result, err
 	}
 
+	log.Printf("[CamDataType] Mongo returned %d rows", len(rows))
+
 	for _, r := range rows {
 		if len(r.ID.Groups) < 3 {
+			log.Printf("[CamDataType] ⚠️ Skipping row with <3 groups: %v", r.ID.Groups)
 			continue
 		}
 		key := r.ID.Groups[0] + "/" + r.ID.Groups[1] + "/" + r.ID.Groups[2] + "/" + r.ID.Relation
 		result[key] = r.CamDataType
+		log.Printf("[CamDataType] ✅ %s → %v", key, r.CamDataType)
 	}
+
+	log.Printf("[CamDataType] Final result map size: %d", len(result))
 	return result, nil
 }
