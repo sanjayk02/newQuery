@@ -1,0 +1,55 @@
+export const fetchShotCamDataTypes = async (
+    project: string,
+    shots: string[],
+    signal?: AbortSignal | null,
+): Promise<ShotCamDataTypesResponse> => {
+    // Nothing to fetch — short-circuit to avoid a wasted request.
+    if (shots.length === 0) {
+        console.log('[CamDataType API] ⏭️  Skipped — empty shots array');
+        return { items: {} };
+    }
+
+    const headers = getAuthHeader();
+    const params = new URLSearchParams();
+    shots.forEach(s => params.append('shots', s));
+
+    const url = `/api/projects/${project}/shots/camDataTypes?${params.toString()}`;
+
+    console.log('[CamDataType API] 📡 Request:', {
+        project,
+        shotsCount: shots.length,
+        url,
+    });
+
+    const startTime = performance.now();
+
+    const res = await fetch(url, {
+        method: 'GET',
+        headers,
+        mode: 'cors',
+        signal,
+    });
+
+    const elapsed = (performance.now() - startTime).toFixed(0);
+    console.log(`[CamDataType API] ⏱️  Response in ${elapsed}ms — status=${res.status}`);
+
+    if (res.status === 401) {
+        console.error('[CamDataType API] ❌ 401 Unauthorized');
+        throw new AuthorizationError();
+    }
+    if (!res.ok) {
+        const errorText = await res.text();
+        console.error('[CamDataType API] ❌ Error response:', errorText);
+        throw new Error('Failed to fetch cam data types.');
+    }
+    setNewToken(res);
+
+    const json: ShotCamDataTypesResponse = await res.json();
+
+    console.log('[CamDataType API] 📦 Parsed JSON:', {
+        entries: Object.keys(json.items || {}).length,
+        sample: Object.entries(json.items || {}).slice(0, 3),  // first 3 entries
+    });
+
+    return json;
+};
