@@ -1,0 +1,1 @@
+apiRouter.GET("/projects/:project/shots/camDataTypes", publishOperationInfoDelivery.ListLatestCamDataTypes)
