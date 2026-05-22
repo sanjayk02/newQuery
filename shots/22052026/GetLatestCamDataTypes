@@ -1,10 +1,4 @@
-// ============================================================================
-// Add to: publishOperationInfo.go (same package "repository")
-// ============================================================================
-
-// CamDataTypeShotKey — one shot to look up.
-// If you already have a similar struct elsewhere in entity, use that instead
-// and remove this. Otherwise move it to your entity package.
+// CamDataTypeShotKey identifies a single shot for cam_data_type lookup.
 type CamDataTypeShotKey struct {
 	Group1   string
 	Group2   string
@@ -44,8 +38,6 @@ func (poi *PublishOperationInfo) GetLatestCamDataTypes(
 	}
 
 	pipeline := mongo.Pipeline{
-		// Filter: project, shots only, has non-empty cam_data_type, matches one of the requested shots.
-		// NOTE: $exists + $not($size) combined in one operator object — both apply.
 		{{"$match", bson.D{
 			{"_central.project", project},
 			{"root", "shots"},
@@ -55,8 +47,6 @@ func (poi *PublishOperationInfo) GetLatestCamDataTypes(
 			}},
 			{"$or", orBranches},
 		}}},
-
-		// Keep only what we need (lighter sort + group).
 		{{"$project", bson.D{
 			{"_id", 0},
 			{"groups", 1},
@@ -64,13 +54,9 @@ func (poi *PublishOperationInfo) GetLatestCamDataTypes(
 			{"submitted_at_utc", 1},
 			{"cam_data_type", "$component_info.cam_data_type"},
 		}}},
-
-		// Newest first so $first below picks the latest.
 		{{"$sort", bson.D{
 			{"submitted_at_utc", -1},
 		}}},
-
-		// One row per shot — newest cam_data_type wins.
 		{{"$group", bson.D{
 			{"_id", bson.D{
 				{"groups", "$groups"},
