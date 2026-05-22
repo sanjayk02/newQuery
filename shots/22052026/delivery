@@ -1,0 +1,30 @@
+// ListLatestCamDataTypes handles
+//   GET /projects/:project/shots/camDataTypes?shots=g1/g2/g3/rel&shots=...
+//
+// Returns: { "items": { "g1/g2/g3/rel": ["typeA", "typeB"], ... } }
+func (d *PublishOperationInfo) ListLatestCamDataTypes(c *gin.Context) {
+	project := c.Param("project")
+	rawShots := c.QueryArray("shots")
+
+	keys := make([]repository.CamDataTypeShotKey, 0, len(rawShots))
+	for _, s := range rawShots {
+		parts := strings.Split(s, "/")
+		if len(parts) != 4 {
+			continue // skip malformed entries
+		}
+		keys = append(keys, repository.CamDataTypeShotKey{
+			Group1:   parts[0],
+			Group2:   parts[1],
+			Group3:   parts[2],
+			Relation: parts[3],
+		})
+	}
+
+	result, err := d.usecase.GetLatestCamDataTypes(c.Request.Context(), project, keys)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"items": result})
+}
