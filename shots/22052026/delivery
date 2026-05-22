@@ -1,16 +1,16 @@
-// ListLatestCamDataTypes handles
-//   GET /projects/:project/shots/camDataTypes?shots=g1/g2/g3/rel&shots=...
-//
-// Returns: { "items": { "g1/g2/g3/rel": ["typeA", "typeB"], ... } }
 func (d *PublishOperationInfo) ListLatestCamDataTypes(c *gin.Context) {
 	project := c.Param("project")
 	rawShots := c.QueryArray("shots")
+
+	log.Printf("[CamDataType] 📥 Handler called — project=%s, raw shots count=%d", project, len(rawShots))
+	log.Printf("[CamDataType] Raw shots from query: %v", rawShots)
 
 	keys := make([]repository.CamDataTypeShotKey, 0, len(rawShots))
 	for _, s := range rawShots {
 		parts := strings.Split(s, "/")
 		if len(parts) != 4 {
-			continue // skip malformed entries
+			log.Printf("[CamDataType] ⚠️ Skipping malformed shot: %q (got %d parts)", s, len(parts))
+			continue
 		}
 		keys = append(keys, repository.CamDataTypeShotKey{
 			Group1:   parts[0],
@@ -20,11 +20,15 @@ func (d *PublishOperationInfo) ListLatestCamDataTypes(c *gin.Context) {
 		})
 	}
 
+	log.Printf("[CamDataType] Parsed %d valid shot keys", len(keys))
+
 	result, err := d.usecase.GetLatestCamDataTypes(c.Request.Context(), project, keys)
 	if err != nil {
+		log.Printf("[CamDataType] ❌ Usecase error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
+	log.Printf("[CamDataType] 📤 Response: %d entries", len(result))
 	c.JSON(http.StatusOK, gin.H{"items": result})
 }
