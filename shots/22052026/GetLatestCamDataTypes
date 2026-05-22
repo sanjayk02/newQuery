@@ -1,17 +1,17 @@
-import (
-    "context"
-    "log"  // ← add this if not already imported
-
-    "go.mongodb.org/mongo-driver/bson"
-    "go.mongodb.org/mongo-driver/mongo"
-)
-
+// GetLatestCamDataTypes returns the latest cam_data_type per shot for the
+// given batch. Result is keyed by "g1/g2/g3/relation".
+//
+// "Latest" = document with the most recent submitted_at_utc for the shot,
+// across any phase/component. Documents where component_info.cam_data_type
+// is missing or empty are excluded.
+//
+// Pass an empty slice and you get an empty map — no Mongo call is made.
 func (poi *PublishOperationInfo) GetLatestCamDataTypes(
 	ctx context.Context,
 	project string,
 	shots []CamDataTypeShotKey,
-) (map[string][]string, error) {
-	result := make(map[string][]string)
+) (map[string]string, error) {                    // ← CHANGED: was map[string][]string
+	result := make(map[string]string)              // ← CHANGED: was make(map[string][]string)
 
 	log.Printf("[CamDataType] Repository called — project=%s, shots count=%d", project, len(shots))
 
@@ -20,7 +20,6 @@ func (poi *PublishOperationInfo) GetLatestCamDataTypes(
 		return result, nil
 	}
 
-	// Log first few shots to verify input
 	for i, s := range shots {
 		if i >= 3 {
 			log.Printf("[CamDataType] ... and %d more shots", len(shots)-3)
@@ -46,8 +45,8 @@ func (poi *PublishOperationInfo) GetLatestCamDataTypes(
 			{"_central.project", project},
 			{"root", "shots"},
 			{"component_info.cam_data_type", bson.D{
-				{"$exists", true},
-				{"$not", bson.D{{"$size", 0}}},
+				{"$exists", true},                  // ← CHANGED
+				{"$ne", ""},                        // ← CHANGED (was $not: {$size: 0})
 			}},
 			{"$or", orBranches},
 		}}},
@@ -82,7 +81,7 @@ func (poi *PublishOperationInfo) GetLatestCamDataTypes(
 			Groups   []string `bson:"groups"`
 			Relation string   `bson:"relation"`
 		} `bson:"_id"`
-		CamDataType []string `bson:"cam_data_type"`
+		CamDataType string `bson:"cam_data_type"`  // ← CHANGED: was []string
 	}
 	if err = cursor.All(ctx, &rows); err != nil {
 		log.Printf("[CamDataType] ❌ Cursor decode error: %v", err)
@@ -98,7 +97,7 @@ func (poi *PublishOperationInfo) GetLatestCamDataTypes(
 		}
 		key := r.ID.Groups[0] + "/" + r.ID.Groups[1] + "/" + r.ID.Groups[2] + "/" + r.ID.Relation
 		result[key] = r.CamDataType
-		log.Printf("[CamDataType] ✅ %s → %v", key, r.CamDataType)
+		log.Printf("[CamDataType] ✅ %s → %q", key, r.CamDataType)   // ← changed %v to %q for strings
 	}
 
 	log.Printf("[CamDataType] Final result map size: %d", len(result))
