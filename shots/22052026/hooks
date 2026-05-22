@@ -1,0 +1,48 @@
+export function useFetchShotCamDataTypes(
+    project: Project | null | undefined,
+    shots: ShotPivot[],
+): { camDataTypes: { [shotKey: string]: string[] } } {
+    const [camDataTypes, setCamDataTypes] =
+        useState<{ [shotKey: string]: string[] }>({});
+
+    useEffect(() => {
+        if (project == null || shots.length === 0) {
+            console.log('[CamDataType] Skipped — no project or no shots');
+            setCamDataTypes({});
+            return;
+        }
+
+        const controller = new AbortController();
+
+        const shotKeys = shots
+            .filter(s => s.group_1 && s.group_2 && s.group_3 && s.relation)
+            .map(s => `${s.group_1}/${s.group_2}/${s.group_3}/${s.relation}`);
+
+        console.log('[CamDataType] 🚀 Fetching for', shotKeys.length, 'shots');
+        console.log('[CamDataType] Shot keys:', shotKeys);
+
+        (async () => {
+            try {
+                const res = await fetchShotCamDataTypes(
+                    project.key_name,
+                    shotKeys,
+                    controller.signal,
+                );
+                console.log('[CamDataType] ✅ Response received:', res);
+                console.log('[CamDataType] Entries in map:', Object.keys(res.items || {}).length);
+                console.table(res.items);  // pretty table view in browser console
+                setCamDataTypes(res.items || {});
+            } catch (err) {
+                if (err instanceof Error && err.name === 'AbortError') {
+                    console.log('[CamDataType] Request aborted (deps changed)');
+                    return;
+                }
+                console.error('[CamDataType] ❌ Failed to fetch:', err);
+            }
+        })();
+
+        return () => controller.abort();
+    }, [project, JSON.stringify(shots)]);
+
+    return { camDataTypes };
+}
