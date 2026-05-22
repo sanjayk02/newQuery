@@ -1,0 +1,108 @@
+// ============================================================================
+// Add to: publishOperationInfo.go (same package "repository")
+// ============================================================================
+
+// CamDataTypeShotKey — one shot to look up.
+// If you already have a similar struct elsewhere in entity, use that instead
+// and remove this. Otherwise move it to your entity package.
+type CamDataTypeShotKey struct {
+	Group1   string
+	Group2   string
+	Group3   string
+	Relation string
+}
+
+// GetLatestCamDataTypes returns the latest cam_data_type per shot for the
+// given batch. Result is keyed by "g1/g2/g3/relation".
+//
+// "Latest" = document with the most recent submitted_at_utc for the shot,
+// across any phase/component. Documents where component_info.cam_data_type
+// is missing or empty are excluded.
+//
+// Pass an empty slice and you get an empty map — no Mongo call is made.
+func (poi *PublishOperationInfo) GetLatestCamDataTypes(
+	ctx context.Context,
+	project string,
+	shots []CamDataTypeShotKey,
+) (map[string][]string, error) {
+	result := make(map[string][]string)
+	if len(shots) == 0 {
+		return result, nil
+	}
+
+	col := poi.db.Collection("pc_publishOperationInfo")
+
+	// $or branch per shot — exact tuple match on groups.0/1/2 + relation.
+	orBranches := make(bson.A, 0, len(shots))
+	for _, s := range shots {
+		orBranches = append(orBranches, bson.D{
+			{"groups.0", s.Group1},
+			{"groups.1", s.Group2},
+			{"groups.2", s.Group3},
+			{"relation", s.Relation},
+		})
+	}
+
+	pipeline := mongo.Pipeline{
+		// Filter: project, shots only, has non-empty cam_data_type, matches one of the requested shots.
+		// NOTE: $exists + $not($size) combined in one operator object — both apply.
+		{{"$match", bson.D{
+			{"_central.project", project},
+			{"root", "shots"},
+			{"component_info.cam_data_type", bson.D{
+				{"$exists", true},
+				{"$not", bson.D{{"$size", 0}}},
+			}},
+			{"$or", orBranches},
+		}}},
+
+		// Keep only what we need (lighter sort + group).
+		{{"$project", bson.D{
+			{"_id", 0},
+			{"groups", 1},
+			{"relation", 1},
+			{"submitted_at_utc", 1},
+			{"cam_data_type", "$component_info.cam_data_type"},
+		}}},
+
+		// Newest first so $first below picks the latest.
+		{{"$sort", bson.D{
+			{"submitted_at_utc", -1},
+		}}},
+
+		// One row per shot — newest cam_data_type wins.
+		{{"$group", bson.D{
+			{"_id", bson.D{
+				{"groups", "$groups"},
+				{"relation", "$relation"},
+			}},
+			{"cam_data_type", bson.D{{"$first", "$cam_data_type"}}},
+		}}},
+	}
+
+	cursor, err := col.Aggregate(ctx, pipeline)
+	if err != nil {
+		return result, err
+	}
+	defer cursor.Close(ctx)
+
+	var rows []struct {
+		ID struct {
+			Groups   []string `bson:"groups"`
+			Relation string   `bson:"relation"`
+		} `bson:"_id"`
+		CamDataType []string `bson:"cam_data_type"`
+	}
+	if err = cursor.All(ctx, &rows); err != nil {
+		return result, err
+	}
+
+	for _, r := range rows {
+		if len(r.ID.Groups) < 3 {
+			continue
+		}
+		key := r.ID.Groups[0] + "/" + r.ID.Groups[1] + "/" + r.ID.Groups[2] + "/" + r.ID.Relation
+		result[key] = r.CamDataType
+	}
+	return result, nil
+}
