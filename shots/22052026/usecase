@@ -1,0 +1,10 @@
+// GetLatestCamDataTypes wraps the repository call with the configured read timeout.
+func (u *PublishOperationInfo) GetLatestCamDataTypes(
+	ctx context.Context,
+	project string,
+	shots []repository.CamDataTypeShotKey,
+) (map[string][]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, u.readTimeout)
+	defer cancel()
+	return u.repository.GetLatestCamDataTypes(ctx, project, shots)
+}
