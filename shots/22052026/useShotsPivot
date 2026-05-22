@@ -1,0 +1,32 @@
+import {
+    useShotsPivot,
+    useFetchPipelineSettingShotComponents,
+    useFetchShotCamDataTypes,
+} from './hooks';
+
+
+
+const { shots, total, groupCounts, loading } = useShotsPivot({
+        project:        currentProject,
+        page:           backendPage,
+        perPage:        backendPerPage,
+        nameKey:        searchValue,
+        approvalStatus: filters.approvalStatus,
+        workStatus:     filters.workStatus,
+        orderKey:       isGroupView ? 'group1_only' : sortKey,
+        direction:      isGroupView ? 'ASC' : sortDir.toUpperCase(),
+        shotsGroups:    filters.shotGroups,
+    });
+
+    // ─── NEW: fetch cam_data_type for the current page's shots ───
+    const { camDataTypes } = useFetchShotCamDataTypes(currentProject, shots);
+
+    // Print to console whenever data arrives
+    useEffect(() => {
+        if (Object.keys(camDataTypes).length === 0) {
+            console.log('[CamDataType] Panel: no cam_data_type data yet');
+            return;
+        }
+        console.log('[CamDataType] Panel: received cam_data_type for', Object.keys(camDataTypes).length, 'shots');
+        console.table(camDataTypes);
+    }, [camDataTypes]);
