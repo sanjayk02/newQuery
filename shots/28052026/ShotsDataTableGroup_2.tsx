@@ -626,7 +626,7 @@ const Group2HeaderRow: React.FC<{
             })}
 
             {/* ← NEW: empty cell for CamDataType column alignment (teal left line) */}
-            {columnsState['cam_data_type'] !== false && <TableCell style={{ borderLeft: 'solid 3px #2DD4BF', borderRight: 'solid 3px #2DD4BF' }} />}
+            {columnsState['cam_data_type'] !== false && <TableCell />}
 
             {columnsState['relation'] !== false && <TableCell />}
         </TableRow>
@@ -698,7 +698,7 @@ const Group1HeaderRow: React.FC<{
             })}
 
             {/* ← NEW: empty cell for CamDataType column alignment (teal left line) */}
-            {columnsState['cam_data_type'] !== false && <TableCell style={{ borderLeft: 'solid 3px #2DD4BF', borderRight: 'solid 3px #2DD4BF' }} />}
+            {columnsState['cam_data_type'] !== false && <TableCell />}
 
             {columnsState['relation'] !== false && <TableCell />}
         </TableRow>
