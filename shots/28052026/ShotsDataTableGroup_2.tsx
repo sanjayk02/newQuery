@@ -530,7 +530,6 @@ const ShotDataRow: React.FC<{
                 const sel = getCellSel('cam_data_type');
                 const shotKey = `${shot.group_1}/${shot.group_2}/${shot.group_3}/${shot.relation}`;
                 const value = camDataTypes ? camDataTypes[shotKey] : undefined;
-                const bottomLine = isLastRow ? 'solid 3px #2DD4BF' : 'none';
                 return (
                     <TableCell
                         onDoubleClick={sel.onDblCellClick}
@@ -538,7 +537,6 @@ const ShotDataRow: React.FC<{
                             whiteSpace:      'nowrap',
                             borderLeft:      'solid 3px #2DD4BF',
                             borderRight:     'solid 3px #2DD4BF',
-                            borderBottom:    bottomLine,
                             backgroundColor: sel.selBg,
                             cursor:          onCellSelect ? 'pointer' : 'default',
                         }}
