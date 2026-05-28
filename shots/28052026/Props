@@ -1,0 +1,87 @@
+// Update the Props type
+type Props = {
+  viewMode: ViewMode;
+  onViewChange: (mode: ViewMode) => void;
+  searchValue: string;
+  onSearchChange: (value: string) => void;
+  filters: Filters;
+  onFilterChange: (newFilters: Filters) => void;
+  columnsState: ColumnState;
+  onColumnsChange: (newColumns: ColumnState) => void;
+  onReset?: () => void;
+  shotGroupOptions: { id: string; label: string }[];
+  groupSortDir: 'asc' | 'desc';
+  onGroupSortToggle: () => void;
+  phaseComponents: { [key: string]: string[] };
+  onSaveColumns?: () => Promise<void> | void;  // ← NEW
+};
+
+// Update ColumnSelector component to accept onSave prop
+const ColumnSelector: React.FC<{
+  columnState:     ColumnState;
+  onChange:        (state: ColumnState) => void;
+  phaseComponents: { [key: string]: string[] };
+  onSave?:         () => Promise<void> | void;  // ← NEW
+}> = ({ columnState, onChange, phaseComponents, onSave }) => {
+  const [open, setOpen] = React.useState(false);
+  const [openGroups, setOpenGroups] = React.useState<string[]>([]);
+  
+  // ... existing code ...
+  
+  const handleSave = async () => {
+    if (onSave) {
+      await onSave();
+    }
+    setOpen(false);
+  };
+  
+  return (
+    <>
+      {/* ... existing button code ... */}
+      
+      <Drawer ...>
+        {/* ... existing content ... */}
+        <Footer>
+          <Button size="small" onClick={handleHideAll} variant="outlined">
+            {allHidden ? "SHOW ALL" : "HIDE ALL"}
+          </Button>
+          <Button
+            size="small"
+            onClick={handleSave}  // ← Updated to use handleSave
+            variant="contained"
+            style={{ backgroundColor: '#1976d2', color: '#fff', marginLeft: 8 }}
+          >
+            SAVE
+          </Button>
+        </Footer>
+      </Drawer>
+    </>
+  );
+};
+
+// Update main component to pass onSave
+const ShotDataTableToolbar: React.FC<Props> = ({
+  // ... existing props ...
+  onSaveColumns,  // ← NEW
+}) => {
+  // ... existing code ...
+  
+  return (
+    <StyledToolbar>
+      {/* ... existing JSX ... */}
+      
+      <RightSection>
+        {/* ... existing components ... */}
+        
+        <ColumnSelector
+          columnState={columnsState}
+          onChange={onColumnsChange}
+          phaseComponents={phaseComponents}
+          onSave={onSaveColumns}  // ← NEW: Pass onSave
+        />
+        
+        {/* ... rest of JSX ... */}
+      </RightSection>
+    </StyledToolbar>
+  );
+};
