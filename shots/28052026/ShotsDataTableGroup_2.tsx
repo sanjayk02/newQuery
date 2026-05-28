@@ -257,6 +257,7 @@ const GroupTableHead: React.FC<{
                             backgroundColor: (col.colors && col.colors.backgroundColor) || undefined,
                             borderTop:       lineColor ? borderLine : 'none',
                             borderLeft:      wantsLeftBar && lineColor ? borderLine : 'none',   // ← CHANGED
+                            borderRight:     col.id === 'cam_data_type' && lineColor ? borderLine : 'none',
                             whiteSpace:      'nowrap',
                             cursor:          orderKey ? 'pointer' : 'default',
                             userSelect:      'none',
@@ -536,6 +537,7 @@ const ShotDataRow: React.FC<{
                         style={{
                             whiteSpace:      'nowrap',
                             borderLeft:      'solid 3px #2DD4BF',
+                            borderRight:     'solid 3px #2DD4BF',
                             borderBottom:    bottomLine,
                             backgroundColor: sel.selBg,
                             cursor:          onCellSelect ? 'pointer' : 'default',
@@ -626,7 +628,7 @@ const Group2HeaderRow: React.FC<{
             })}
 
             {/* ← NEW: empty cell for CamDataType column alignment (teal left line) */}
-            {columnsState['cam_data_type'] !== false && <TableCell style={{ borderLeft: 'solid 3px #2DD4BF' }} />}
+            {columnsState['cam_data_type'] !== false && <TableCell style={{ borderLeft: 'solid 3px #2DD4BF', borderRight: 'solid 3px #2DD4BF' }} />}
 
             {columnsState['relation'] !== false && <TableCell />}
         </TableRow>
@@ -698,7 +700,7 @@ const Group1HeaderRow: React.FC<{
             })}
 
             {/* ← NEW: empty cell for CamDataType column alignment (teal left line) */}
-            {columnsState['cam_data_type'] !== false && <TableCell style={{ borderLeft: 'solid 3px #2DD4BF' }} />}
+            {columnsState['cam_data_type'] !== false && <TableCell style={{ borderLeft: 'solid 3px #2DD4BF', borderRight: 'solid 3px #2DD4BF' }} />}
 
             {columnsState['relation'] !== false && <TableCell />}
         </TableRow>
