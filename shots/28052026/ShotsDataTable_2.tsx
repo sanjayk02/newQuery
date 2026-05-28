@@ -247,6 +247,7 @@ const RecordTableHead: React.FC<RecordTableHeadProps> = ({
                             backgroundColor: (col.colors && col.colors.backgroundColor) || undefined,
                             borderTop:  lineColor ? borderLine : 'none',
                             borderLeft: wantsLeftBar && lineColor ? borderLine : 'none',
+                            borderRight: col.id === 'cam_data_type' && lineColor ? borderLine : 'none',
                             whiteSpace: 'nowrap',
                             cursor:     orderKey ? 'pointer' : 'default',
                             fontWeight: isActive ? 'bold' : 'normal',
@@ -573,6 +574,7 @@ const ShotRow: React.FC<ShotRowProps> = ({
                         style={{
                             whiteSpace:      'nowrap',
                             borderLeft:      'solid 3px #2DD4BF',
+                            borderRight:     'solid 3px #2DD4BF',
                             borderBottom:    bottomLine,
                             backgroundColor: sel.selBg,
                             cursor:          onCellSelect ? 'pointer' : 'default',
