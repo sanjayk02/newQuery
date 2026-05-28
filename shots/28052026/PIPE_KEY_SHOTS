@@ -1,0 +1,140 @@
+// Add these constants at the top of ShotsDataTablePanel.tsx
+const PIPE_KEY_SHOTS = '/ppiTracker/shots/hiddenColumns';
+const FIXED_VISIBLE_IDS = new Set(['thumbnail', 'group_1_name', 'group_2_name', 'group_3_name']);
+
+// Helper function for localStorage key
+const lsKeyForProject = (projectKeyName?: string) => {
+  return `ppi:shots:hiddenColumns:${projectKeyName || 'unknown'}`;
+};
+
+// Add this function inside ShotsDataTablePanel component
+const persistHiddenColumnsLocal = useCallback((hiddenIds: string[]) => {
+  const key = lsKeyForProject(currentProject?.key_name);
+  try {
+    localStorage.setItem(key, JSON.stringify(hiddenIds));
+    console.log('[ColumnVisibility] Saved to localStorage:', hiddenIds);
+  } catch (e) {
+    console.error('localStorage save failed', e);
+  }
+}, [currentProject]);
+
+// Save to pipeline settings (called by SAVE button)
+const saveToPipelineSettings = useCallback(async (hiddenIds: string[]) => {
+  if (!currentProject?.key_name) return;
+  
+  try {
+    const { updateValue } = await import('../../../new-pipeline-setting/api');
+    const { GROUP, SECTION } = await import('../../../new-pipeline-setting/types');
+    
+    await updateValue(
+      PIPE_KEY_SHOTS,
+      hiddenIds,
+      GROUP.Preference,
+      SECTION.Project,
+      currentProject.key_name,
+    );
+    console.log('[ColumnVisibility] Saved to pipeline:', hiddenIds);
+  } catch (e) {
+    console.warn('[ColumnVisibility] Pipeline save failed:', e);
+  }
+}, [currentProject]);
+
+// Load column visibility from pipeline (on page load)
+useEffect(() => {
+  let isMounted = true;
+  
+  const loadColumnVisibility = async () => {
+    if (!currentProject) return;
+    
+    const projectKey = currentProject.key_name;
+    const lsKey = lsKeyForProject(projectKey);
+    
+    // Try localStorage first
+    try {
+      const raw = localStorage.getItem(lsKey);
+      if (raw) {
+        const hiddenIds = JSON.parse(raw) as string[];
+        if (isMounted && Array.isArray(hiddenIds)) {
+          // Convert hidden IDs to column state (visible = !hidden)
+          const newState = { ...columnsState };
+          hiddenIds.forEach(id => {
+            if (!FIXED_VISIBLE_IDS.has(id)) {
+              newState[id] = false;
+            }
+          });
+          setColumnsState(newState);
+          console.log('[ColumnVisibility] Loaded from localStorage:', hiddenIds);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('localStorage load failed:', e);
+    }
+    
+    // Fallback to pipeline settings
+    try {
+      const { queryValue } = await import('../../../new-pipeline-setting/api');
+      const { GROUP, SECTION } = await import('../../../new-pipeline-setting/types');
+      
+      const savedValue = await queryValue(
+        GROUP.Preference,
+        SECTION.Project,
+        projectKey,
+        PIPE_KEY_SHOTS,
+      );
+      
+      if (isMounted && savedValue && Array.isArray(savedValue)) {
+        const newState = { ...columnsState };
+        savedValue.forEach(id => {
+          if (!FIXED_VISIBLE_IDS.has(id)) {
+            newState[id] = false;
+          }
+        });
+        setColumnsState(newState);
+        // Cache to localStorage
+        localStorage.setItem(lsKey, JSON.stringify(savedValue));
+        console.log('[ColumnVisibility] Loaded from pipeline:', savedValue);
+      }
+    } catch (e) {
+      console.warn('[ColumnVisibility] Pipeline load failed:', e);
+    }
+  };
+  
+  loadColumnVisibility();
+  
+  return () => { isMounted = false; };
+}, [currentProject]);
+
+// Modify handleSaveColumns to save both hidden columns
+const handleSaveColumns = useCallback(async () => {
+  // Get hidden column IDs (where value is false)
+  const hiddenIds = Object.entries(columnsState)
+    .filter(([id, visible]) => !visible && !FIXED_VISIBLE_IDS.has(id))
+    .map(([id]) => id);
+  
+  // Save to localStorage
+  persistHiddenColumnsLocal(hiddenIds);
+  
+  // Save to pipeline
+  await saveToPipelineSettings(hiddenIds);
+  
+  console.log('[ColumnVisibility] Saved columns:', hiddenIds);
+}, [columnsState, persistHiddenColumnsLocal, saveToPipelineSettings]);
+
+// Pass handleSaveColumns to ShotDataTableToolbar
+// In the return statement, update ShotDataTableToolbar props:
+<ShotDataTableToolbar
+  viewMode={viewMode}
+  onViewChange={(mode: ViewMode) => setViewMode(mode)}
+  searchValue={searchValue}
+  onSearchChange={(value: string) => setSearchValue(value)}
+  filters={filters}
+  onFilterChange={(newFilters: Filters) => setFilters(newFilters)}
+  columnsState={columnsState}
+  onColumnsChange={setColumnsState}
+  shotGroupOptions={name1Options}
+  groupSortDir={groupSortDir}
+  onGroupSortToggle={handleGroupSortToggle}
+  phaseComponents={phaseComponents}
+  onSaveColumns={handleSaveColumns}  // ← NEW: Add this prop
+/>
