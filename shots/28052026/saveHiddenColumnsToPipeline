@@ -1,0 +1,54 @@
+const saveHiddenColumnsToPipeline = async (cols: Set<string>) => {
+    try {
+        if (!currentProject || !currentProject.key_name) return;
+        
+        console.log('[ColumnVisibility] 💾 Saving to pipeline...');
+        
+        const { getAuthHeader, setNewToken } = await import('../../../auth/util');
+        const { AuthorizationError } = await import('../../../auth/types');
+        
+        const headers = getAuthHeader();
+        const encodedKey = encodeURIComponent(PIPE_KEY_SHOTS);
+        const url = `/api/pipelineSetting/preference/projects/${encodeURIComponent(currentProject.key_name)}/values/${encodedKey}`;
+        
+        const columnsArray = Array.from(cols);
+        
+        // Try PATCH first (update existing)
+        let response = await fetch(url, {
+            method: 'PATCH',
+            headers: {
+                ...headers,
+                'Content-Type': 'application/json',
+            },
+            mode: 'cors',
+            body: JSON.stringify({ value: columnsArray }),
+        });
+        
+        // If PATCH fails with 404, try POST to create
+        if (response.status === 404) {
+            console.log('[ColumnVisibility] Setting not found, creating new...');
+            response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    ...headers,
+                    'Content-Type': 'application/json',
+                },
+                mode: 'cors',
+                body: JSON.stringify({ value: columnsArray }),
+            });
+        }
+        
+        if (response.status === 401) {
+            throw new AuthorizationError();
+        }
+        
+        if (!response.ok) {
+            throw new Error(`Failed to save: ${response.status}`);
+        }
+        
+        setNewToken(response);
+        console.log('[ColumnVisibility] ✅ Save successful');
+    } catch (e) {
+        console.error('[ColumnVisibility] ❌ Save failed:', e);
+    }
+};
