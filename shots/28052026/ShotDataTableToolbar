@@ -1,0 +1,28 @@
+<ShotDataTableToolbar
+    viewMode={viewMode}
+    onViewChange={(mode: ViewMode) => setViewMode(mode)}
+    searchValue={searchValue}
+    onSearchChange={(value: string) => setSearchValue(value)}
+    filters={filters}
+    onFilterChange={(newFilters: Filters) => setFilters(newFilters)}
+    columnsState={columnsState}
+    onColumnsChange={(newState) => {
+        // Convert ColumnState to hiddenColumns Set
+        const defaultState = buildDefaultColumnState(phaseComponents);
+        const newHidden = new Set<string>();
+        Object.keys(newState).forEach(id => {
+            if (!newState[id] && defaultState.hasOwnProperty(id)) {
+                newHidden.add(id);
+            }
+        });
+        setHiddenColumns(newHidden);
+    }}
+    shotGroupOptions={name1Options}
+    groupSortDir={groupSortDir}
+    onGroupSortToggle={handleGroupSortToggle}
+    phaseComponents={phaseComponents}
+    onSaveColumns={handleSaveColumns}
+    visibleCount={visibleCount}  // Add this prop
+    onShowAll={showAllColumns}    // Add this prop
+    onHideAll={hideAllNonFixed}   // Add this prop
+/>
