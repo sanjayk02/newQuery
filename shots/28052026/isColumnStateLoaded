@@ -1,72 +1,64 @@
-// Add this state near the top of the ShotsDataTablePanel component
+// Add these states near the top of the ShotsDataTablePanel component
 const [isColumnStateLoaded, setIsColumnStateLoaded] = useState(false);
+const [pendingHiddenIds, setPendingHiddenIds] = useState<string[] | null>(null);
 
-// Update the loadColumnVisibility useEffect
+// Remove the localStorage-related functions and constants
+// Remove: PIPE_KEY_SHOTS, FIXED_VISIBLE_IDS, lsKeyForProject, persistHiddenColumnsLocal
+
+// Keep only the pipeline key constant
+const PIPE_KEY_SHOTS = '/ppiTracker/shots/hiddenColumns';
+const FIXED_VISIBLE_IDS = new Set(['thumbnail', 'group_1_name', 'group_2_name', 'group_3_name']);
+
+// Load column visibility from pipeline settings only (no localStorage)
 useEffect(() => {
     let isMounted = true;
     
     const loadColumnVisibility = async () => {
-        if (!currentProject) return;
-        
-        const projectKey = currentProject.key_name;
-        const lsKey = lsKeyForProject(projectKey);
-        
-        // Try localStorage first
-        try {
-            const raw = localStorage.getItem(lsKey);
-            if (raw) {
-                const hiddenIds = JSON.parse(raw) as string[];
-                if (isMounted && Array.isArray(hiddenIds)) {
-                    // Don't set state yet - wait for phaseComponents
-                    // Store hidden IDs to apply after default state is built
-                    window.__pendingHiddenIds = hiddenIds;
-                    if (isMounted) {
-                        setIsColumnStateLoaded(true);
-                    }
-                    console.log('[ColumnVisibility] Loaded hidden IDs from localStorage:', hiddenIds);
-                    return;
-                }
-            }
-        } catch (e) {
-            console.warn('localStorage load failed:', e);
+        if (!currentProject || !currentProject.key_name) {
+            setIsColumnStateLoaded(true);
+            return;
         }
         
-        // Fallback to pipeline settings
+        const projectKey = currentProject.key_name;
+        
         try {
             const pipelineApi = await import('../../../new-pipeline-setting/api') as any;
             const { GROUP, SECTION } = await import('../../../new-pipeline-setting/types');
             
-            const savedValue = typeof pipelineApi.queryValue === 'function'
-                ? await pipelineApi.queryValue(
+            // Try to load from pipeline settings
+            let savedValue = null;
+            
+            if (typeof pipelineApi.queryValue === 'function') {
+                savedValue = await pipelineApi.queryValue(
                     GROUP.Preference,
                     SECTION.Project,
                     projectKey,
                     PIPE_KEY_SHOTS,
-                )
-                : await pipelineApi.queryConfig(
+                );
+            } else if (typeof pipelineApi.queryConfig === 'function') {
+                savedValue = await pipelineApi.queryConfig(
                     'project',
                     projectKey,
                     PIPE_KEY_SHOTS,
                 );
+            }
             
-            if (isMounted && savedValue && Array.isArray(savedValue)) {
-                window.__pendingHiddenIds = savedValue;
-                // Cache to localStorage
-                localStorage.setItem(lsKey, JSON.stringify(savedValue));
-                if (isMounted) {
-                    setIsColumnStateLoaded(true);
+            if (isMounted) {
+                if (savedValue && Array.isArray(savedValue)) {
+                    setPendingHiddenIds(savedValue);
+                    console.log('[ColumnVisibility] Loaded from pipeline:', savedValue);
+                } else {
+                    setPendingHiddenIds([]);
+                    console.log('[ColumnVisibility] No saved columns, using defaults');
                 }
-                console.log('[ColumnVisibility] Loaded hidden IDs from pipeline:', savedValue);
-                return;
+                setIsColumnStateLoaded(true);
             }
         } catch (e) {
             console.warn('[ColumnVisibility] Pipeline load failed:', e);
-        }
-        
-        // No saved state found
-        if (isMounted) {
-            window.__pendingHiddenIds = [];
-            setIsColumnStateLoaded(true);
+            if (isMounted) {
+                setPendingHiddenIds([]);
+                setIsColumnStateLoaded(true);
+            }
         }
     };
     
@@ -77,7 +69,7 @@ useEffect(() => {
     };
 }, [currentProject]);
 
-// Replace the existing useEffect that builds default columns
+// Build default columns after phaseComponents and saved state are loaded
 useEffect(() => {
     // Wait for both phaseComponents to load AND column visibility to be loaded
     if (Object.keys(phaseComponents || {}).length > 0 && 
@@ -87,9 +79,8 @@ useEffect(() => {
         // Build default state
         const defaultState = buildDefaultColumnState(phaseComponents);
         
-        // Apply pending hidden IDs if they exist
-        const pendingHiddenIds = (window as any).__pendingHiddenIds;
-        if (pendingHiddenIds && Array.isArray(pendingHiddenIds) && pendingHiddenIds.length > 0) {
+        // Apply hidden columns from pipeline settings
+        if (pendingHiddenIds && pendingHiddenIds.length > 0) {
             pendingHiddenIds.forEach(id => {
                 if (!FIXED_VISIBLE_IDS.has(id) && defaultState.hasOwnProperty(id)) {
                     defaultState[id] = false;
@@ -99,24 +90,40 @@ useEffect(() => {
         }
         
         setColumnsState(defaultState);
-        
-        // Clean up
-        delete (window as any).__pendingHiddenIds;
     }
-}, [phaseComponents, columnsState, isColumnStateLoaded]);
+}, [phaseComponents, columnsState, isColumnStateLoaded, pendingHiddenIds]);
 
-// Update the handleSaveColumns function to also update the loaded flag appropriately
+// Save to pipeline settings only (no localStorage)
+const saveToPipelineSettings = useCallback(async (hiddenIds: string[]) => {
+    if (!currentProject || !currentProject.key_name) return;
+    
+    try {
+        const { updateValue } = await import('../../../new-pipeline-setting/api');
+        const { GROUP, SECTION } = await import('../../../new-pipeline-setting/types');
+        
+        await updateValue(
+            PIPE_KEY_SHOTS,
+            hiddenIds,
+            GROUP.Preference,
+            SECTION.Project,
+            currentProject.key_name,
+        );
+        console.log('[ColumnVisibility] Saved to pipeline:', hiddenIds);
+    } catch (e) {
+        console.warn('[ColumnVisibility] Pipeline save failed:', e);
+        throw e; // Re-throw so the UI can handle the error if needed
+    }
+}, [currentProject]);
+
+// Save columns handler (no localStorage)
 const handleSaveColumns = useCallback(async () => {
     // Get hidden column IDs (where value is false)
     const hiddenIds = Object.entries(columnsState)
         .filter(([id, visible]) => !visible && !FIXED_VISIBLE_IDS.has(id))
         .map(([id]) => id);
     
-    // Save to localStorage
-    persistHiddenColumnsLocal(hiddenIds);
-    
     // Save to pipeline
     await saveToPipelineSettings(hiddenIds);
     
     console.log('[ColumnVisibility] Saved columns:', hiddenIds);
-}, [columnsState, persistHiddenColumnsLocal, saveToPipelineSettings]);
+}, [columnsState, saveToPipelineSettings]);
