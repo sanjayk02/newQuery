@@ -1,0 +1,68 @@
+// Load hidden columns from pipeline only
+useEffect(() => {
+    let isMounted = true;
+    
+    const loadFromPipeline = async () => {
+        if (!currentProject) return;
+        
+        const projectKey = currentProject.key_name;
+        
+        try {
+            const { getAuthHeader, setNewToken } = await import('../../../auth/util');
+            const { AuthorizationError } = await import('../../../auth/types');
+            
+            const headers = getAuthHeader();
+            const encodedKey = encodeURIComponent(PIPE_KEY_SHOTS);
+            const url = `/api/pipelineSetting/preference/projects/${encodeURIComponent(projectKey)}/values/${encodedKey}`;
+            
+            const response = await fetch(url, {
+                method: 'GET',
+                headers,
+                mode: 'cors',
+            });
+            
+            if (response.status === 401) {
+                throw new AuthorizationError();
+            }
+            
+            // ✅ Treat 404 as "no saved settings" - NOT an error
+            if (response.status === 404) {
+                console.log('[ColumnVisibility] No saved settings found (404 expected on prod) - using defaults');
+                if (isMounted) {
+                    setHiddenColumns(new Set());
+                }
+                return;
+            }
+            
+            if (!response.ok) {
+                throw new Error(`Failed to fetch: ${response.status}`);
+            }
+            
+            setNewToken(response);
+            const json = await response.json();
+            const savedValue = json.value;
+            
+            if (savedValue && Array.isArray(savedValue) && isMounted) {
+                const sanitized = savedValue.filter((id: string) => !FIXED_VISIBLE_IDS.has(id));
+                setHiddenColumns(new Set(sanitized));
+                console.log('[ColumnVisibility] Loaded from pipeline:', sanitized);
+            } else if (isMounted) {
+                setHiddenColumns(new Set());
+            }
+        } catch (error) {
+            // Only log as error if it's not a 404
+            if (error instanceof Error && !error.message.includes('404')) {
+                console.error('[ColumnVisibility] Pipeline load failed:', error);
+            }
+            if (isMounted) {
+                setHiddenColumns(new Set());
+            }
+        }
+    };
+    
+    loadFromPipeline();
+    
+    return () => {
+        isMounted = false;
+    };
+}, [currentProject]);
