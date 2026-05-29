@@ -1,0 +1,183 @@
+// ShotsDataTablePanel.tsx - Column Visibility Section
+
+// Constants
+const PIPE_KEY_SHOTS = '/ppiTracker/shots/hiddenColumns';
+const FIXED_VISIBLE_IDS = new Set(['thumbnail', 'group_1_name', 'group_2_name', 'group_3_name']);
+
+// State - Use Set for hidden columns (like Assets page)
+const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+
+// Load hidden columns from pipeline only (NO localStorage)
+useEffect(() => {
+    let isMounted = true;
+    
+    const loadFromPipeline = async () => {
+        if (!currentProject) return;
+        
+        const projectKey = currentProject.key_name;
+        
+        try {
+            const { getAuthHeader, setNewToken } = await import('../../../auth/util');
+            const { AuthorizationError } = await import('../../../auth/types');
+            
+            const headers = getAuthHeader();
+            const encodedKey = encodeURIComponent(PIPE_KEY_SHOTS);
+            const url = `/api/pipelineSetting/preference/projects/${encodeURIComponent(projectKey)}/values/${encodedKey}`;
+            
+            const response = await fetch(url, {
+                method: 'GET',
+                headers,
+                mode: 'cors',
+            });
+            
+            if (response.status === 401) {
+                throw new AuthorizationError();
+            }
+            
+            if (response.status === 404) {
+                // No saved settings - use defaults (all columns visible)
+                if (isMounted) {
+                    setHiddenColumns(new Set());
+                }
+                return;
+            }
+            
+            if (!response.ok) {
+                throw new Error(`Failed to fetch: ${response.status}`);
+            }
+            
+            setNewToken(response);
+            const json = await response.json();
+            const savedValue = json.value;
+            
+            if (savedValue && Array.isArray(savedValue) && isMounted) {
+                // Sanitize - remove any fixed columns that shouldn't be hidden
+                const sanitized = savedValue.filter((id: string) => !FIXED_VISIBLE_IDS.has(id));
+                setHiddenColumns(new Set(sanitized));
+                console.log('[ColumnVisibility] Loaded from pipeline:', sanitized);
+            } else if (isMounted) {
+                setHiddenColumns(new Set());
+            }
+        } catch (error) {
+            console.error('[ColumnVisibility] Pipeline load failed:', error);
+            if (isMounted) {
+                setHiddenColumns(new Set());
+            }
+        }
+    };
+    
+    loadFromPipeline();
+    
+    return () => {
+        isMounted = false;
+    };
+}, [currentProject]);
+
+// Toggle column - updates UI only (NO auto-save)
+const toggleColumn = (id: string) => {
+    if (FIXED_VISIBLE_IDS.has(id)) return;
+    
+    setHiddenColumns((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) {
+            next.delete(id);
+            console.log(`[ColumnVisibility] Showing column: ${id}`);
+        } else {
+            next.add(id);
+            console.log(`[ColumnVisibility] Hiding column: ${id}`);
+        }
+        return next;
+    });
+};
+
+// Show all non-fixed columns
+const showAllColumns = () => {
+    setHiddenColumns(new Set());
+    console.log('[ColumnVisibility] Showing all columns');
+};
+
+// Hide all non-fixed columns
+const hideAllNonFixed = () => {
+    // Get all toggleable column IDs
+    const defaultState = buildDefaultColumnState(phaseComponents);
+    const allToggleableIds = Object.keys(defaultState);
+    const next = new Set(allToggleableIds);
+    setHiddenColumns(next);
+    console.log('[ColumnVisibility] Hiding all non-fixed columns');
+};
+
+// Save to pipeline settings (ONLY called by SAVE button)
+const saveHiddenColumnsToPipeline = async (cols: Set<string>) => {
+    try {
+        if (!currentProject || !currentProject.key_name) return;
+        
+        console.log('[ColumnVisibility] 💾 SAVE button clicked - saving to pipeline...');
+        
+        const { getAuthHeader, setNewToken } = await import('../../../auth/util');
+        const { AuthorizationError } = await import('../../../auth/types');
+        
+        const headers = getAuthHeader();
+        const encodedKey = encodeURIComponent(PIPE_KEY_SHOTS);
+        const url = `/api/pipelineSetting/preference/projects/${encodeURIComponent(currentProject.key_name)}/values/${encodedKey}`;
+        
+        const columnsArray = Array.from(cols);
+        
+        const response = await fetch(url, {
+            method: 'PATCH',
+            headers: {
+                ...headers,
+                'Content-Type': 'application/json',
+            },
+            mode: 'cors',
+            body: JSON.stringify({ value: columnsArray }),
+        });
+        
+        if (response.status === 401) {
+            throw new AuthorizationError();
+        }
+        
+        if (!response.ok) {
+            throw new Error(`Failed to save: ${response.status}`);
+        }
+        
+        setNewToken(response);
+        console.log('[ColumnVisibility] ✅ Pipeline settings save successful');
+    } catch (e) {
+        console.error('[ColumnVisibility] ❌ Pipeline save failed:', e);
+    }
+};
+
+// Handle SAVE button click
+const handleSaveColumns = async () => {
+    await saveHiddenColumnsToPipeline(hiddenColumns);
+};
+
+// Convert hiddenColumns Set to ColumnState for components
+const columnsState = useMemo(() => {
+    const defaultState = buildDefaultColumnState(phaseComponents);
+    const state: { [key: string]: boolean } = {};
+    
+    // Start with all columns visible
+    Object.keys(defaultState).forEach(id => {
+        state[id] = true;
+    });
+    
+    // Apply hidden columns
+    hiddenColumns.forEach(id => {
+        if (state.hasOwnProperty(id)) {
+            state[id] = false;
+        }
+    });
+    
+    return state;
+}, [phaseComponents, hiddenColumns]);
+
+// Count visible toggleable columns
+const visibleCount = useMemo(() => {
+    const defaultState = buildDefaultColumnState(phaseComponents);
+    let count = 0;
+    Object.keys(defaultState).forEach(id => {
+        if (!hiddenColumns.has(id)) count++;
+    });
+    return count;
+}, [phaseComponents, hiddenColumns]);
