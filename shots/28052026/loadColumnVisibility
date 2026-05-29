@@ -1,0 +1,54 @@
+// In ShotsDataTablePanel.tsx, update the PIPE_KEY_SHOTS constant
+// Remove the leading slash
+const PIPE_KEY_SHOTS = 'ppiTracker/shots/hiddenColumns'; // No leading slash
+
+// Then update the loadColumnVisibility function
+const loadColumnVisibility = async () => {
+    if (!currentProject || !currentProject.key_name) {
+        setIsColumnStateLoaded(true);
+        return;
+    }
+    
+    const projectKey = currentProject.key_name;
+    
+    try {
+        const pipelineApi = await import('../../../new-pipeline-setting/api') as any;
+        const { GROUP, SECTION } = await import('../../../new-pipeline-setting/types');
+        
+        let savedValue = null;
+        
+        if (typeof pipelineApi.queryValue === 'function') {
+            savedValue = await pipelineApi.queryValue(
+                GROUP.Preference,
+                SECTION.Project,
+                projectKey,
+                PIPE_KEY_SHOTS, // Now without leading slash
+            );
+        } else if (typeof pipelineApi.queryConfig === 'function') {
+            // Make sure the key doesn't have a leading slash
+            const cleanKey = PIPE_KEY_SHOTS.startsWith('/') ? PIPE_KEY_SHOTS.slice(1) : PIPE_KEY_SHOTS;
+            savedValue = await pipelineApi.queryConfig(
+                'project',
+                projectKey,
+                cleanKey,
+            );
+        }
+        
+        if (isMounted) {
+            if (savedValue && Array.isArray(savedValue)) {
+                setPendingHiddenIds(savedValue);
+                console.log('[ColumnVisibility] Loaded from pipeline:', savedValue);
+            } else {
+                setPendingHiddenIds([]);
+                console.log('[ColumnVisibility] No saved columns, using defaults');
+            }
+            setIsColumnStateLoaded(true);
+        }
+    } catch (e) {
+        console.warn('[ColumnVisibility] Pipeline load failed:', e);
+        if (isMounted) {
+            setPendingHiddenIds([]);
+            setIsColumnStateLoaded(true);
+        }
+    }
+};
