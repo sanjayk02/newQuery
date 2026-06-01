@@ -1,11 +1,11 @@
 @echo off
-
 cd /d C:\SanjayK\tracker30\01062026\tracker30
-
-set PYTHONPATH=%CD%\src
 
 call C:\SanjayK\tracker30\.venv\Scripts\activate.bat
 
-python -m ppiTracker
+set PYTHONPATH=%CD%\src
+set PPI_BOOTSTRAP_CONF_DIR=%CD%\src\ppiTracker\conf
+
+python -m ppiTracker --window
 
 pause
