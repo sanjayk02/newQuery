@@ -1,11 +1,11 @@
 @echo off
+
 cd /d C:\SanjayK\tracker30\01062026\tracker30
 
-call C:\SanjayK\tracker30\.venv\Scripts\activate.bat
+set PYTHON_EXE=Z:\ppip30\shared\tools\3rdparty\python\win\v3.1.6\python311\python.exe
 
-set PYTHONPATH=%CD%\src
-set PPI_BOOTSTRAP_CONF_DIR=%CD%\src\ppiTracker\conf
+set PYTHONPATH=C:\SanjayK\tracker30\01062026\tracker30\src;Z:\ppip30\shared\tools\ppi\ppilib30\com\v3.1.163.2\python311;Z:\ppip30\shared\tools\ppi\ppui30\com\v3.1.108.0\python311;Z:\ppip30\shared\tools\3rdparty\python\win\v3.1.6\python311\Lib\site-packages
 
-python -m ppiTracker --window
+"%PYTHON_EXE%" -m ppiTracker --window
 
 pause
