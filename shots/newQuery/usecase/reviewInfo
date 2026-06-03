@@ -1,0 +1,69 @@
+type ListReviewShotsPivotParams struct {
+	Project   string
+	Phases    []string // empty => resolved dynamically by the repository
+	Statuses  []string // empty => repository default ("check")
+	OrderKey  string
+	Direction string
+	Page      int
+	PerPage   int
+}
+
+type ListReviewShotsPivotResult struct {
+	Shots    []repository.ShotPivot
+	Phases   []string
+	Total    int64
+	Page     int
+	PerPage  int
+	PageLast int
+	HasNext  bool
+	HasPrev  bool
+	Sort     string
+	Dir      string
+}
+
+func (u *ReviewInfo) ListReviewShotsPivot(
+	ctx context.Context,
+	params ListReviewShotsPivotParams,
+) (ListReviewShotsPivotResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, u.readTimeout) // <- confirm field name
+	defer cancel()
+
+	page := params.Page
+	if page < 1 {
+		page = 1
+	}
+	perPage := params.PerPage
+	if perPage < 1 {
+		perPage = 15
+	}
+	dir := strings.ToUpper(strings.TrimSpace(params.Direction))
+	if dir != "ASC" && dir != "DESC" {
+		dir = "ASC"
+	}
+	orderKey := strings.TrimSpace(params.OrderKey)
+	if orderKey == "" {
+		orderKey = "group1_only"
+	}
+
+	limit := perPage
+	offset := (page - 1) * perPage
+
+	shots, phases, total, err := u.reviewInfo.ListReviewShotsPivot( // <- confirm repo field name
+		ctx, params.Project, params.Phases, params.Statuses, orderKey, dir, limit, offset,
+	)
+	if err != nil {
+		return ListReviewShotsPivotResult{}, err
+	}
+
+	pageLast := int((total + int64(perPage) - 1) / int64(perPage))
+	if pageLast < 1 {
+		pageLast = 1
+	}
+
+	return ListReviewShotsPivotResult{
+		Shots: shots, Phases: phases, Total: total,
+		Page: page, PerPage: perPage, PageLast: pageLast,
+		HasNext: page < pageLast, HasPrev: page > 1,
+		Sort: orderKey, Dir: dir,
+	}, nil
+}
