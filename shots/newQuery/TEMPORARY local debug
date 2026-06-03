@@ -1,0 +1,25 @@
+// ── TEMPORARY local debug route ── remove before committing; never deploy.
+// On root `router` (not apiRouter) so it bypasses the /api auth/permission checks.
+// Browser: http://localhost:4000/debug/checkpivot/drk
+router.GET("/debug/checkpivot/:project", func(c *gin.Context) {
+    direction := c.DefaultQuery("direction", "asc")
+    phases := c.QueryArray("phase")    // ?phase=lay&phase=anm  (empty => repo defaults)
+    statuses := c.QueryArray("status") // ?status=check         (empty => repo defaults)
+
+    items, total, err := reviewInfoRepository.ListReviewShotsPivot(
+        c.Request.Context(), c.Param("project"),
+        phases, statuses, direction, 15, 0,
+    )
+    if err != nil {
+        c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+    c.IndentedJSON(http.StatusOK, gin.H{"total": total, "count": len(items), "items": items})
+})
+
+
+
+
+http://localhost:4000/debug/checkpivot/drk
+http://localhost:4000/debug/checkpivot/drk?direction=desc
+http://localhost:4000/debug/checkpivot/drk?phase=lay&phase=anm&status=check
