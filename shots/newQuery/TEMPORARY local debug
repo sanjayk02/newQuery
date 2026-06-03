@@ -1,25 +1,28 @@
-// ── TEMPORARY local debug route ── remove before committing; never deploy.
-// On root `router` (not apiRouter) so it bypasses the /api auth/permission checks.
-// Browser: http://localhost:4000/debug/checkpivot/drk
 router.GET("/debug/checkpivot/:project", func(c *gin.Context) {
+    orderKey := c.DefaultQuery("order", "group1_only") // group1_only|group2_only|group3_only|relation_only|<phase>_take|<phase>_work|<phase>_appr|<phase>_submitted
     direction := c.DefaultQuery("direction", "asc")
-    phases := c.QueryArray("phase")    // ?phase=lay&phase=anm  (empty => repo defaults)
-    statuses := c.QueryArray("status") // ?status=check         (empty => repo defaults)
+    phases := c.QueryArray("phase")    // empty => fetched dynamically
+    statuses := c.QueryArray("status") // empty => repo default ("check")
 
-    items, total, err := reviewInfoRepository.ListReviewShotsPivot(
+    items, usedPhases, total, err := reviewInfoRepository.ListReviewShotsPivot(
         c.Request.Context(), c.Param("project"),
-        phases, statuses, direction, 15, 0,
+        phases, statuses, orderKey, direction, 15, 0,
     )
     if err != nil {
         c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
         return
     }
-    c.IndentedJSON(http.StatusOK, gin.H{"total": total, "count": len(items), "items": items})
+    c.IndentedJSON(http.StatusOK, gin.H{
+        "phases": usedPhases, "total": total, "count": len(items), "items": items,
+    })
 })
-
-
 
 
 http://localhost:4000/debug/checkpivot/drk
 http://localhost:4000/debug/checkpivot/drk?direction=desc
 http://localhost:4000/debug/checkpivot/drk?phase=lay&phase=anm&status=check
+
+
+http://localhost:4000/debug/checkpivot/drk?order=anm_take&direction=desc
+http://localhost:4000/debug/checkpivot/drk?order=relation_only
+http://localhost:4000/debug/checkpivot/drk?order=lay_submitted&direction=asc
