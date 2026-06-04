@@ -1,0 +1,12 @@
+export type ReviewShotsPivotResponse = {
+    items:    ShotPivot[];
+    phases:   string[];   // dynamic phase list for building columns
+    total:    number;
+    page:     number;
+    perPage:  number;
+    pageLast: number;
+    hasNext:  boolean;
+    hasPrev:  boolean;
+    sort:     string;
+    dir:      string;
+};
