@@ -9,7 +9,7 @@ import React, {
 import { RouteComponentProps } from "react-router-dom";
 import { CircularProgress, Container, Paper, styled } from '@material-ui/core';
 import { TablePaginationProps } from '@material-ui/core/TablePagination';
-import { useFetchPipelineSettingShotComponents, useFetchShotCamDataTypes, useReviewShotsPivot} from './hooks';
+import { useFetchPipelineSettingShotComponents, useFetchShotCamDataTypes, useReviewShotsPivot } from './hooks';
 import { PageProps, ShotPivot } from './types';
 import ShotsDataTable from './ShotsDataTable';
 import ShotsDataTableFooter from './ShotsDataTableFooter';
@@ -39,8 +39,8 @@ const StyledContainer = styled(Container)(({ theme }) => ({
     display: 'flex',
     flexDirection: 'column',
     padding: 0,
-    overflow: 'hidden',
     height: 'calc(100vh - 64px)',
+    overflow: 'hidden',
     '& > *': {
         display: 'flex',
         overflow: 'hidden',
@@ -73,13 +73,11 @@ const StyledContentDiv = styled('div')(({ theme }) => ({
 }));
 
 const StyledTableDiv = styled('div')({
-    paddingBottom: 8,
-    overflowX: 'auto',
-    width: '100%',
     flex: 1,
     minHeight: 0,
     display: 'flex',
     flexDirection: 'column',
+    overflow: 'hidden',
 });
 
 const ToolBarWrapper = styled('div')(({ theme }) => ({
@@ -92,20 +90,23 @@ const ToolBarWrapper = styled('div')(({ theme }) => ({
 const FooterWrapper = styled('div')(({ theme }) => ({
     display: 'flex',
     justifyContent: 'flex-end',
+    alignItems: 'center',
     width: '100%',
     backgroundColor: theme.palette.background.paper,
     paddingRight: theme.spacing(25),
-    flexShrink: 0,
     paddingTop: theme.spacing(1),
     paddingBottom: theme.spacing(1),
+    flexShrink: 0,
+    borderTop: `1px solid ${theme.palette.divider}`,
+    minHeight: 52,
 }));
 
 /* ── Types ─────────────────────────────────────────────────────────────── */
 
 type Filters = {
-    shotGroups:     string[];
+    shotGroups: string[];
     approvalStatus: string[];
-    workStatus:     string[];
+    workStatus: string[];
 };
 
 
@@ -268,12 +269,10 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
     ]);
 
     const isGroupView = viewMode === 'group';
-    
+
     // For list view: use pagination, for group view: fetch all (page 1 with large perPage)
     const backendPage = isGroupView ? 1 : effectivePage + 1;
     const backendPerPage = isGroupView ? 10000 : pageProps.rowsPerPage;
-
-    console.log('[Fetch] View mode:', isGroupView ? 'GROUP' : 'LIST', 'Page:', backendPage, 'PerPage:', backendPerPage);
 
     const { shots, total, groupCounts, loading, phases } = useReviewShotsPivot({
         project: currentProject,
@@ -287,11 +286,6 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
         shotsGroups: filters.shotGroups,
     });
 
-    // Log what we received
-    useEffect(() => {
-        console.log('[Data Received] View:', isGroupView ? 'GROUP' : 'LIST', 'Shots count:', shots.length, 'Total:', total, 'Loading:', loading);
-    }, [shots, total, loading, isGroupView]);
-
     // Cache data when it loads (only once per view type)
     useEffect(() => {
         if (!loading && shots.length > 0) {
@@ -302,7 +296,6 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
                     groupCounts: { ...groupCounts }
                 });
                 hasCachedGroupRef.current = true;
-                console.log('[Cache] Saved GROUP view data:', shots.length, 'shots');
             } else if (!isGroupView && !hasCachedListRef.current) {
                 setCachedListData({
                     shots: [...shots],
@@ -310,25 +303,20 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
                     groupCounts: { ...groupCounts }
                 });
                 hasCachedListRef.current = true;
-                console.log('[Cache] Saved LIST view data:', shots.length, 'shots');
             }
         }
     }, [shots, total, groupCounts, loading, isGroupView]);
 
     // Determine what data to display
     const displayData = useMemo(() => {
-        // If currently loading and we have cached data for this view, use cache
         if (loading) {
             if (isGroupView && cachedGroupData) {
-                console.log('[Display] Using cached GROUP data');
                 return cachedGroupData;
             }
             if (!isGroupView && cachedListData) {
-                console.log('[Display] Using cached LIST data');
                 return cachedListData;
             }
         }
-        // Otherwise show fresh data
         return { shots, total, groupCounts };
     }, [loading, isGroupView, shots, total, groupCounts, cachedGroupData, cachedListData]);
 
@@ -338,7 +326,7 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
     /* ── Sort ALL shots for group view ── */
     const sortedAllShots = useMemo(() => {
         if (!isGroupView || !displayData.shots || displayData.shots.length === 0) return displayData.shots || [];
-        
+
         const smartCmp = (a: string, b: string, dir: 'asc' | 'desc' = 'asc') => {
             const isNumA = /^\d+$/.test(a);
             const isNumB = /^\d+$/.test(b);
@@ -497,31 +485,31 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
 
     useEffect(() => {
         let isMounted = true;
-        
+
         const loadFromPipeline = async () => {
             if (!currentProject) return;
-            
+
             try {
                 const { getAuthHeader, setNewToken } = await import('../../../auth/util');
                 const { AuthorizationError } = await import('../../../auth/types');
-                
+
                 const headers = getAuthHeader();
                 const encodedKey = encodeURIComponent(PIPE_KEY_SHOTS);
                 const url = `/api/pipelineSetting/preference/projects/${encodeURIComponent(currentProject.key_name)}/values/${encodedKey}`;
-                
+
                 const response = await fetch(url, { method: 'GET', headers, mode: 'cors' });
-                
+
                 if (response.status === 401) throw new AuthorizationError();
                 if (response.status === 404) {
                     if (isMounted) setHiddenColumns(new Set());
                     return;
                 }
                 if (!response.ok) throw new Error(`Failed to fetch: ${response.status}`);
-                
+
                 setNewToken(response);
                 const json = await response.json();
                 const savedValue = json.value;
-                
+
                 if (savedValue && Array.isArray(savedValue) && isMounted) {
                     const sanitized = savedValue.filter((id: string) => !FIXED_VISIBLE_IDS.has(id));
                     setHiddenColumns(new Set(sanitized));
@@ -532,7 +520,7 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
                 if (isMounted) setHiddenColumns(new Set());
             }
         };
-        
+
         loadFromPipeline();
         return () => { isMounted = false; };
     }, [currentProject]);
@@ -556,19 +544,19 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
     const saveHiddenColumnsToPipeline = async (cols: Set<string>) => {
         try {
             if (!currentProject?.key_name) return;
-            
+
             const { getAuthHeader, setNewToken } = await import('../../../auth/util');
             const headers = getAuthHeader();
             const encodedKey = encodeURIComponent(PIPE_KEY_SHOTS);
             const url = `/api/pipelineSetting/preference/projects/${encodeURIComponent(currentProject.key_name)}/values/${encodedKey}`;
             const columnsArray = Array.from(cols);
-            
+
             let response = await fetch(url, {
                 method: 'PATCH',
                 headers: { ...headers, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ value: columnsArray }),
             });
-            
+
             if (response.status === 404) {
                 response = await fetch(url, {
                     method: 'POST',
@@ -576,7 +564,7 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
                     body: JSON.stringify({ value: columnsArray }),
                 });
             }
-            
+
             if (!response.ok) throw new Error(`Failed to save: ${response.status}`);
             setNewToken(response);
         } catch (e) {
@@ -698,12 +686,12 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
                     )}
                 </StyledPaper>
             </StyledTableDiv>
-            
-            <CsvDownloadComponent currentProject={currentProject} />
-            
+
             <FooterWrapper>
                 {tableFooter}
             </FooterWrapper>
+
+            <CsvDownloadComponent currentProject={currentProject} />
         </StyledContainer>
     );
 };
