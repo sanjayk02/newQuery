@@ -1,0 +1,39 @@
+export const fetchReviewShotsPivot = async ({
+    project,
+    page,
+    perPage,
+    orderKey  = 'group1_only',
+    direction = 'ASC',
+    statuses  = ['check'],  // Default to ['check']
+    signal,
+}: ReviewShotsPivotParams): Promise<ReviewShotsPivotResponse> => {
+    const headers = getAuthHeader();
+    const params = new URLSearchParams();
+
+    params.set('page', String(page));
+    params.set('perPage', String(perPage));
+    params.set('orderKey', orderKey);
+    params.set('direction', direction);
+
+    // Add statuses (required for review queue)
+    statuses.forEach(s => params.append('status', s));
+
+    const url = `/api/projects/${project}/reviews/shots/checkPivot?${params.toString()}`;
+    
+    console.log('[fetchReviewShotsPivot] URL:', url);
+    console.log('[fetchReviewShotsPivot] Statuses:', statuses);
+
+    const res = await fetch(url, { method: 'GET', headers, mode: 'cors', signal });
+    
+    if (res.status === 401) throw new AuthorizationError();
+    if (!res.ok) {
+        const errorText = await res.text();
+        console.error('fetchReviewShotsPivot error:', errorText);
+        throw new Error('Failed to fetch review shots pivot.');
+    }
+    
+    setNewToken(res);
+    const data: ReviewShotsPivotResponse = await res.json();
+    console.log('[fetchReviewShotsPivot] Response:', data);
+    return data;
+};
