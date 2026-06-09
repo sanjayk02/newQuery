@@ -9,7 +9,7 @@ import React, {
 import { RouteComponentProps } from "react-router-dom";
 import { CircularProgress, Container, Paper, styled } from '@material-ui/core';
 import { TablePaginationProps } from '@material-ui/core/TablePagination';
-import { useShotsPivot, useFetchPipelineSettingShotComponents, useFetchShotCamDataTypes, useReviewShotsPivot} from './hooks';
+import { useFetchPipelineSettingShotComponents, useFetchShotCamDataTypes, useReviewShotsPivot} from './hooks';
 import { PageProps, ShotPivot } from './types';
 import ShotsDataTable from './ShotsDataTable';
 import ShotsDataTableFooter from './ShotsDataTableFooter';
@@ -40,6 +40,7 @@ const StyledContainer = styled(Container)(({ theme }) => ({
     flexDirection: 'column',
     padding: 0,
     overflow: 'hidden',
+    height: 'calc(100vh - 64px)',
     '& > *': {
         display: 'flex',
         overflow: 'hidden',
@@ -56,6 +57,8 @@ const StyledPaper = styled(Paper)({
     display: 'flex',
     flexDirection: 'column',
     overflow: 'auto',
+    flex: 1,
+    minHeight: 0,
 });
 
 const StyledContentDiv = styled('div')(({ theme }) => ({
@@ -63,30 +66,38 @@ const StyledContentDiv = styled('div')(({ theme }) => ({
     display: 'flex',
     flexDirection: 'row',
     gap: theme.spacing(2),
-    width: 'fit-content',
-    minWidth: '80%',
+    width: '100%',
+    minWidth: '100%',
     height: '100%',
+    overflow: 'auto',
 }));
 
 const StyledTableDiv = styled('div')({
     paddingBottom: 8,
     overflowX: 'auto',
     width: '100%',
-    height: '100%',
+    flex: 1,
+    minHeight: 0,
+    display: 'flex',
+    flexDirection: 'column',
 });
 
 const ToolBarWrapper = styled('div')(({ theme }) => ({
     display: 'flex',
     flexDirection: 'column',
     gap: theme.spacing(1),
+    flexShrink: 0,
 }));
 
 const FooterWrapper = styled('div')(({ theme }) => ({
-    display:         'flex',
-    justifyContent:  'flex-end',
-    width:           '100%',
+    display: 'flex',
+    justifyContent: 'flex-end',
+    width: '100%',
     backgroundColor: theme.palette.background.paper,
-    paddingRight:  theme.spacing(25),
+    paddingRight: theme.spacing(25),
+    flexShrink: 0,
+    paddingTop: theme.spacing(1),
+    paddingBottom: theme.spacing(1),
 }));
 
 /* ── Types ─────────────────────────────────────────────────────────────── */
@@ -195,20 +206,20 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
     const [selectedCellIds, setSelectedCellIds] = useState<Set<string>>(new Set());
     const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
-    // ── VIEW CACHE - Store data for both views separately ──
+    // Cache refs to prevent loops
+    const hasCachedGroupRef = useRef(false);
+    const hasCachedListRef = useRef(false);
     const [cachedListData, setCachedListData] = useState<{
         shots: ShotPivot[];
         total: number;
         groupCounts: { [key: string]: number };
     } | null>(null);
-
     const [cachedGroupData, setCachedGroupData] = useState<{
         shots: ShotPivot[];
         total: number;
         groupCounts: { [key: string]: number };
     } | null>(null);
 
-    // Toggle a single cell's selection on/off.
     const handleCellSelect = (cellId: string) => {
         setSelectedCellIds(prev => {
             const next = new Set(prev);
@@ -218,7 +229,6 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
         });
     };
 
-    // Toggle row highlight: clicking the same row again clears it.
     const handleRowSelect = (rowId: string | null) => {
         setSelectedRowId(prev => (prev === rowId ? null : rowId));
     };
@@ -247,6 +257,8 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
             // Clear caches when filters change
             setCachedListData(null);
             setCachedGroupData(null);
+            hasCachedGroupRef.current = false;
+            hasCachedListRef.current = false;
         }
     }, [
         searchValue,
@@ -256,8 +268,12 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
     ]);
 
     const isGroupView = viewMode === 'group';
+    
+    // For list view: use pagination, for group view: fetch all (page 1 with large perPage)
     const backendPage = isGroupView ? 1 : effectivePage + 1;
     const backendPerPage = isGroupView ? 10000 : pageProps.rowsPerPage;
+
+    console.log('[Fetch] View mode:', isGroupView ? 'GROUP' : 'LIST', 'Page:', backendPage, 'PerPage:', backendPerPage);
 
     const { shots, total, groupCounts, loading, phases } = useReviewShotsPivot({
         project: currentProject,
@@ -271,22 +287,29 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
         shotsGroups: filters.shotGroups,
     });
 
-    // Cache data when it loads for the current view
+    // Log what we received
+    useEffect(() => {
+        console.log('[Data Received] View:', isGroupView ? 'GROUP' : 'LIST', 'Shots count:', shots.length, 'Total:', total, 'Loading:', loading);
+    }, [shots, total, loading, isGroupView]);
+
+    // Cache data when it loads (only once per view type)
     useEffect(() => {
         if (!loading && shots.length > 0) {
-            if (isGroupView) {
+            if (isGroupView && !hasCachedGroupRef.current) {
                 setCachedGroupData({
                     shots: [...shots],
                     total,
                     groupCounts: { ...groupCounts }
                 });
+                hasCachedGroupRef.current = true;
                 console.log('[Cache] Saved GROUP view data:', shots.length, 'shots');
-            } else {
+            } else if (!isGroupView && !hasCachedListRef.current) {
                 setCachedListData({
                     shots: [...shots],
                     total,
                     groupCounts: { ...groupCounts }
                 });
+                hasCachedListRef.current = true;
                 console.log('[Cache] Saved LIST view data:', shots.length, 'shots');
             }
         }
@@ -294,14 +317,14 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
 
     // Determine what data to display
     const displayData = useMemo(() => {
-        // If currently loading, show cached data for this view (if available)
+        // If currently loading and we have cached data for this view, use cache
         if (loading) {
             if (isGroupView && cachedGroupData) {
-                console.log('[Display] Using cached GROUP data while loading');
+                console.log('[Display] Using cached GROUP data');
                 return cachedGroupData;
             }
             if (!isGroupView && cachedListData) {
-                console.log('[Display] Using cached LIST data while loading');
+                console.log('[Display] Using cached LIST data');
                 return cachedListData;
             }
         }
@@ -309,14 +332,13 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
         return { shots, total, groupCounts };
     }, [loading, isGroupView, shots, total, groupCounts, cachedGroupData, cachedListData]);
 
-    // ─── fetch cam_data_type for the current page's shots ───
+    // Fetch cam_data_type
     const { camDataTypes } = useFetchShotCamDataTypes(currentProject, displayData.shots);
 
-    /* ── Sort ALL shots into canonical hierarchical order ────────────── */
+    /* ── Sort ALL shots for group view ── */
     const sortedAllShots = useMemo(() => {
         if (!isGroupView || !displayData.shots || displayData.shots.length === 0) return displayData.shots || [];
-        if (displayData.shots.length < displayData.total) return [];
-
+        
         const smartCmp = (a: string, b: string, dir: 'asc' | 'desc' = 'asc') => {
             const isNumA = /^\d+$/.test(a);
             const isNumB = /^\d+$/.test(b);
@@ -360,9 +382,9 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
                 : (aVal < bVal ? 1 : -1);
         });
         return arr;
-    }, [displayData.shots, displayData.total, isGroupView, sortKey, sortDir, groupSortDir]);
+    }, [displayData.shots, isGroupView, sortKey, sortDir, groupSortDir]);
 
-    /* ── Build group1 / group2 totals from full dataset ──────────────── */
+    /* ── Build group1 / group2 totals ── */
     const groupTotals = useMemo(() => {
         const group1ShotCount: { [g1: string]: number } = {};
         const group1Group2Set: { [g1: string]: Set<string> } = {};
@@ -388,10 +410,7 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
             };
         });
 
-        return {
-            group1,
-            group2: group2ShotCount,
-        };
+        return { group1, group2: group2ShotCount };
     }, [sortedAllShots]);
 
     const pagedShots: ShotPivot[] = useMemo(() => {
@@ -402,29 +421,27 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
     }, [isGroupView, sortedAllShots, displayData.shots, effectivePage, pageProps.rowsPerPage]);
 
     const displayTotal = displayData.total;
+    const displayGroupCounts = displayData.groupCounts;
 
-    // Keep last non-empty groupCounts so filter menu doesn't empty during reload
+    // Keep last non-empty groupCounts
     const stableGroupCounts = useRef<{ [key: string]: number }>({});
-    if (Object.keys(displayData.groupCounts).length > 0) {
-        stableGroupCounts.current = displayData.groupCounts;
+    if (Object.keys(displayGroupCounts).length > 0) {
+        stableGroupCounts.current = displayGroupCounts;
     }
 
     const name1Options = useMemo(() => {
         const entries = Object.entries(stableGroupCounts.current || {})
             .filter(([key]) => key !== 'Ungrouped');
-
         const sorted = entries.sort((a, b) => b[1] - a[1]);
-
         return sorted.map(([key, count]) => ({
             id: key,
             label: `${key} (${count})`,
         }));
-    }, [stableGroupCounts.current, filters.shotGroups]);
+    }, [stableGroupCounts.current]);
 
     const handleSortChange = (key: string) => {
         if (sortKey === key) {
-            const newDir = sortDir === 'asc' ? 'desc' : 'asc';
-            setSortDir(newDir);
+            setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
         } else {
             setSortKey(key);
             setSortDir('asc');
@@ -462,11 +479,7 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
 
     const dateTimeFormat = new Intl.DateTimeFormat(
         undefined,
-        {
-            timeZone,
-            dateStyle: 'medium',
-            timeStyle: 'medium',
-        },
+        { timeZone, dateStyle: 'medium', timeStyle: 'medium' },
     );
 
     const handleRowsPerPageChange: TablePaginationProps['onChangeRowsPerPage'] = event => {
@@ -482,14 +495,11 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
     const FIXED_VISIBLE_IDS = new Set(['thumbnail', 'group_1_name', 'group_2_name', 'group_3_name']);
     const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
 
-    // Load hidden columns from pipeline
     useEffect(() => {
         let isMounted = true;
         
         const loadFromPipeline = async () => {
             if (!currentProject) return;
-            
-            const projectKey = currentProject.key_name;
             
             try {
                 const { getAuthHeader, setNewToken } = await import('../../../auth/util');
@@ -497,29 +507,16 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
                 
                 const headers = getAuthHeader();
                 const encodedKey = encodeURIComponent(PIPE_KEY_SHOTS);
-                const url = `/api/pipelineSetting/preference/projects/${encodeURIComponent(projectKey)}/values/${encodedKey}`;
+                const url = `/api/pipelineSetting/preference/projects/${encodeURIComponent(currentProject.key_name)}/values/${encodedKey}`;
                 
-                const response = await fetch(url, {
-                    method: 'GET',
-                    headers,
-                    mode: 'cors',
-                });
+                const response = await fetch(url, { method: 'GET', headers, mode: 'cors' });
                 
-                if (response.status === 401) {
-                    throw new AuthorizationError();
-                }
-                
+                if (response.status === 401) throw new AuthorizationError();
                 if (response.status === 404) {
-                    console.log('[ColumnVisibility] No saved settings found - using defaults');
-                    if (isMounted) {
-                        setHiddenColumns(new Set());
-                    }
+                    if (isMounted) setHiddenColumns(new Set());
                     return;
                 }
-                
-                if (!response.ok) {
-                    throw new Error(`Failed to fetch: ${response.status}`);
-                }
+                if (!response.ok) throw new Error(`Failed to fetch: ${response.status}`);
                 
                 setNewToken(response);
                 const json = await response.json();
@@ -528,141 +525,81 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
                 if (savedValue && Array.isArray(savedValue) && isMounted) {
                     const sanitized = savedValue.filter((id: string) => !FIXED_VISIBLE_IDS.has(id));
                     setHiddenColumns(new Set(sanitized));
-                    console.log('[ColumnVisibility] Loaded from pipeline:', sanitized);
                 } else if (isMounted) {
                     setHiddenColumns(new Set());
                 }
             } catch (error) {
-                if (error instanceof Error && !error.message.includes('404')) {
-                    console.error('[ColumnVisibility] Pipeline load failed:', error);
-                }
-                if (isMounted) {
-                    setHiddenColumns(new Set());
-                }
+                if (isMounted) setHiddenColumns(new Set());
             }
         };
         
         loadFromPipeline();
-        
-        return () => {
-            isMounted = false;
-        };
+        return () => { isMounted = false; };
     }, [currentProject]);
 
-    // Toggle column - updates UI only (NO auto-save)
     const toggleColumn = (id: string) => {
         if (FIXED_VISIBLE_IDS.has(id)) return;
-        
-        setHiddenColumns((prev) => {
+        setHiddenColumns(prev => {
             const next = new Set(prev);
-            if (next.has(id)) {
-                next.delete(id);
-            } else {
-                next.add(id);
-            }
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
             return next;
         });
     };
 
-    // Show all non-fixed columns
-    const showAllColumns = () => {
-        setHiddenColumns(new Set());
-        console.log('[ColumnVisibility] Showing all columns');
-    };
-
-    // Hide all non-fixed columns
+    const showAllColumns = () => setHiddenColumns(new Set());
     const hideAllNonFixed = () => {
         const defaultState = buildDefaultColumnState(phaseComponents);
-        const allToggleableIds = Object.keys(defaultState);
-        const next = new Set(allToggleableIds);
-        setHiddenColumns(next);
-        console.log('[ColumnVisibility] Hiding all non-fixed columns');
+        setHiddenColumns(new Set(Object.keys(defaultState)));
     };
 
-    // Save to pipeline settings (ONLY called by SAVE button)
     const saveHiddenColumnsToPipeline = async (cols: Set<string>) => {
         try {
-            if (!currentProject || !currentProject.key_name) return;
-            
-            console.log('[ColumnVisibility] 💾 Saving to pipeline...');
+            if (!currentProject?.key_name) return;
             
             const { getAuthHeader, setNewToken } = await import('../../../auth/util');
-            const { AuthorizationError } = await import('../../../auth/types');
-            
             const headers = getAuthHeader();
             const encodedKey = encodeURIComponent(PIPE_KEY_SHOTS);
             const url = `/api/pipelineSetting/preference/projects/${encodeURIComponent(currentProject.key_name)}/values/${encodedKey}`;
-            
             const columnsArray = Array.from(cols);
             
             let response = await fetch(url, {
                 method: 'PATCH',
-                headers: {
-                    ...headers,
-                    'Content-Type': 'application/json',
-                },
-                mode: 'cors',
+                headers: { ...headers, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ value: columnsArray }),
             });
             
             if (response.status === 404) {
-                console.log('[ColumnVisibility] Setting not found, creating new...');
                 response = await fetch(url, {
                     method: 'POST',
-                    headers: {
-                        ...headers,
-                        'Content-Type': 'application/json',
-                    },
-                    mode: 'cors',
+                    headers: { ...headers, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ value: columnsArray }),
                 });
             }
             
-            if (response.status === 401) {
-                throw new AuthorizationError();
-            }
-            
-            if (!response.ok) {
-                throw new Error(`Failed to save: ${response.status}`);
-            }
-            
+            if (!response.ok) throw new Error(`Failed to save: ${response.status}`);
             setNewToken(response);
-            console.log('[ColumnVisibility] ✅ Save successful');
         } catch (e) {
-            console.error('[ColumnVisibility] ❌ Save failed:', e);
+            console.error('[ColumnVisibility] Save failed:', e);
         }
     };
 
-    // Handle SAVE button click
     const handleSaveColumns = async () => {
         await saveHiddenColumnsToPipeline(hiddenColumns);
     };
 
-    // Convert hiddenColumns Set to ColumnState for components
     const columnsState = useMemo(() => {
         const defaultState = buildDefaultColumnState(phaseComponents);
         const state: { [key: string]: boolean } = {};
-        
-        Object.keys(defaultState).forEach(id => {
-            state[id] = true;
-        });
-        
-        hiddenColumns.forEach(id => {
-            if (state.hasOwnProperty(id)) {
-                state[id] = false;
-            }
-        });
-        
+        Object.keys(defaultState).forEach(id => { state[id] = true; });
+        hiddenColumns.forEach(id => { if (state.hasOwnProperty(id)) state[id] = false; });
         return state;
     }, [phaseComponents, hiddenColumns]);
 
-    // Count visible toggleable columns
     const visibleCount = useMemo(() => {
         const defaultState = buildDefaultColumnState(phaseComponents);
         let count = 0;
-        Object.keys(defaultState).forEach(id => {
-            if (!hiddenColumns.has(id)) count++;
-        });
+        Object.keys(defaultState).forEach(id => { if (!hiddenColumns.has(id)) count++; });
         return count;
     }, [phaseComponents, hiddenColumns]);
 
@@ -676,24 +613,18 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
         />
     );
 
-    // Show loading only on initial load, not when switching views with cached data
     const showLoading = loading && !displayData.shots.length;
-
-    console.log('[Render] View mode:', viewMode, 'Loading:', loading, 'Shots count:', displayData.shots.length, 'Using cached:', loading && ((isGroupView && cachedGroupData) || (!isGroupView && cachedListData)));
 
     return (
         <StyledContainer maxWidth="xl">
             <ToolBarWrapper>
                 <ShotDataTableToolbar
                     viewMode={viewMode}
-                    onViewChange={(mode: ViewMode) => {
-                        console.log('[View Change] Switching to:', mode);
-                        setViewMode(mode);
-                    }}
+                    onViewChange={(mode: ViewMode) => setViewMode(mode)}
                     searchValue={searchValue}
-                    onSearchChange={(value: string) => setSearchValue(value)}
+                    onSearchChange={setSearchValue}
                     filters={filters}
-                    onFilterChange={(newFilters: Filters) => setFilters(newFilters)}
+                    onFilterChange={setFilters}
                     columnsState={columnsState}
                     onColumnsChange={(newState) => {
                         const defaultState = buildDefaultColumnState(phaseComponents);
@@ -719,12 +650,7 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
             <StyledTableDiv>
                 <StyledPaper>
                     {showLoading ? (
-                        <div style={{
-                            paddingTop: 50,
-                            display: 'flex',
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                        }}>
+                        <div style={{ paddingTop: 50, display: 'flex', justifyContent: 'center' }}>
                             <CircularProgress />
                         </div>
                     ) : (
@@ -733,7 +659,7 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
                                 <ShotsDataTableGroup
                                     project={currentProject}
                                     shots={pagedShots}
-                                    total={displayData.groupCounts}
+                                    total={displayGroupCounts}
                                     group1Totals={groupTotals.group1}
                                     group2Totals={groupTotals.group2}
                                     phaseComponents={phaseComponents}
@@ -753,7 +679,7 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
                                 <ShotsDataTable
                                     project={currentProject}
                                     shots={displayData.shots}
-                                    total={displayData.groupCounts}
+                                    total={displayGroupCounts}
                                     phaseComponents={phaseComponents}
                                     camDataTypes={camDataTypes}
                                     tableFooter={<></>}
@@ -772,9 +698,9 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
                     )}
                 </StyledPaper>
             </StyledTableDiv>
-            <CsvDownloadComponent
-                currentProject={currentProject}
-                />
+            
+            <CsvDownloadComponent currentProject={currentProject} />
+            
             <FooterWrapper>
                 {tableFooter}
             </FooterWrapper>
