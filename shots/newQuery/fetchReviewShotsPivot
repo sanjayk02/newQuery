@@ -1,0 +1,44 @@
+useEffect(() => {
+        if (project == null) return;
+
+        let active = true;                       // <-- guard flag
+        const controller = new AbortController();
+        setLoading(true);
+
+        const statuses = Array.from(new Set([...(approvalStatus ?? []), ...(workStatus ?? [])]));
+
+        (async () => {
+            try {
+                const res = await fetchReviewShotsPivot({
+                    project:   project.key_name,
+                    page,
+                    perPage,
+                    orderKey,
+                    direction: direction.toUpperCase(),
+                    statuses,
+                    signal: controller.signal,
+                });
+                if (!active) return;             // <-- bail if unmounted
+                setShots(res.items);
+                setTotal(res.total);
+                setPageLast(res.pageLast);
+                setHasNext(res.hasNext);
+                setHasPrev(res.hasPrev);
+                setPhaseList(res.phases || []);
+            } catch (err) {
+                if (!active) return;             // <-- bail if unmounted
+                if (err instanceof Error && err.name === 'AbortError') return;
+                console.error('useReviewShotsPivot error:', err);
+            } finally {
+                if (active) setLoading(false);   // <-- only when still mounted
+            }
+        })();
+
+        return () => {
+            active = false;                      // <-- mark unmounted/stale
+            controller.abort();
+        };
+    }, [
+        project, page, perPage, orderKey, direction,
+        JSON.stringify(approvalStatus), JSON.stringify(workStatus),
+    ]);
