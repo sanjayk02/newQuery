@@ -1,0 +1,53 @@
+export function useFetchShotThumbnails(
+  project: Project,
+  shots: Shot[],
+): { thumbnails: { [key: string]: string } } {
+  const [thumbnails, dispatch] = useReducer(shotThumbnailReducer, {});
+
+  useEffect(() => {
+    let active = true;                              // guard flag
+    const controller = new AbortController();        // moved inside the effect
+
+    const loadShotThumbnails = async (shot: Shot) => {
+      if (shot.groups.length !== 3 || shot.groups.some(g => !g)) {
+        return;
+      }
+      try {
+        const res = await fetchShotThumbnail(
+          project.key_name,
+          shot.groups,
+          shot.relation,
+          controller.signal,
+        );
+        if (!active) return;
+        if (res != null && res.ok) {
+          const reader = new FileReader();
+          const blob = await res.blob();
+          if (!active) return;
+          reader.onload = () => {
+            if (!active) return;                     // FileReader isn't aborted — guard it
+            dispatch({ shot, responseResult: reader.result as string });
+          };
+          reader.readAsDataURL(blob);
+        }
+      } catch (err) {
+        if (!active) return;
+        if (err instanceof Error && err.name === 'AbortError') {
+          return;
+        }
+        console.error('Failed to load thumbnail:', err);
+      }
+    };
+
+    for (const shot of shots) {
+      loadShotThumbnails(shot);
+    }
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [project, JSON.stringify(shots)]);
+
+  return { thumbnails };
+};
