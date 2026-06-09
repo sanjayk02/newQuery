@@ -1,0 +1,155 @@
+/*
+──────────────────────────────────────────────────────────────────────────
+
+	ListReviewShotsPivot orchestrates CountReviewShots + ListReviewShots and
+	pivots the per-phase rows into one ShotPivot per shot group, preserving the
+	paged group order returned by ListReviewShots. Each phase is keyed by its
+	lowercase name in ShotPivot.Phases. Component is left empty because the
+	review-queue query does not group by component.
+
+	Parameters:
+	- project:     Project identifier (required)
+	- phases:      Phase whitelist; empty = dynamic from ListReviewShotPhases
+	- statuses:    Status set applied to work_status OR approval_status; defaults to ReviewShotStatuses
+	- orderKey:    Sort column (group1_only, group2_only, group3_only, relation_only, or phase_field)
+	- direction:   Sort direction ("ASC" or "DESC")
+	- limit:       Max number of shot groups to return (default 15, max 500)
+	- offset:      Number of shot groups to skip (default 0)
+
+	Returns:
+	- []ShotPivot:  Page of ShotPivot rows
+	- []string:     Phase list used for the query
+	- int64:        Total group count (for pagination)
+	- error:        Error if any
+
+──────────────────────────────────────────────────────────────────────────
+*/
+func (r *ReviewInfo) ListReviewShotsPivot(
+	ctx context.Context,
+	project string,
+	phases []string,
+	statuses []string,
+	orderKey string,
+	direction string,
+	limit, offset int,
+) ([]ShotPivot, []string, int64, error) {
+	if project == "" {
+		return nil, nil, 0, fmt.Errorf("project is required")
+	}
+
+	// ===== ADDED: Cap the limit to prevent browser freezing =====
+	const MAX_GROUPS = 200
+	if limit <= 0 || limit > MAX_GROUPS {
+		limit = MAX_GROUPS
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	// ===== END OF CAP =====
+
+	// Resolve the phase set dynamically from live data when the caller did not
+	// pass an explicit subset, instead of relying on a hardcoded list. An empty
+	// result simply yields an empty page.
+	if len(phases) == 0 {
+		dyn, err := r.ListReviewShotPhases(ctx, project, statuses)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+		phases = dyn
+	}
+
+	// Also cap the number of phases to prevent huge queries
+	if len(phases) > 20 {
+		phases = phases[:20]
+	}
+
+	total, err := r.CountReviewShots(ctx, project, phases, statuses)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	rows, err := r.ListReviewShots(ctx, project, phases, statuses, orderKey, direction, limit, offset)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	if len(rows) == 0 {
+		return []ShotPivot{}, phases, total, nil
+	}
+
+	type key struct {
+		project, root, g1, g2, g3, rel string
+	}
+
+	m := make(map[key]*ShotPivot, len(rows))
+	order := make([]*ShotPivot, 0, len(rows))
+
+	for _, row := range rows {
+		g2 := getStr(row.Group2)
+		g3 := getStr(row.Group3)
+		id := key{row.Project, row.Root, row.Group1, g2, g3, row.Relation}
+
+		sp, ok := m[id]
+		if !ok {
+			sp = &ShotPivot{
+				Project:  row.Project,
+				Root:     row.Root,
+				Group1:   row.Group1,
+				Group2:   g2,
+				Group3:   g3,
+				Relation: row.Relation,
+				Phases:   map[string]PhaseData{},
+			}
+			m[id] = sp
+			order = append(order, sp)
+		}
+
+		sp.Phases[strings.ToLower(row.Phase)] = PhaseData{
+			WorkStatus:     row.WorkStatus,
+			ApprovalStatus: row.ApprovalStatus,
+			SubmittedAtUTC: row.SubmittedAtUTC,
+			Take:           row.Take,
+		}
+	}
+
+	final := make([]ShotPivot, len(order))
+	for i, sp := range order {
+		final[i] = *sp
+	}
+	return final, phases, total, nil
+}
+
+
+
+func (r *ReviewInfo) ListReviewShots(
+	ctx context.Context,
+	project string,
+	phases []string,
+	statuses []string,
+	orderKey string,
+	direction string,
+	limit, offset int,
+) ([]reviewShotPhaseRow, error) {
+	if project == "" {
+		return nil, fmt.Errorf("project is required")
+	}
+	
+	// ===== ADDED: Cap the limit to prevent browser freezing =====
+	const MAX_ROWS = 500
+	if limit <= 0 || limit > MAX_ROWS {
+		limit = MAX_ROWS
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	// ===== END OF CAP =====
+	
+	dir := strings.ToUpper(strings.TrimSpace(direction))
+	if dir != "ASC" && dir != "DESC" {
+		dir = "ASC"
+	}
+
+	phaseClause, phaseArgs := buildReviewShotPhaseIn(phases)
+	statusClause, statusArgs := buildReviewShotStatusWhere(statuses)
+
+	// ... rest of the existing code ...
+}
