@@ -1,0 +1,44 @@
+const CAM_DATA_TYPES_CHUNK = 50; // keep each URL well under the server's size limit
+
+export const fetchShotCamDataTypes = async (
+    project: string,
+    shots: string[],
+    signal?: AbortSignal | null,
+): Promise<ShotCamDataTypesResponse> => {
+    // Nothing to fetch — short-circuit to avoid a wasted request.
+    if (shots.length === 0) {
+        return { items: {} };
+    }
+
+    // Split into chunks so the URL (one `shots=` per key) never grows large
+    // enough to trip the server's 431 "Request Header Fields Too Large".
+    const chunks: string[][] = [];
+    for (let i = 0; i < shots.length; i += CAM_DATA_TYPES_CHUNK) {
+        chunks.push(shots.slice(i, i + CAM_DATA_TYPES_CHUNK));
+    }
+
+    const merged: { [shotKey: string]: string } = {};
+
+    for (const chunk of chunks) {
+        const headers = getAuthHeader();            // fresh token per request (handles rotation)
+        const params = new URLSearchParams();
+        chunk.forEach(s => params.append('shots', s));
+
+        const url = `/api/projects/${project}/shots/camDataTypes?${params.toString()}`;
+
+        const res = await fetch(url, { method: 'GET', headers, mode: 'cors', signal });
+
+        if (res.status === 401) throw new AuthorizationError();
+        if (!res.ok) {
+            const errorText = await res.text();
+            console.error('[CamDataType API] ❌ Error response:', errorText);
+            throw new Error('Failed to fetch cam data types.');
+        }
+        setNewToken(res);
+
+        const json: ShotCamDataTypesResponse = await res.json();
+        Object.assign(merged, json.items || {});
+    }
+
+    return { items: merged };
+};
