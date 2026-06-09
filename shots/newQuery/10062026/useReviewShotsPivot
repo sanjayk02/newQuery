@@ -1,0 +1,88 @@
+export function useReviewShotsPivot({
+    project,
+    page,
+    perPage,
+    orderKey       = 'group1_only',
+    direction      = 'ASC',
+    approvalStatus = [],
+    workStatus     = [],
+}: UseShotsPivotParams): {
+    shots:       ShotPivot[];
+    total:       number;
+    pageLast:    number;
+    hasNext:     boolean;
+    hasPrev:     boolean;
+    loading:     boolean;
+    groupCounts: { [key: string]: number };
+    phases:      string[];
+} {
+    const [shots, setShots] = useState<ShotPivot[]>([]);
+    const [total, setTotal] = useState(0);
+    const [pageLast, setPageLast] = useState(0);
+    const [hasNext, setHasNext] = useState(false);
+    const [hasPrev, setHasPrev] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [phaseList, setPhaseList] = useState<string[]>([]);
+
+    useEffect(() => {
+        if (project == null) return;
+
+        let active = true;
+        const controller = new AbortController();
+        setLoading(true);
+
+        // IMPORTANT: Combine approvalStatus and workStatus, or use default "check"
+        let statuses = [...(approvalStatus || []), ...(workStatus || [])];
+        
+        // If no statuses provided, use default "check" to match backend
+        if (statuses.length === 0) {
+            statuses = ['check'];
+        }
+
+        (async () => {
+            try {
+                const res = await fetchReviewShotsPivot({
+                    project:   project.key_name,
+                    page,
+                    perPage,
+                    orderKey,
+                    direction: direction.toUpperCase(),
+                    statuses:  statuses,  // Send statuses
+                    signal: controller.signal,
+                });
+                
+                if (!active) return;
+                
+                console.log('[ReviewShotsPivot] Response:', {
+                    itemsCount: res.items.length,
+                    total: res.total,
+                    phases: res.phases
+                });
+                
+                setShots(res.items);
+                setTotal(res.total);
+                setPageLast(res.pageLast);
+                setHasNext(res.hasNext);
+                setHasPrev(res.hasPrev);
+                setPhaseList(res.phases || []);
+            } catch (err) {
+                if (!active) return;
+                if (err instanceof Error && err.name === 'AbortError') return;
+                console.error('useReviewShotsPivot error:', err);
+            } finally {
+                if (active) setLoading(false);
+            }
+        })();
+
+        return () => {
+            active = false;
+            controller.abort();
+        };
+    }, [
+        project, page, perPage, orderKey, direction,
+        JSON.stringify(approvalStatus), JSON.stringify(workStatus)
+    ]);
+
+    // Return empty groupCounts for now
+    return { shots, total, pageLast, hasNext, hasPrev, loading, groupCounts: {}, phases: phaseList };
+}
