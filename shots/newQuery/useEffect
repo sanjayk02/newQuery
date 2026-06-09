@@ -1,0 +1,7 @@
+// Add this useEffect to pre-cache list view when component mounts
+useEffect(() => {
+    if (!loading && !isGroupView && shots.length > 0 && !listDataLoaded.current) {
+        setCachedListData({ shots: [...shots], total, groupCounts });
+        listDataLoaded.current = true;
+    }
+}, [shots, total, groupCounts, loading, isGroupView]);
