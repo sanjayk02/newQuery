@@ -10,45 +10,58 @@ export function useFetchLatestShotComponents(
       return;
     }
 
-    let active = true;                              // guard against unmount
+    let active = true;
     const controller = new AbortController();
     const _components = Object.values(components).flat();
 
+    // Cap concurrent requests so a large shot set (e.g. group view) doesn't
+    // exhaust the browser's connection pool (net::ERR_INSUFFICIENT_RESOURCES).
+    const CONCURRENCY = 8;
+
     const loadLatestShotComponents = async () => {
-      const fetchPromises = shots.map(shot => {
-        // Only fetch fully-formed shots; skip when no components are loaded.
-        const hasAllGroups =
-          shot.groups.length === 3 && shot.groups.every(g => !!g && g.length > 0);
-        if (!hasAllGroups || !shot.relation || _components.length === 0) {
-          return Promise.resolve([]);
-        }
-        return fetchLatestShotComponents(
-          project.key_name,
-          shot.groups,
-          shot.relation,
-          _components,
-          controller.signal,
-        );
-      });
+      // Only fully-formed shots hit the network; skip when no components loaded.
+      const targets =
+        _components.length === 0
+          ? []
+          : shots.filter(
+              shot =>
+                shot.groups.length === 3 &&
+                shot.groups.every(g => !!g && g.length > 0) &&
+                !!shot.relation,
+            );
 
-      try {
-        const results = await Promise.all(fetchPromises);
+      const _latestComponents: LatestComponents = {};
+
+      for (let i = 0; i < targets.length; i += CONCURRENCY) {
         if (!active) return;
+        const batch = targets.slice(i, i + CONCURRENCY);
 
-        const _latestComponents: LatestComponents = {};
-        results.forEach((res, index) => {
+        const results = await Promise.all(
+          batch.map(shot =>
+            fetchLatestShotComponents(
+              project.key_name,
+              shot.groups,
+              shot.relation,
+              _components,
+              controller.signal,
+            ).catch(err => {
+              if (err instanceof Error && err.name === 'AbortError') return [];
+              console.error('Failed to fetch latest asset components:', err);
+              return [];
+            }),
+          ),
+        );
+
+        if (!active) return;
+        results.forEach((res, idx) => {
           if (res.length > 0) {
-            _latestComponents[`${shots[index].groups.join('-')}-${shots[index].relation}`] = res;
+            const shot = batch[idx];
+            _latestComponents[`${shot.groups.join('-')}-${shot.relation}`] = res;
           }
         });
-        setLatestComponents(_latestComponents);
-      } catch (err) {
-        if (!active) return;
-        if (err instanceof DOMException && err.name === 'AbortError') {
-          return;
-        }
-        console.error('Failed to fetch latest asset components:', err);
       }
+
+      if (active) setLatestComponents(_latestComponents);
     };
 
     loadLatestShotComponents();
