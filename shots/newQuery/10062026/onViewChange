@@ -1,0 +1,18 @@
+// Replace your onViewChange handler (around line 549)
+onViewChange={(mode: ViewMode) => {
+    console.log('[View Change] Switching from', viewMode, 'to', mode);
+    
+    // Clear cache when switching to force fresh data
+    if (mode !== viewMode) {
+        // Clear the cache for the target view to force fresh data
+        if (mode === 'group') {
+            setCachedGroupData(null);
+            groupDataLoaded.current = false;
+        } else {
+            setCachedListData(null);
+            listDataLoaded.current = false;
+        }
+    }
+    
+    setViewMode(mode);
+}}
