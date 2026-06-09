@@ -1,0 +1,63 @@
+export function useFetchLatestShotComponents(
+  project: Project | null | undefined,
+  shots: Shot[],
+  components: { [key: string]: string[]; },
+): { latestComponents: LatestComponents } {
+  const [latestComponents, setLatestComponents] = useState<LatestComponents>({});
+
+  useEffect(() => {
+    if (project == null) {
+      return;
+    }
+
+    let active = true;                              // guard against unmount
+    const controller = new AbortController();
+    const _components = Object.values(components).flat();
+
+    const loadLatestShotComponents = async () => {
+      const fetchPromises = shots.map(shot => {
+        // Only fetch fully-formed shots; skip when no components are loaded.
+        const hasAllGroups =
+          shot.groups.length === 3 && shot.groups.every(g => !!g && g.length > 0);
+        if (!hasAllGroups || !shot.relation || _components.length === 0) {
+          return Promise.resolve([]);
+        }
+        return fetchLatestShotComponents(
+          project.key_name,
+          shot.groups,
+          shot.relation,
+          _components,
+          controller.signal,
+        );
+      });
+
+      try {
+        const results = await Promise.all(fetchPromises);
+        if (!active) return;
+
+        const _latestComponents: LatestComponents = {};
+        results.forEach((res, index) => {
+          if (res.length > 0) {
+            _latestComponents[`${shots[index].groups.join('-')}-${shots[index].relation}`] = res;
+          }
+        });
+        setLatestComponents(_latestComponents);
+      } catch (err) {
+        if (!active) return;
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          return;
+        }
+        console.error('Failed to fetch latest asset components:', err);
+      }
+    };
+
+    loadLatestShotComponents();
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [project, JSON.stringify(shots), JSON.stringify(components)]);
+
+  return { latestComponents };
+};
