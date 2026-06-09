@@ -5,43 +5,40 @@ export function useFetchShotThumbnails(
   const [thumbnails, dispatch] = useReducer(shotThumbnailReducer, {});
 
   useEffect(() => {
-    let active = true;                              // guard flag
-    const controller = new AbortController();        // moved inside the effect
+    let active = true;
+    const controller = new AbortController();
+    const CONCURRENCY = 6;                           // cap simultaneous thumbnail loads
 
-    const loadShotThumbnails = async (shot: Shot) => {
+    const loadOne = async (shot: Shot) => {
       if (shot.groups.length !== 3 || shot.groups.some(g => !g)) {
         return;
       }
       try {
         const res = await fetchShotThumbnail(
-          project.key_name,
-          shot.groups,
-          shot.relation,
-          controller.signal,
+          project.key_name, shot.groups, shot.relation, controller.signal,
         );
+        if (!active || res == null || !res.ok) return;
+        const blob = await res.blob();
         if (!active) return;
-        if (res != null && res.ok) {
-          const reader = new FileReader();
-          const blob = await res.blob();
-          if (!active) return;
-          reader.onload = () => {
-            if (!active) return;                     // FileReader isn't aborted — guard it
-            dispatch({ shot, responseResult: reader.result as string });
-          };
-          reader.readAsDataURL(blob);
-        }
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (active) dispatch({ shot, responseResult: reader.result as string });
+        };
+        reader.readAsDataURL(blob);
       } catch (err) {
         if (!active) return;
-        if (err instanceof Error && err.name === 'AbortError') {
-          return;
-        }
+        if (err instanceof Error && err.name === 'AbortError') return;
         console.error('Failed to load thumbnail:', err);
       }
     };
 
-    for (const shot of shots) {
-      loadShotThumbnails(shot);
-    }
+    const run = async () => {
+      for (let i = 0; i < shots.length; i += CONCURRENCY) {
+        if (!active) return;
+        await Promise.all(shots.slice(i, i + CONCURRENCY).map(loadOne));
+      }
+    };
+    run();
 
     return () => {
       active = false;
