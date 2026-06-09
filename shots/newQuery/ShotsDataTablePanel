@@ -39,7 +39,6 @@ const StyledContainer = styled(Container)(({ theme }) => ({
     display: 'flex',
     flexDirection: 'column',
     padding: 0,
-    height: '100vh',
     overflow: 'hidden',
     '& > *': {
         display: 'flex',
@@ -57,8 +56,6 @@ const StyledPaper = styled(Paper)({
     display: 'flex',
     flexDirection: 'column',
     overflow: 'auto',
-    flex: 1,
-    minHeight: 0,
 });
 
 const StyledContentDiv = styled('div')(({ theme }) => ({
@@ -67,37 +64,29 @@ const StyledContentDiv = styled('div')(({ theme }) => ({
     flexDirection: 'row',
     gap: theme.spacing(2),
     width: 'fit-content',
-    minWidth: '100%',
+    minWidth: '80%',
     height: '100%',
 }));
 
 const StyledTableDiv = styled('div')({
-    flex: 1,
-    minHeight: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    overflow: 'hidden',
+    paddingBottom: 8,
+    overflowX: 'auto',
+    width: '100%',
+    height: '100%',
 });
 
 const ToolBarWrapper = styled('div')(({ theme }) => ({
     display: 'flex',
     flexDirection: 'column',
     gap: theme.spacing(1),
-    flexShrink: 0,
 }));
 
 const FooterWrapper = styled('div')(({ theme }) => ({
-    display: 'flex',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    width: '100%',
+    display:         'flex',
+    justifyContent:  'flex-end',
+    width:           '100%',
     backgroundColor: theme.palette.background.paper,
-    paddingRight: theme.spacing(25),
-    paddingTop: theme.spacing(1),
-    paddingBottom: theme.spacing(1),
-    flexShrink: 0,
-    borderTop: `1px solid ${theme.palette.divider}`,
-    minHeight: 56,
+    paddingRight:  theme.spacing(25),
 }));
 
 /* ── Types ─────────────────────────────────────────────────────────────── */
@@ -188,15 +177,15 @@ const CsvDownloadComponent = ({ currentProject }: { currentProject: Project | nu
 /* ── Main Component ─────────────────────────────────────────────────────── */
 
 const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
-    const [viewMode, setViewMode] = useState<ViewMode>('list');
-    const [searchValue, setSearchValue] = useState<string>('');
-    const [filters, setFilters] = useState<Filters>({
-        shotGroups: [],
+    const [viewMode,     setViewMode]     = useState<ViewMode>('list');
+    const [searchValue,  setSearchValue]  = useState<string>('');
+    const [filters,      setFilters]      = useState<Filters>({
+        shotGroups:     [],
         approvalStatus: [],
-        workStatus: [],
+        workStatus:     [],
     });
     const [pageProps, setPageProps] = useState<PageProps>({
-        page: 0,
+        page:        0,
         rowsPerPage: 15,
     });
 
@@ -207,27 +196,17 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
     const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
     // ===== CACHE FOR INSTANT VIEW SWITCHING =====
-    const [cachedListData, setCachedListData] = useState<{
-        shots: ShotPivot[];
-        total: number;
-        groupCounts: { [key: string]: number };
-    } | null>(null);
-
-    const [cachedGroupData, setCachedGroupData] = useState<{
-        shots: ShotPivot[];
-        total: number;
-        groupCounts: { [key: string]: number };
-    } | null>(null);
-
-    const hasCachedList = useRef(false);
-    const hasCachedGroup = useRef(false);
+    const [cachedListData, setCachedListData] = useState<any>(null);
+    const [cachedGroupData, setCachedGroupData] = useState<any>(null);
+    const listDataLoaded = useRef(false);
+    const groupDataLoaded = useRef(false);
     // ===== END OF CACHE =====
 
     const handleCellSelect = (cellId: string) => {
         setSelectedCellIds(prev => {
             const next = new Set(prev);
             if (next.has(cellId)) next.delete(cellId);
-            else next.add(cellId);
+            else                  next.add(cellId);
             return next;
         });
     };
@@ -240,29 +219,29 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
     const { phaseComponents } = useFetchPipelineSettingShotComponents(currentProject);
 
     // reset page when search or filters change
-    const prevSearchRef = useRef(searchValue);
+    const prevSearchRef   = useRef(searchValue);
     const prevApprovalRef = useRef(JSON.stringify(filters.approvalStatus));
-    const prevWorkRef = useRef(JSON.stringify(filters.workStatus));
+    const prevWorkRef     = useRef(JSON.stringify(filters.workStatus));
 
     const searchOrFilterChanged =
-        prevSearchRef.current !== searchValue ||
+        prevSearchRef.current   !== searchValue ||
         prevApprovalRef.current !== JSON.stringify(filters.approvalStatus) ||
-        prevWorkRef.current !== JSON.stringify(filters.workStatus);
+        prevWorkRef.current     !== JSON.stringify(filters.workStatus);
 
     const effectivePage = searchOrFilterChanged ? 0 : pageProps.page;
 
     useEffect(() => {
         if (searchOrFilterChanged) {
-            prevSearchRef.current = searchValue;
+            prevSearchRef.current   = searchValue;
             prevApprovalRef.current = JSON.stringify(filters.approvalStatus);
-            prevWorkRef.current = JSON.stringify(filters.workStatus);
+            prevWorkRef.current     = JSON.stringify(filters.workStatus);
             setPageProps(prev => ({ ...prev, page: 0 }));
             
-            // Clear caches when filters change
+            // Clear cache when filters change
             setCachedListData(null);
             setCachedGroupData(null);
-            hasCachedList.current = false;
-            hasCachedGroup.current = false;
+            listDataLoaded.current = false;
+            groupDataLoaded.current = false;
         }
     }, [
         searchValue,
@@ -271,57 +250,41 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
         JSON.stringify(filters.shotGroups),
     ]);
 
-    const isGroupView = viewMode === 'group';
-    const backendPage = isGroupView ? 1 : effectivePage + 1;
+    const isGroupView    = viewMode === 'group';
+    const backendPage    = isGroupView ? 1 : effectivePage + 1;
     const backendPerPage = isGroupView ? 10000 : pageProps.rowsPerPage;
 
     const { shots, total, groupCounts, loading } = useReviewShotsPivot({
-        project: currentProject,
-        page: backendPage,
-        perPage: backendPerPage,
-        nameKey: searchValue,
+        project:        currentProject,
+        page:           backendPage,
+        perPage:        backendPerPage,
+        nameKey:        searchValue,
         approvalStatus: filters.approvalStatus,
-        workStatus: filters.workStatus,
-        orderKey: isGroupView ? 'group1_only' : sortKey,
-        direction: isGroupView ? 'ASC' : sortDir.toUpperCase(),
-        shotsGroups: filters.shotGroups,
+        workStatus:     filters.workStatus,
+        orderKey:       isGroupView ? 'group1_only' : sortKey,
+        direction:      isGroupView ? 'ASC' : sortDir.toUpperCase(),
+        shotsGroups:    filters.shotGroups,
     });
 
-    // ===== CACHE DATA WHEN LOADED (ONCE PER VIEW) =====
+    // ===== CACHE DATA WHEN LOADED =====
     useEffect(() => {
         if (!loading && shots.length > 0) {
-            if (isGroupView && !hasCachedGroup.current) {
-                setCachedGroupData({
-                    shots: [...shots],
-                    total,
-                    groupCounts: { ...groupCounts }
-                });
-                hasCachedGroup.current = true;
-                console.log('[Cache] Saved GROUP data:', shots.length, 'shots');
-            } else if (!isGroupView && !hasCachedList.current) {
-                setCachedListData({
-                    shots: [...shots],
-                    total,
-                    groupCounts: { ...groupCounts }
-                });
-                hasCachedList.current = true;
-                console.log('[Cache] Saved LIST data:', shots.length, 'shots');
+            if (isGroupView && !groupDataLoaded.current) {
+                setCachedGroupData({ shots: [...shots], total, groupCounts });
+                groupDataLoaded.current = true;
+            } else if (!isGroupView && !listDataLoaded.current) {
+                setCachedListData({ shots: [...shots], total, groupCounts });
+                listDataLoaded.current = true;
             }
         }
     }, [shots, total, groupCounts, loading, isGroupView]);
     // ===== END OF CACHE =====
 
-    // ===== USE CACHED DATA WHILE LOADING (INSTANT VIEW SWITCHING) =====
+    // ===== USE CACHED DATA WHILE LOADING =====
     const displayData = useMemo(() => {
         if (loading) {
-            if (isGroupView && cachedGroupData) {
-                console.log('[Display] Using cached GROUP data');
-                return cachedGroupData;
-            }
-            if (!isGroupView && cachedListData) {
-                console.log('[Display] Using cached LIST data');
-                return cachedListData;
-            }
+            if (isGroupView && cachedGroupData) return cachedGroupData;
+            if (!isGroupView && cachedListData) return cachedListData;
         }
         return { shots, total, groupCounts };
     }, [loading, isGroupView, shots, total, groupCounts, cachedGroupData, cachedListData]);
@@ -401,7 +364,7 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
         const group1: { [g1: string]: { totalShots: number; totalGroup2s: number } } = {};
         Object.keys(group1ShotCount).forEach(g1 => {
             group1[g1] = {
-                totalShots: group1ShotCount[g1],
+                totalShots:   group1ShotCount[g1],
                 totalGroup2s: group1Group2Set[g1].size,
             };
         });
@@ -415,17 +378,16 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
     const pagedShots: ShotPivot[] = useMemo(() => {
         if (!isGroupView) return displayData.shots;
         const start = effectivePage * pageProps.rowsPerPage;
-        const end = start + pageProps.rowsPerPage;
+        const end   = start + pageProps.rowsPerPage;
         return sortedAllShots.slice(start, end);
     }, [isGroupView, sortedAllShots, displayData.shots, effectivePage, pageProps.rowsPerPage]);
 
     const displayTotal = displayData.total;
-    const displayGroupCounts = displayData.groupCounts;
 
     // Keep last non-empty groupCounts so filter menu doesn't empty during reload
     const stableGroupCounts = useRef<{ [key: string]: number }>({});
-    if (Object.keys(displayGroupCounts).length > 0) {
-        stableGroupCounts.current = displayGroupCounts;
+    if (Object.keys(displayData.groupCounts).length > 0) {
+        stableGroupCounts.current = displayData.groupCounts;
     }
 
     const name1Options = useMemo(() => {
@@ -649,14 +611,12 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
         />
     );
 
-    const showLoading = loading && !displayData.shots.length;
-
     return (
         <StyledContainer maxWidth="xl">
             <ToolBarWrapper>
                 <ShotDataTableToolbar
                     viewMode={viewMode}
-                    onViewChange={(mode: ViewMode) => setViewMode(mode)}
+                    onViewChange={() => setViewMode(prev => prev === 'list' ? 'group' : 'list')}
                     searchValue={searchValue}
                     onSearchChange={(value: string) => setSearchValue(value)}
                     filters={filters}
@@ -685,7 +645,7 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
 
             <StyledTableDiv>
                 <StyledPaper>
-                    {showLoading ? (
+                    {loading ? (
                         <div style={{
                             paddingTop: 50,
                             display: 'flex',
@@ -700,7 +660,7 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
                                 <ShotsDataTableGroup
                                     project={currentProject}
                                     shots={pagedShots}
-                                    total={displayGroupCounts}
+                                    total={displayData.groupCounts}
                                     group1Totals={groupTotals.group1}
                                     group2Totals={groupTotals.group2}
                                     phaseComponents={phaseComponents}
@@ -720,7 +680,7 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
                                 <ShotsDataTable
                                     project={currentProject}
                                     shots={displayData.shots}
-                                    total={displayGroupCounts}
+                                    total={displayData.groupCounts}
                                     phaseComponents={phaseComponents}
                                     camDataTypes={camDataTypes}
                                     tableFooter={<></>}
@@ -739,12 +699,12 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
                     )}
                 </StyledPaper>
             </StyledTableDiv>
-
+            <CsvDownloadComponent
+                currentProject={currentProject}
+                />
             <FooterWrapper>
                 {tableFooter}
             </FooterWrapper>
-
-            <CsvDownloadComponent currentProject={currentProject} />
         </StyledContainer>
     );
 };
