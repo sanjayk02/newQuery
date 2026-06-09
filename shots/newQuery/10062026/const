@@ -1,0 +1,20 @@
+const { shots, total, groupCounts, loading, phases } = useReviewShotsPivot({
+    project: currentProject,
+    page: backendPage,
+    perPage: backendPerPage,
+    nameKey: searchValue,
+    approvalStatus: filters.approvalStatus,
+    workStatus: filters.workStatus,
+    orderKey: isGroupView ? 'group1_only' : sortKey,
+    direction: isGroupView ? 'ASC' : sortDir.toUpperCase(),
+    shotsGroups: filters.shotGroups,
+});
+
+// Add this debug log
+useEffect(() => {
+    console.log('[Debug] Group View:', isGroupView);
+    console.log('[Debug] Shots count:', shots.length);
+    console.log('[Debug] Total:', total);
+    console.log('[Debug] Phases from API:', phases);
+    console.log('[Debug] Loading:', loading);
+}, [shots, total, phases, loading, isGroupView]);
