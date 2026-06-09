@@ -1,0 +1,17 @@
+// ===== USE CACHED DATA ONLY AFTER IT'S BEEN LOADED AT LEAST ONCE =====
+const displayData = useMemo(() => {
+    // For group view: only use cache if we've successfully loaded group data before
+    if (isGroupView) {
+        if (groupDataLoaded.current && cachedGroupData && loading) {
+            console.log('[Display] Using cached GROUP data');
+            return cachedGroupData;
+        }
+    } else {
+        if (listDataLoaded.current && cachedListData && loading) {
+            console.log('[Display] Using cached LIST data');
+            return cachedListData;
+        }
+    }
+    // Otherwise show fresh data
+    return { shots, total, groupCounts };
+}, [loading, isGroupView, shots, total, groupCounts, cachedGroupData, cachedListData]);
