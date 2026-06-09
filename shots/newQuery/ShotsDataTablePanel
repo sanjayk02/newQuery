@@ -195,11 +195,18 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
     const [selectedCellIds, setSelectedCellIds] = useState<Set<string>>(new Set());
     const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
-    // ── VIEW CACHE for fast switching between list and group views ──
-    const [viewCache, setViewCache] = useState<{
-        list: { shots: ShotPivot[]; total: number; groupCounts: { [key: string]: number } } | null;
-        group: { shots: ShotPivot[]; total: number; groupCounts: { [key: string]: number } } | null;
-    }>({ list: null, group: null });
+    // ── VIEW CACHE - Store data for both views separately ──
+    const [cachedListData, setCachedListData] = useState<{
+        shots: ShotPivot[];
+        total: number;
+        groupCounts: { [key: string]: number };
+    } | null>(null);
+
+    const [cachedGroupData, setCachedGroupData] = useState<{
+        shots: ShotPivot[];
+        total: number;
+        groupCounts: { [key: string]: number };
+    } | null>(null);
 
     // Toggle a single cell's selection on/off.
     const handleCellSelect = (cellId: string) => {
@@ -237,6 +244,9 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
             prevApprovalRef.current = JSON.stringify(filters.approvalStatus);
             prevWorkRef.current = JSON.stringify(filters.workStatus);
             setPageProps(prev => ({ ...prev, page: 0 }));
+            // Clear caches when filters change
+            setCachedListData(null);
+            setCachedGroupData(null);
         }
     }, [
         searchValue,
@@ -249,7 +259,7 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
     const backendPage = isGroupView ? 1 : effectivePage + 1;
     const backendPerPage = isGroupView ? 10000 : pageProps.rowsPerPage;
 
-    const { shots, total, groupCounts, loading } = useReviewShotsPivot({
+    const { shots, total, groupCounts, loading, phases } = useReviewShotsPivot({
         project: currentProject,
         page: backendPage,
         perPage: backendPerPage,
@@ -264,28 +274,43 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
     // Cache data when it loads for the current view
     useEffect(() => {
         if (!loading && shots.length > 0) {
-            setViewCache(prev => ({
-                ...prev,
-                [viewMode === 'group' ? 'group' : 'list']: {
+            if (isGroupView) {
+                setCachedGroupData({
                     shots: [...shots],
                     total,
                     groupCounts: { ...groupCounts }
-                }
-            }));
+                });
+                console.log('[Cache] Saved GROUP view data:', shots.length, 'shots');
+            } else {
+                setCachedListData({
+                    shots: [...shots],
+                    total,
+                    groupCounts: { ...groupCounts }
+                });
+                console.log('[Cache] Saved LIST view data:', shots.length, 'shots');
+            }
         }
-    }, [shots, total, groupCounts, loading, viewMode]);
+    }, [shots, total, groupCounts, loading, isGroupView]);
 
-    // Use cached data when loading and cache exists (instant view switching)
+    // Determine what data to display
     const displayData = useMemo(() => {
-        const cached = viewCache[viewMode === 'group' ? 'group' : 'list'];
-        if (loading && cached) {
-            return cached;
+        // If currently loading, show cached data for this view (if available)
+        if (loading) {
+            if (isGroupView && cachedGroupData) {
+                console.log('[Display] Using cached GROUP data while loading');
+                return cachedGroupData;
+            }
+            if (!isGroupView && cachedListData) {
+                console.log('[Display] Using cached LIST data while loading');
+                return cachedListData;
+            }
         }
+        // Otherwise show fresh data
         return { shots, total, groupCounts };
-    }, [loading, viewMode, shots, total, groupCounts, viewCache]);
+    }, [loading, isGroupView, shots, total, groupCounts, cachedGroupData, cachedListData]);
 
     // ─── fetch cam_data_type for the current page's shots ───
-    const { camDataTypes } = useFetchShotCamDataTypes(currentProject, shots);
+    const { camDataTypes } = useFetchShotCamDataTypes(currentProject, displayData.shots);
 
     /* ── Sort ALL shots into canonical hierarchical order ────────────── */
     const sortedAllShots = useMemo(() => {
@@ -652,14 +677,19 @@ const ShotsDataTablePanel: FC<RouteComponentProps> = () => {
     );
 
     // Show loading only on initial load, not when switching views with cached data
-    const showLoading = loading && !viewCache[viewMode === 'group' ? 'group' : 'list'];
+    const showLoading = loading && !displayData.shots.length;
+
+    console.log('[Render] View mode:', viewMode, 'Loading:', loading, 'Shots count:', displayData.shots.length, 'Using cached:', loading && ((isGroupView && cachedGroupData) || (!isGroupView && cachedListData)));
 
     return (
         <StyledContainer maxWidth="xl">
             <ToolBarWrapper>
                 <ShotDataTableToolbar
                     viewMode={viewMode}
-                    onViewChange={(mode: ViewMode) => setViewMode(mode)}
+                    onViewChange={(mode: ViewMode) => {
+                        console.log('[View Change] Switching to:', mode);
+                        setViewMode(mode);
+                    }}
                     searchValue={searchValue}
                     onSearchChange={(value: string) => setSearchValue(value)}
                     filters={filters}
