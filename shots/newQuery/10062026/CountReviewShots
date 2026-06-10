@@ -1,0 +1,76 @@
+/*
+──────────────────────────────────────────────────────────────────────────
+
+	CountReviewShots implements count_reviews.sql: the number of unique shot
+	groups that have at least one phase whose work_status OR approval_status
+	is in the requested set. This count matches the pagination unit used in
+	ListReviewShots (group_1, group_2, group_3, relation).
+
+	Parameters:
+	- ctx:      Context for database operations.
+	- project:  Project identifier (required).
+	- phases:   Phase whitelist; defaults to dynamic set when empty.
+	- statuses: Status set applied to work_status OR approval_status; defaults to ReviewShotStatuses.
+
+	Returns the total count, or an error if project is missing or the query fails.
+
+──────────────────────────────────────────────────────────────────────────
+*/
+func (r *ReviewInfo) CountReviewShots(
+	ctx context.Context,
+	project string,
+	phases []string,
+	statuses []string,
+) (int64, error) {
+	if project == "" {
+		return 0, fmt.Errorf("project is required")
+	}
+
+	// Resolve phases dynamically if not provided
+	if len(phases) == 0 {
+		dyn, err := r.ListReviewShotPhases(ctx, project, statuses)
+		if err != nil {
+			return 0, err
+		}
+		phases = dyn
+	}
+
+	phaseClause, phaseArgs := buildReviewShotPhaseIn(phases)
+	statusClause, statusArgs := buildReviewShotStatusWhere(statuses)
+
+	// This query matches the exact same logic as ListReviewShots:
+	// 1. Get latest row per (shot, phase)
+	// 2. Keep shots that have at least one phase with status in the set
+	// 3. Count unique shot groups (group_1, group_2, group_3, relation)
+	query := `
+WITH latest_phase AS (
+    SELECT project, root, group_1, group_2, group_3, relation, phase,
+           work_status, approval_status,
+           ROW_NUMBER() OVER (
+               PARTITION BY project, root, group_1, group_2, group_3, relation, phase
+               ORDER BY modified_at_utc DESC
+           ) AS rn
+    FROM t_review_info
+    WHERE project = ? AND root = 'shots' AND deleted = 0
+      AND ` + phaseClause + `
+),
+latest AS (
+    SELECT project, root, group_1, group_2, group_3, relation
+    FROM latest_phase
+    WHERE rn = 1
+      AND ` + statusClause + `
+    GROUP BY project, root, group_1, group_2, group_3, relation
+)
+SELECT COUNT(*) FROM latest;
+`
+
+	args := []any{project}
+	args = append(args, phaseArgs...)
+	args = append(args, statusArgs...)
+
+	var total int64
+	if err := r.db.WithContext(ctx).Raw(query, args...).Scan(&total).Error; err != nil {
+		return 0, fmt.Errorf("CountReviewShots: %w", err)
+	}
+	return total, nil
+}
