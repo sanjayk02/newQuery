@@ -1,3 +1,29 @@
+/*
+──────────────────────────────────────────────────────────────────────────
+
+	ListReviewShots implements query_reviews.sql. For shots matching the phase
+	whitelist and status set, it keeps the latest review row per
+	(group_1, group_2, group_3, relation, phase) (by modified_at_utc), pages the
+	resulting shot groups, and returns every kept phase row for the paged groups.
+
+	The result is ordered by group (group_1 dir, group_2, group_3, relation) and
+	then by the original phase-order key, so the caller can pivot rows in a
+	stable, page-consistent order.
+
+	Parameters:
+	- ctx:       Context for database operations.
+	- project:   Project identifier (required).
+	- phases:    Phase whitelist; defaults to dynamic set when empty.
+	- statuses:  Status set applied to work_status OR approval_status; defaults to ReviewShotStatuses.
+	- orderKey:  Sort column (group1_only, group2_only, group3_only, relation_only, or phase_field)
+	- direction: Sort direction ("ASC"/"DESC"); defaults to "ASC".
+	- limit:     Max number of shot groups; defaults to 15 when <= 0, max 500.
+	- offset:    Number of shot groups to skip; defaults to 0 when < 0.
+
+	Returns the per-phase rows for the paged groups, or an error.
+
+──────────────────────────────────────────────────────────────────────────
+*/
 func (r *ReviewInfo) ListReviewShots(
 	ctx context.Context,
 	project string,
@@ -10,7 +36,7 @@ func (r *ReviewInfo) ListReviewShots(
 	if project == "" {
 		return nil, fmt.Errorf("project is required")
 	}
-	
+
 	// Resolve phases dynamically if not provided
 	if len(phases) == 0 {
 		dyn, err := r.ListReviewShotPhases(ctx, project, statuses)
@@ -19,13 +45,18 @@ func (r *ReviewInfo) ListReviewShots(
 		}
 		phases = dyn
 	}
-	
+
+	// Set reasonable limits
 	if limit <= 0 {
 		limit = 15
+	}
+	if limit > 500 {
+		limit = 500 // Cap to prevent browser freezing
 	}
 	if offset < 0 {
 		offset = 0
 	}
+
 	dir := strings.ToUpper(strings.TrimSpace(direction))
 	if dir != "ASC" && dir != "DESC" {
 		dir = "ASC"
@@ -34,5 +65,98 @@ func (r *ReviewInfo) ListReviewShots(
 	phaseClause, phaseArgs := buildReviewShotPhaseIn(phases)
 	statusClause, statusArgs := buildReviewShotStatusWhere(statuses)
 
-	// ... rest of the existing query ...
+	// Per-group sort: optional aggregate sort column + the group ORDER BY.
+	sortSelect, sortArgs, groupOrder := buildReviewShotSort(orderKey, dir)
+	sortCol := ""
+	if sortSelect != "" {
+		sortCol = ",\n           " + sortSelect
+	}
+
+	// Latest-status semantics (matches the count): take the latest row per
+	// (shot, phase) across ALL phases, keep the shots whose latest row is in the
+	// status set for at least one phase (`qualifying`), then return every
+	// latest-per-phase row for those shots so all phase columns fill in.
+	query := `
+WITH latest_phase AS (
+    SELECT project, root, group_1, group_2, group_3, relation, phase,
+           work_status, approval_status, submitted_at_utc, modified_at_utc,
+           SUBSTRING_INDEX(take, 't', -1) AS take,
+           ROW_NUMBER() OVER (
+               PARTITION BY project, root, group_1, group_2, group_3, relation, phase
+               ORDER BY modified_at_utc DESC
+           ) AS rn
+    FROM t_review_info
+    WHERE project = ? AND root = 'shots' AND deleted = 0
+      AND ` + phaseClause + `
+),
+latest AS (
+    SELECT project, root, group_1, group_2, group_3, relation, phase,
+           work_status, approval_status, submitted_at_utc, modified_at_utc, take
+    FROM latest_phase
+    WHERE rn = 1
+),
+qualifying AS (
+    SELECT DISTINCT project, root, group_1, group_2, group_3, relation
+    FROM latest
+    WHERE ` + statusClause + `
+),
+latest_reviews AS (
+    SELECT l.*
+    FROM latest l
+    JOIN qualifying q
+      ON  l.project = q.project
+      AND l.root    = q.root
+      AND l.group_1 = q.group_1
+      AND l.group_2 <=> q.group_2
+      AND l.group_3 <=> q.group_3
+      AND l.relation = q.relation
+),
+latest_reviews_sort AS (
+    SELECT *, ROW_NUMBER() OVER (ORDER BY group_1 ASC) AS _sort_order
+    FROM latest_reviews
+),
+latest_reviews_phase_sort AS (
+    SELECT *,
+        CASE WHEN phase = '' THEN _sort_order ELSE 99999999 + _sort_order END AS _phase_order
+    FROM latest_reviews_sort
+),
+grp_agg AS (
+    SELECT project, root, group_1, group_2, group_3, relation,
+           MIN(_phase_order) AS _min_phase_order` + sortCol + `
+    FROM latest_reviews_phase_sort
+    GROUP BY project, root, group_1, group_2, group_3, relation
+),
+unique_groups AS (
+    SELECT *, ROW_NUMBER() OVER (ORDER BY ` + groupOrder + `) AS _group_rank
+    FROM grp_agg
+    ORDER BY ` + groupOrder + `
+    LIMIT ? OFFSET ?
+),
+all_phase_reviews AS (
+    SELECT r.*, ug._group_rank
+    FROM latest_reviews_phase_sort r
+    RIGHT JOIN unique_groups ug
+      ON  r.group_1 = ug.group_1
+      AND r.group_2 <=> ug.group_2
+      AND r.group_3 <=> ug.group_3
+      AND r.relation = ug.relation
+)
+SELECT project, root, group_1, group_2, group_3, relation, phase,
+       work_status, approval_status, submitted_at_utc, take
+FROM all_phase_reviews
+ORDER BY _group_rank ASC, _phase_order ASC;
+`
+
+	// Build arguments
+	args := []any{project}
+	args = append(args, phaseArgs...)
+	args = append(args, statusArgs...)
+	args = append(args, sortArgs...) // grp_agg sort column (0 or 1 arg)
+	args = append(args, limit, offset)
+
+	var rows []reviewShotPhaseRow
+	if err := r.db.WithContext(ctx).Raw(query, args...).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("ListReviewShots: %w", err)
+	}
+	return rows, nil
 }
