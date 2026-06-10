@@ -1,0 +1,38 @@
+func (r *ReviewInfo) ListReviewShots(
+	ctx context.Context,
+	project string,
+	phases []string,
+	statuses []string,
+	orderKey string,
+	direction string,
+	limit, offset int,
+) ([]reviewShotPhaseRow, error) {
+	if project == "" {
+		return nil, fmt.Errorf("project is required")
+	}
+	
+	// Resolve phases dynamically if not provided
+	if len(phases) == 0 {
+		dyn, err := r.ListReviewShotPhases(ctx, project, statuses)
+		if err != nil {
+			return nil, err
+		}
+		phases = dyn
+	}
+	
+	if limit <= 0 {
+		limit = 15
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	dir := strings.ToUpper(strings.TrimSpace(direction))
+	if dir != "ASC" && dir != "DESC" {
+		dir = "ASC"
+	}
+
+	phaseClause, phaseArgs := buildReviewShotPhaseIn(phases)
+	statusClause, statusArgs := buildReviewShotStatusWhere(statuses)
+
+	// ... rest of the existing query ...
+}
