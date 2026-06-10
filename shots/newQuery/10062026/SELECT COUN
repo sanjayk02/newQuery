@@ -1,0 +1,15 @@
+SELECT COUNT(*) FROM (
+  SELECT group_1, group_2, group_3, relation
+  FROM (
+    SELECT group_1, group_2, group_3, relation, work_status, approval_status,
+           ROW_NUMBER() OVER (
+             PARTITION BY project, root, group_1, group_2, group_3, relation, phase
+             ORDER BY modified_at_utc DESC
+           ) AS rn
+    FROM t_review_info
+    WHERE project = '<PROJECT>' AND root = 'shots' AND deleted = 0
+  ) t
+  WHERE rn = 1
+    AND (work_status = 'check' OR approval_status = 'check')
+  GROUP BY group_1, group_2, group_3, relation
+) x;
