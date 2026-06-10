@@ -1,20 +1,7 @@
--- (A) Soft-deleted rows: drop `deleted = 0`
 SELECT COUNT(*) FROM (
-  SELECT 1 FROM t_review_info
-  WHERE project = '<PROJECT>' AND root = 'shots'
-    AND (work_status = 'check' OR approval_status = 'check')
-  GROUP BY group_1, group_2, group_3, relation
-) x;
-
--- (B) Grouping unit: drop `relation` from GROUP BY
-SELECT COUNT(*) FROM (
-  SELECT 1 FROM t_review_info
+  SELECT project, root, group_1, group_2, group_3, relation
+  FROM t_review_info
   WHERE project = '<PROJECT>' AND root = 'shots' AND deleted = 0
     AND (work_status = 'check' OR approval_status = 'check')
-  GROUP BY group_1, group_2, group_3
+  GROUP BY project, root, group_1, group_2, group_3, relation
 ) x;
-
--- (C) Status set: is the queue broader than just 'check'?
-SELECT DISTINCT work_status, approval_status
-FROM t_review_info
-WHERE project = '<PROJECT>' AND root = 'shots' AND deleted = 0;
