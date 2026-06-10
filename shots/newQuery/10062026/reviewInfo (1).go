@@ -2324,14 +2324,14 @@ func (r *ReviewInfo) CountReviewShots(
 		return 0, fmt.Errorf("project is required")
 	}
 
+	phaseClause, phaseArgs := buildReviewShotPhaseIn(phases)
 	statusClause, statusArgs := buildReviewShotStatusWhere(statuses)
 
 	// Count shots whose CURRENT status is in the set: take the latest row per
-	// (shot, phase), then keep shots whose latest row matches the status in at
-	// least one phase. The status is evaluated on the latest review (not on any
-	// historical row), and there is no phase whitelist — matching the established
-	// queue semantics. The `phases` argument is accepted for signature
-	// compatibility but intentionally not used as a filter here.
+	// (shot, phase) within the review phases, then keep shots whose latest row
+	// matches the status in at least one phase. Status is evaluated on the latest
+	// review (not on any historical row); phases are scoped to the review-phase
+	// set so unrelated phases don't inflate the count.
 	query := `
 WITH latest_phase AS (
     SELECT project, root, group_1, group_2, group_3, relation,
@@ -2342,6 +2342,7 @@ WITH latest_phase AS (
            ) AS rn
     FROM t_review_info
     WHERE project = ? AND root = 'shots' AND deleted = 0
+      AND ` + phaseClause + `
 )
 SELECT COUNT(*) FROM (
     SELECT project, root, group_1, group_2, group_3, relation
@@ -2353,6 +2354,7 @@ SELECT COUNT(*) FROM (
 `
 
 	args := []any{project}
+	args = append(args, phaseArgs...)
 	args = append(args, statusArgs...)
 
 	var total int64
@@ -2410,6 +2412,7 @@ func (r *ReviewInfo) ListReviewShots(
 		dir = "ASC"
 	}
 
+	phaseClause, phaseArgs := buildReviewShotPhaseIn(phases)
 	statusClause, statusArgs := buildReviewShotStatusWhere(statuses)
 
 	// Per-group sort: optional aggregate sort column + the group ORDER BY.
@@ -2419,13 +2422,11 @@ func (r *ReviewInfo) ListReviewShots(
 		sortCol = ",\n           " + sortSelect
 	}
 
-	// Latest-status semantics (matches the established count): take the latest
-	// row per (shot, phase) over all phases with no status/phase filter, keep the
-	// shots whose latest row is in the status set for at least one phase
-	// (`qualifying`), then return every latest-per-phase row for those shots so
-	// all phase columns fill in. Status is evaluated on the current review, not on
-	// any historical row. `phases` is accepted for signature compatibility but is
-	// intentionally not used as a filter.
+	// Latest-status semantics (matches the count): take the latest row per
+	// (shot, phase) within the review phases, keep the shots whose latest row is
+	// in the status set for at least one phase (`qualifying`), then return every
+	// latest-per-phase row for those shots so all phase columns fill in. Status is
+	// evaluated on the current review; phases are scoped to the review-phase set.
 	query := `
 WITH latest_phase AS (
     SELECT project, root, group_1, group_2, group_3, relation, phase,
@@ -2437,6 +2438,7 @@ WITH latest_phase AS (
            ) AS rn
     FROM t_review_info
     WHERE project = ? AND root = 'shots' AND deleted = 0
+      AND ` + phaseClause + `
 ),
 latest AS (
     SELECT project, root, group_1, group_2, group_3, relation, phase,
@@ -2497,6 +2499,7 @@ ORDER BY _group_rank ASC, _phase_order ASC;
 `
 
 	args := []any{project}
+	args = append(args, phaseArgs...)
 	args = append(args, statusArgs...)
 	args = append(args, sortArgs...) // grp_agg sort column (0 or 1 arg)
 	args = append(args, limit, offset)
