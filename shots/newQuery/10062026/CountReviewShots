@@ -1,21 +1,3 @@
-/*
-──────────────────────────────────────────────────────────────────────────
-
-	CountReviewShots implements count_reviews.sql: the number of unique shot
-	groups that have at least one phase whose work_status OR approval_status
-	is in the requested set. This count matches the pagination unit used in
-	ListReviewShots (group_1, group_2, group_3, relation).
-
-	Parameters:
-	- ctx:      Context for database operations.
-	- project:  Project identifier (required).
-	- phases:   Phase whitelist; defaults to dynamic set when empty.
-	- statuses: Status set applied to work_status OR approval_status; defaults to ReviewShotStatuses.
-
-	Returns the total count, or an error if project is missing or the query fails.
-
-──────────────────────────────────────────────────────────────────────────
-*/
 func (r *ReviewInfo) CountReviewShots(
 	ctx context.Context,
 	project string,
@@ -38,14 +20,11 @@ func (r *ReviewInfo) CountReviewShots(
 	phaseClause, phaseArgs := buildReviewShotPhaseIn(phases)
 	statusClause, statusArgs := buildReviewShotStatusWhere(statuses)
 
-	// This query matches the exact same logic as ListReviewShots:
-	// 1. Get latest row per (shot, phase)
-	// 2. Keep shots that have at least one phase with status in the set
-	// 3. Count unique shot groups (group_1, group_2, group_3, relation)
+	// Count unique shot groups that have at least one phase with status in the set
+	// This matches the exact logic used in ListReviewShots
 	query := `
 WITH latest_phase AS (
     SELECT project, root, group_1, group_2, group_3, relation, phase,
-           work_status, approval_status,
            ROW_NUMBER() OVER (
                PARTITION BY project, root, group_1, group_2, group_3, relation, phase
                ORDER BY modified_at_utc DESC
