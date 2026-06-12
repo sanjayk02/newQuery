@@ -122,7 +122,10 @@ class EntityEditorDialog(QDialog):
         entityData: list[dict[str, Any]],
         columnKey: str,
     ) -> tuple[Any, bool]:
-        values = [data.get(columnKey) for data in entityData]
+        values = [
+            '' if data.get(columnKey) is None else data.get(columnKey)
+            for data in entityData
+        ]
         commonValue = values[0] if values else None
         hasMixedValues = any(value != commonValue for value in values[1:])
         return commonValue, hasMixedValues
