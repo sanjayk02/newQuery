@@ -17,6 +17,7 @@ from ppui.PySide.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QListView,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -159,6 +160,7 @@ class EntityEditorDialog(QDialog):
 
         self._layout = QFormLayout(self._contentWidget)
         self._widgets: dict[str, tuple[QWidget, str]] = {}
+        self._columnDisplayNames: dict[str, str] = {}
         self._initialData: dict[str, Any] = {}
         self._mixedKeys: set[str] = set()
         entityData = [entity.get('data', {}) if entity else {} for entity in self._entities]
@@ -259,6 +261,7 @@ class EntityEditorDialog(QDialog):
 
             if widget is None:
                 continue
+            self._columnDisplayNames[key] = display
             if not isMixed:
                 if dtype == 'array':
                     if isinstance(widget, CheckableComboBox):
@@ -317,10 +320,45 @@ class EntityEditorDialog(QDialog):
                 sendData[key] = value
         return sendData
 
+    def _confirmMixedOverwrite(self, sendData: dict[str, Any]) -> bool:
+        mixedChangedKeys = [key for key in sendData if key in self._mixedKeys]
+        if not mixedChangedKeys:
+            return True
+
+        columnNames = [
+            self._columnDisplayNames.get(key, key)
+            for key in mixedChangedKeys
+        ]
+        if len(columnNames) == 1:
+            message = (
+                f'"{columnNames[0]}" has different values in the selected rows.\n\n'
+                'Click Ok to replace the old values with the new value, '
+                'or Cancel to keep the old values.'
+            )
+        else:
+            message = (
+                'These columns have different values in the selected rows:\n'
+                f'{", ".join(columnNames)}\n\n'
+                'Click Ok to replace the old values with the new values, '
+                'or Cancel to keep the old values.'
+            )
+
+        confirm = QMessageBox.question(
+            self,
+            'Confirm Replace Values',
+            message,
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        return confirm == QMessageBox.StandardButton.Ok
+
     def save(self):
         sendData = self._collectChanges()
         if not sendData:
             self.reject()
+            return
+
+        if not self._confirmMixedOverwrite(sendData):
             return
 
         for group, entity in zip(self._groups, self._entities):
