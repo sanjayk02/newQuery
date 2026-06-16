@@ -162,6 +162,7 @@ class EntityEditorDialog(QDialog):
         self._widgets: dict[str, tuple[QWidget, str]] = {}
         self._columnDisplayNames: dict[str, str] = {}
         self._initialData: dict[str, Any] = {}
+        self._existingValueKeys: set[str] = set()
         self._mixedKeys: set[str] = set()
         entityData = [entity.get('data', {}) if entity else {} for entity in self._entities]
 
@@ -178,6 +179,9 @@ class EntityEditorDialog(QDialog):
             display = col.displayName()
             isSys = col.isSystem()
             scope = 'project' if not col.scope() else col.scope()
+            oldValues = [data.get(key) for data in entityData]
+            if any(value is not None and str(value) != '' for value in oldValues):
+                self._existingValueKeys.add(key)
 
             # Show scope in label
             labelText = f'{display}'
@@ -320,24 +324,27 @@ class EntityEditorDialog(QDialog):
                 sendData[key] = value
         return sendData
 
-    def _confirmMixedOverwrite(self, sendData: dict[str, Any]) -> bool:
-        mixedChangedKeys = [key for key in sendData if key in self._mixedKeys]
-        if not mixedChangedKeys:
+    def _confirmOverwrite(self, sendData: dict[str, Any]) -> bool:
+        changedExistingKeys = [
+            key for key in sendData
+            if key in self._existingValueKeys or key in self._mixedKeys
+        ]
+        if not changedExistingKeys:
             return True
 
         columnNames = [
             self._columnDisplayNames.get(key, key)
-            for key in mixedChangedKeys
+            for key in changedExistingKeys
         ]
         if len(columnNames) == 1:
             message = (
-                f'"{columnNames[0]}" has different values in the selected rows.\n\n'
+                f'"{columnNames[0]}" already has an old value.\n\n'
                 'Click Ok to replace the old values with the new value, '
                 'or Cancel to keep the old values.'
             )
         else:
             message = (
-                'These columns have different values in the selected rows:\n'
+                'These columns already have old values:\n'
                 f'{", ".join(columnNames)}\n\n'
                 'Click Ok to replace the old values with the new values, '
                 'or Cancel to keep the old values.'
@@ -358,7 +365,7 @@ class EntityEditorDialog(QDialog):
             self.reject()
             return
 
-        if not self._confirmMixedOverwrite(sendData):
+        if not self._confirmOverwrite(sendData):
             return
 
         for group, entity in zip(self._groups, self._entities):
