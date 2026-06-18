@@ -906,50 +906,50 @@ class TableWidget(DataWidget):
         self._tableWidget.setModel(self._proxyModel)
         self._vLayout.addWidget(self._tableWidget)
 
-        # Separate synced view used to keep the Name column visible while scrolling horizontally.
-        self._frozenNameTableWidget = QTableView(self._tableWidget)
-        self._frozenNameTableWidget.setModel(self._proxyModel)
-        self._frozenNameTableWidget.setSelectionModel(self._tableWidget.selectionModel())
-        self._frozenNameTableWidget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._frozenNameTableWidget.setAlternatingRowColors(True)
-        self._frozenNameTableWidget.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self._frozenNameTableWidget.setSelectionMode(
+        # Separate synced view used to keep Thumbnail and Name visible while scrolling horizontally.
+        self._frozenColumnsTableWidget = QTableView(self._tableWidget)
+        self._frozenColumnsTableWidget.setModel(self._proxyModel)
+        self._frozenColumnsTableWidget.setSelectionModel(self._tableWidget.selectionModel())
+        self._frozenColumnsTableWidget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._frozenColumnsTableWidget.setAlternatingRowColors(True)
+        self._frozenColumnsTableWidget.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._frozenColumnsTableWidget.setSelectionMode(
             QAbstractItemView.SelectionMode.ExtendedSelection
         )
-        self._frozenNameTableWidget.setSelectionBehavior(
+        self._frozenColumnsTableWidget.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows
         )
-        self._frozenNameTableWidget.verticalHeader().setDefaultSectionSize(70)
-        self._frozenNameTableWidget.verticalHeader().hide()
-        self._frozenNameTableWidget.horizontalHeader().setSectionsClickable(False)
-        self._frozenNameTableWidget.horizontalHeader().setSortIndicatorShown(False)
-        self._frozenNameTableWidget.horizontalScrollBar().hide()
-        self._frozenNameTableWidget.verticalScrollBar().hide()
-        self._frozenNameTableWidget.setHorizontalScrollBarPolicy(
+        self._frozenColumnsTableWidget.verticalHeader().setDefaultSectionSize(70)
+        self._frozenColumnsTableWidget.verticalHeader().hide()
+        self._frozenColumnsTableWidget.horizontalHeader().setSectionsClickable(False)
+        self._frozenColumnsTableWidget.horizontalHeader().setSortIndicatorShown(False)
+        self._frozenColumnsTableWidget.horizontalScrollBar().hide()
+        self._frozenColumnsTableWidget.verticalScrollBar().hide()
+        self._frozenColumnsTableWidget.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
-        self._frozenNameTableWidget.setVerticalScrollBarPolicy(
+        self._frozenColumnsTableWidget.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
         self._tableWidget.viewport().installEventFilter(self)
         self._tableWidget.horizontalHeader().sectionResized.connect(
-            self._updateFrozenNameColumn
+            self._updateFrozenColumns
         )
         self._tableWidget.verticalScrollBar().valueChanged.connect(
-            self._frozenNameTableWidget.verticalScrollBar().setValue
+            self._frozenColumnsTableWidget.verticalScrollBar().setValue
         )
-        self._frozenNameTableWidget.verticalScrollBar().valueChanged.connect(
+        self._frozenColumnsTableWidget.verticalScrollBar().valueChanged.connect(
             self._tableWidget.verticalScrollBar().setValue
         )
 
         self.setupFilterWidget()
         self.enableCustomSorting()
         self._tableWidget.doubleClicked.connect(self.onDoubleClick)
-        self._frozenNameTableWidget.doubleClicked.connect(self.onDoubleClick)
+        self._frozenColumnsTableWidget.doubleClicked.connect(self.onDoubleClick)
 
     def eventFilter(self, watched: QWidget, event: QEvent) -> bool:
         if watched == self._tableWidget.viewport() and event.type() == QEvent.Type.Resize:
-            self._updateFrozenNameColumn()
+            self._updateFrozenColumns()
         return super().eventFilter(watched, event)
 
     def _getView(self) -> QTableView:
@@ -958,62 +958,45 @@ class TableWidget(DataWidget):
     def _getHorizontalHeader(self) -> QHeaderView:
         return self._tableWidget.horizontalHeader()
 
-    def _buildColumns(self) -> list[Column]:
-        # Assets table should start with Name so the frozen column is the leftmost data column.
-        _columns: list[Column] = []
-        nameColumn = None
-        thumbnailColumn = None
-        for col in self._columns:
-            if not col.visibled():
-                continue
-            if col.key() == 'name':
-                nameColumn = col
-                continue
-            if col.key() == 'thumbnail':
-                thumbnailColumn = col
-                continue
-            _columns.append(col)
-        if thumbnailColumn is not None:
-            _columns.insert(0, thumbnailColumn)
-        if nameColumn is not None:
-            _columns.insert(0, nameColumn)
-        return _columns
-
     def _getVisibleColumns(self) -> list[Column]:
-        return self._buildColumns()
+        return [col for col in self._columns if col.visibled()]
 
     def refreshColumns(self, columns: list[Column] | None = None) -> None:
         super().refreshColumns(columns)
 
         header = self._getHorizontalHeader()
-        if header.count() > 0:
-            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
-            self._tableWidget.setColumnWidth(0, 150)
-        self._updateFrozenNameColumn()
+        if header.count() > 1:
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+            self._tableWidget.setColumnWidth(1, 150)
+        self._updateFrozenColumns()
 
-    def _updateFrozenNameColumn(self) -> None:
-        # Mirror only the Name column and place it over the scrolling table viewport.
-        if 'name' not in self._headerMap:
-            self._frozenNameTableWidget.hide()
+    def _updateFrozenColumns(self) -> None:
+        # Mirror only the first two columns and place them over the scrolling table viewport.
+        frozenColumnCount = min(2, self._proxyModel.columnCount())
+        if frozenColumnCount == 0:
+            self._frozenColumnsTableWidget.hide()
             return
 
-        nameColumn = self._headerMap.index('name')
         for col in range(self._proxyModel.columnCount()):
-            self._frozenNameTableWidget.setColumnHidden(col, col != nameColumn)
+            self._frozenColumnsTableWidget.setColumnHidden(col, col >= frozenColumnCount)
 
-        columnWidth = self._tableWidget.columnWidth(nameColumn)
-        self._frozenNameTableWidget.setColumnWidth(nameColumn, columnWidth)
-        self._frozenNameTableWidget.setFixedWidth(columnWidth)
-        self._frozenNameTableWidget.setFixedHeight(
+        frozenWidth = 0
+        for col in range(frozenColumnCount):
+            columnWidth = self._tableWidget.columnWidth(col)
+            self._frozenColumnsTableWidget.setColumnWidth(col, columnWidth)
+            frozenWidth += columnWidth
+
+        self._frozenColumnsTableWidget.setFixedWidth(frozenWidth)
+        self._frozenColumnsTableWidget.setFixedHeight(
             self._tableWidget.viewport().height()
             + self._tableWidget.horizontalHeader().height()
         )
-        self._frozenNameTableWidget.move(
+        self._frozenColumnsTableWidget.move(
             self._tableWidget.verticalHeader().width() + self._tableWidget.frameWidth(),
             self._tableWidget.frameWidth(),
         )
-        self._frozenNameTableWidget.show()
-        self._frozenNameTableWidget.raise_()
+        self._frozenColumnsTableWidget.show()
+        self._frozenColumnsTableWidget.raise_()
 
     def updateSingleEntity(self, group: str, data: dict[str, Any]) -> None:
         entity = self._entities.get(group)
