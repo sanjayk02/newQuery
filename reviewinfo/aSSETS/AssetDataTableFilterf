@@ -10,16 +10,22 @@ import {
   Select,
   TextField,
   Theme,
-  Menu,             // >>> ADDED
-  Checkbox,         // >>> ADDED
-  ListItemText,     // >>> ADDED
-  Divider,          // >>> ADDED
+
+  // >>> ADD ITEM: import needed components from material-ui here <<<<
+  Menu,
+  Checkbox,
+  ListItemText,
+  Badge,
+
 } from '@material-ui/core';
 import { styled, useTheme } from '@material-ui/core/styles';
 import { ButtonProps } from '@material-ui/core/Button';
 import { SelectProps } from '@material-ui/core/Select';
 import { TextFieldProps } from '@material-ui/core/TextField';
-import { ChipDeleteFunction } from './types';
+import { ChipDeleteFunction } from './types'
+
+// ADDES: Icons can be imported from material-ui/icons if needed in the future
+import {FilterList as FilterListIcon, ExpandMore as ExpandMoreIcon, Filter} from '@material-ui/icons';
 
 const StyledChipsDiv = styled('div')({
   display: 'flex',
@@ -51,7 +57,6 @@ const StyledDiv = styled('div')(({ theme }) => ({
   backgroundColor: theme.palette.background.paper,
   display: 'flex',
   flexDirection: 'row',
-  alignItems: 'center', // >>> ADDED: a bit nicer vertical align
 }));
 
 const StyledFilterForm = styled('form')(({ theme }) => ({
@@ -73,15 +78,26 @@ const StyledFilterResetForm = styled('form')(({ theme }) => ({
   flexGrow: 1,
   display: 'flex',
   justifyContent: 'flex-end',
-  alignItems: 'center',                 // >>> ADDED
-  gap: theme.spacing(1),                // >>> ADDED: spacing between buttons
   marginTop: theme.spacing(1),
   marginRight: theme.spacing(1),
   marginBottom: theme.spacing(0.5),
 }));
 
-// ------------------ STATUS SOURCES (already in your file) ------------------
-// We will reuse these as flat checklists inside the menu.
+const FilterButton = styled(Button)({
+  backgroundColor: '#1e9bd7',
+  color: '#fff',
+  textTransform: 'none',
+  borderRadius: 8,
+  padding: '6px 12px',
+  '&:hover': {
+    backgroundColor: '#187bb5',
+  },
+  minHeight: '36px',
+  
+});
+
+
+
 const approvalStatuses = [
   'check',
   'clientReview',
@@ -123,7 +139,7 @@ function getStyles(name: string, statuses: string[], theme: Theme) {
         ? theme.typography.fontWeightRegular
         : theme.typography.fontWeightMedium,
   };
-}
+};
 
 type StatusSelectProps = {
   statusType: string,
@@ -133,7 +149,6 @@ type StatusSelectProps = {
   onChipDelete: ChipDeleteFunction,
 };
 
-// KEEP: your existing multi-select (not used in the menu, but keeping it intact)
 const FilterStatusSelect: React.FC<StatusSelectProps> = ({
   statusType,
   statuses,
@@ -202,6 +217,11 @@ type FilterProps = {
   onApprovalStatusChipDelete: ChipDeleteFunction,
   onWorkStatusChipDelete: ChipDeleteFunction,
   onResetClick: ButtonProps['onClick'],
+
+  allColumns: {id: string; label: string}[],
+  visibleColumns: Record<string, boolean>,
+  onToggleColumn: (id: string) => void,
+  onSaveColumns: () => void, // to save visible columns to user settings
 };
 
 const AssetTableFilter: React.FC<FilterProps> = ({
@@ -222,38 +242,55 @@ const AssetTableFilter: React.FC<FilterProps> = ({
     }
   };
 
-  // ------------------ >>> ADDED: Filter menu state & helpers ------------------
-  const [filterMenuAnchor, setFilterMenuAnchor] = React.useState<null | HTMLElement>(null);
-  const filterMenuOpen = Boolean(filterMenuAnchor);
-  const openFilterMenu = (e: React.MouseEvent<HTMLButtonElement>) => setFilterMenuAnchor(e.currentTarget);
-  const closeFilterMenu = () => setFilterMenuAnchor(null);
-
-  // Toggle helpers that reuse your existing onChange props
-  const toggleApproval = (status: string) => {
-    const next = selectApprovalStatuses.includes(status)
-      ? selectApprovalStatuses.filter(s => s !== status)
-      : [...selectApprovalStatuses, status];
-    onApprovalStatusesChange({ target: { value: next } } as any);
+  // ADDED: Menu State + toggle helps + count for badge
+  const [filterAnchorEl, setFilterAnchorEl] = React.useState<null | HTMLElement>(null);
+  const openFilterMenu = (event: React.MouseEvent<HTMLButtonElement>) => {
+    setFilterAnchorEl(event.currentTarget);
+  };
+  const closeFilterMenu = () => {
+    setFilterAnchorEl(null);
   };
 
-  const toggleWork = (status: string) => {
-    const next = selectWorkStatuses.includes(status)
-      ? selectWorkStatuses.filter(s => s !== status)
-      : [...selectWorkStatuses, status];
-    onWorkStatusesChange({ target: { value: next } } as any);
-  };
+// Toggle helpers reuse your existing onChange props
+const toggleApprovalStatus = (status: string) => {
+  const next = selectApprovalStatuses.includes(status)
+    ? selectApprovalStatuses.filter(s => s !== status)
+    : [...selectApprovalStatuses, status];
 
-  // Count for optional future badge
-  const activeFiltersCount =
-    (filterAssetName && filterAssetName.trim() !== '' ? 1 : 0) +
-    (selectApprovalStatuses ? selectApprovalStatuses.length : 0) +
-    (selectWorkStatuses ? selectWorkStatuses.length : 0);
+  if (onApprovalStatusesChange) {
+    onApprovalStatusesChange({ target: { value: next } } as any, null as any);
+  }
+};
+
+
+
+const toggleWorkStatus = (status: string) => {
+  const next = selectWorkStatuses.includes(status)
+    ? selectWorkStatuses.filter(s => s !== status)
+    : [...selectWorkStatuses, status];
+    
+  if (onWorkStatusesChange) {
+    onWorkStatusesChange({ target: { value: next } } as any, null as any);
+  }
+};
+
+// Badge count
+const activeFilterCount = (
+  filterAssetName && filterAssetName.trim() !== '' ? 1 : 0
+) + (
+  selectApprovalStatuses.length
+) + (
+  selectWorkStatuses.length
+);
+
+// Fixed columns that cannot be hidden
+const FIXED = new Set (['thumbnail', 'group_1_name']);
+
 
   return (
     <StyledFilterDiv>
       <StyledPaper>
         <StyledDiv>
-          {/* Keep your inline Asset Name input in the bar */}
           <StyledFilterForm>
             <StyledTextField
               id="filter-assetname"
@@ -264,10 +301,6 @@ const AssetTableFilter: React.FC<FilterProps> = ({
               onKeyPress={handleFilterKeyPress}
             />
           </StyledFilterForm>
-
-          {/* (Optional) keep the chip-style selects visible in-bar if you want
-              or remove these two blocks to rely only on the popup menu */}
-          {/* 
           <FilterStatusSelect
             statusType="Approval Status"
             statuses={approvalStatuses}
@@ -282,18 +315,26 @@ const AssetTableFilter: React.FC<FilterProps> = ({
             onStatusesChange={onWorkStatusesChange}
             onChipDelete={onWorkStatusChipDelete}
           />
-          */}
-
           <StyledFilterResetForm>
-            {/* >>> ADDED: Filter menu trigger button */}
-            <Button
-              variant="contained"
-              onClick={openFilterMenu}
-            >
-              Filter {activeFiltersCount > 0 ? `(${activeFiltersCount})` : ''}
-            </Button>
 
-            {/* Existing Reset button (unchanged) */}
+            {/* ADDED: Filter button with badge */}
+          <FilterButton
+            variant="contained"
+            onClick={openFilterMenu}
+            startIcon={<FilterListIcon />}
+            endIcon={<ExpandMoreIcon />}
+            style={{ marginRight: 8 }} // Add margin to the right
+          >
+              Filters&nbsp;
+            <Badge
+              badgeContent={activeFilterCount}
+              color="secondary"
+              max={99}
+              overlap="rectangle">
+                <span style={{display: 'inline-block', width: 0, height: 0}}><Filter /></span>
+            </Badge>
+          </FilterButton>
+
             <Button
               variant="outlined"
               onClick={onResetClick}
@@ -302,54 +343,8 @@ const AssetTableFilter: React.FC<FilterProps> = ({
             </Button>
           </StyledFilterResetForm>
 
-          {/* >>> ADDED: The flat, ungrouped checklist menu */}
-          <Menu
-            anchorEl={filterMenuAnchor}
-            open={filterMenuOpen}
-            onClose={closeFilterMenu}
-            keepMounted
-          >
-            {/* Asset Name inline inside menu */}
-            <div style={{ padding: '8px 16px', maxWidth: 280 }}>
-              <TextField
-                fullWidth
-                label="Asset Name"
-                value={filterAssetName}
-                onChange={onAssetNameChange}
-                onKeyPress={handleFilterKeyPress}
-              />
-            </div>
 
-            <Divider />
 
-            {/* Flat APPROVAL STATUS list */}
-            {approvalStatuses.map((s) => (
-              <MenuItem key={`appr-${s}`} onClick={() => toggleApproval(s)} dense>
-                <Checkbox
-                  edge="start"
-                  checked={selectApprovalStatuses.includes(s)}
-                  tabIndex={-1}
-                  disableRipple
-                />
-                <ListItemText primary={s} />
-              </MenuItem>
-            ))}
-
-            <Divider />
-
-            {/* Flat WORK STATUS list */}
-            {workStatuses.map((s) => (
-              <MenuItem key={`work-${s}`} onClick={() => toggleWork(s)} dense>
-                <Checkbox
-                  edge="start"
-                  checked={selectWorkStatuses.includes(s)}
-                  tabIndex={-1}
-                  disableRipple
-                />
-                <ListItemText primary={s} />
-              </MenuItem>
-            ))}
-          </Menu>
         </StyledDiv>
       </StyledPaper>
     </StyledFilterDiv>
