@@ -1,0 +1,493 @@
+{
+    "columns": {
+        "common": {
+            "default": [
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "thumbnail",
+                    "display_name": "Thumbnail",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "name",
+                    "display_name": "Name",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "status",
+                    "display_name": "Status",
+                    "data_type": "array",
+                    "visibled": true
+                }
+            ]
+        },
+        "assets": {
+            "default": [
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "episode",
+                    "display_name": "Episode",
+                    "data_type": "array",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "tags",
+                    "display_name": "Tags",
+                    "data_type": "array",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "parent_assets",
+                    "display_name": "Parent Assets",
+                    "data_type": "array",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "description",
+                    "display_name": "Description",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "dir_note",
+                    "display_name": "Dir Note",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "cgsv_note",
+                    "display_name": "CGSV Note",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "modeling_note",
+                    "display_name": "Modeling note",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "modeling_assigned_to",
+                    "display_name": "Modeling Assigned to",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "rigging_note",
+                    "display_name": "Rigging note",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "rigging_assigned_to",
+                    "display_name": "Rigging Assigned to",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "lookdev_note",
+                    "display_name": "Lookdev note",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "lookdev_assigned_to",
+                    "display_name": "Lookdev Assigned to",
+                    "data_type": "string",
+                    "visibled": true
+                }
+            ]
+        },
+        "shots": {
+            "default": [
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "cut_number",
+                    "display_name": "Cut Number",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "original_duration",
+                    "display_name": "Original Duration",
+                    "data_type": "int",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "dsp_finish",
+                    "display_name": "DSP finish",
+                    "data_type": "bool",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "master_comp_shot",
+                    "display_name": "Master Comp Shot",
+                    "data_type": "bool",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "bjt_board",
+                    "display_name": "BJT board",
+                    "data_type": "bool",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "dialogue",
+                    "display_name": "Dialogue",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "description",
+                    "display_name": "Description",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "cam_same_position",
+                    "display_name": "CamSamePosition",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "cam_work",
+                    "display_name": "Cam Work",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "time_of_day",
+                    "display_name": "Time Of Day",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "sky_type",
+                    "display_name": "SkyType",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "direction_notes",
+                    "display_name": "Direction Notes",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "cgsv_notes",
+                    "display_name": "CGSV Notes",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "assets_charas",
+                    "display_name": "Assets Charas",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "assets_props_vehicles_etc",
+                    "display_name": "Assets Props Vehicles etc",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "assets_sets",
+                    "display_name": "Assets Sets",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "assets_fx",
+                    "display_name": "Assets FX",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "layout_assigned_to",
+                    "display_name": "Layout Assigned To",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "animation_assigned_to",
+                    "display_name": "Animation Assigned To",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "genzu_assigned_to",
+                    "display_name": "Genzu Assigned To",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "fx_assigned_to",
+                    "display_name": "Fx Assigned To",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "display_assigned_to",
+                    "display_name": "Display Assigned To",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "compositing_assigned_to",
+                    "display_name": "Compositing Assigned To",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "elements_fx",
+                    "display_name": "Elements FX",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "elements_cfx",
+                    "display_name": "Elements cFX",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "element_crowd",
+                    "display_name": "Element Crowd",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "elements_retouch",
+                    "display_name": "Elements Retouch",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "elements_drawing",
+                    "display_name": "Elements Drawing",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "elements_display",
+                    "display_name": "Elements Display",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "layout_note",
+                    "display_name": "Layout Note",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "animation_note",
+                    "display_name": "Animation Note",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "genzu_note",
+                    "display_name": "Genzu Note",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "matte_note",
+                    "display_name": "Matte Note",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "fx_note",
+                    "display_name": "FX Note",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "display_note",
+                    "display_name": "Display Note",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "composite_note",
+                    "display_name": "Composite Note",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "edit_note",
+                    "display_name": "Edit Note",
+                    "data_type": "string",
+                    "visibled": true
+                },
+                {
+                    "project": "default",
+                    "scope": "global",
+                    "is_system": true,
+                    "key": "color_palatte_notes",
+                    "display_name": "Color Palatte Notes",
+                    "data_type": "string",
+                    "visibled": true
+                }
+            ]
+        }
+    }
+}
