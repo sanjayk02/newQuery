@@ -1,4 +1,5 @@
 import csv
+from typing import Any
 
 from ppui.PySide.QtCore import QModelIndex # noqa: F401
 from ppui.PySide.QtCore import Qt
@@ -100,6 +101,7 @@ class ColumnEditDialog(QDialog):
         self._roleManager = roleManager
         self._column = column
         self._savedColumnKey: str | None = None
+        self._savedColumn: Column | None = None
         self.setWindowTitle('Edit Column' if column else 'Add Column')
         self._layout = QFormLayout(self)
 
@@ -197,6 +199,9 @@ class ColumnEditDialog(QDialog):
 
     def savedColumnKey(self) -> str | None:
         return self._savedColumnKey
+
+    def savedColumn(self) -> Column | None:
+        return self._savedColumn
 
     def _generateUniqueKey(self, userInput: str, existingList: list[str]) -> str:
         parts = [part.strip().lower() for part in userInput.split(' ') if part.strip()]
@@ -379,6 +384,28 @@ class ColumnEditDialog(QDialog):
 
             self._isChanged = True
             self._savedColumnKey = key
+            columnData: dict[str, Any] = self._column.asDict() if self._column else {}
+            columnConfig = dict(columnData.get('config', {}))
+            columnConfig['options'] = options
+            columnConfig['multi_select'] = multiSelect
+            columnConfig['role'] = Role.fromKeyName(role).keyName
+            columnConfig['role_setting'] = Role.fromKeyName(role).keyName
+            columnData.update(
+                {
+                    'root': columnData.get('root') or self._root,
+                    'key': key,
+                    'display_name': name,
+                    'data_type': dtype,
+                    'scope': 'global' if isGlobal else 'project',
+                    'exclude_projects': exclude,
+                    'is_system': isSystem,
+                    'role': Role.fromKeyName(role).keyName,
+                    'role_setting': Role.fromKeyName(role).keyName,
+                    'config': columnConfig,
+                    'visibled': visibled,
+                }
+            )
+            self._savedColumn = Column.fromDict(columnData)
             self.accept()
 
 
@@ -493,6 +520,15 @@ class ColumnListDialog(QDialog):
     def getColumns(self) -> list[Column]:
         return [col for col in self._columns]
 
+    def _upsertSavedColumn(self, column: Column | None) -> None:
+        if column is None:
+            return
+        for index, existingColumn in enumerate(self._columns):
+            if existingColumn.key() == column.key():
+                self._columns[index] = column
+                return
+        self._columns.append(column)
+
     def refreshList(self, columns: list[Column] | None = None):
         cols = columns if columns is not None else self._columns
         _cols = {col.key(): col for col in cols}
@@ -554,6 +590,7 @@ class ColumnListDialog(QDialog):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._isChanged = True
             self._rebuildColumns()
+            self._upsertSavedColumn(dlg.savedColumn())
             self.refreshList()
             self._selectRowByKey(dlg.savedColumnKey())
 
@@ -577,6 +614,7 @@ class ColumnListDialog(QDialog):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._isChanged = True
             self._rebuildColumns()
+            self._upsertSavedColumn(dlg.savedColumn())
             self.refreshList()
             self._selectRowByKey(dlg.savedColumnKey())
 
