@@ -1,0 +1,8 @@
+Hi,
+I checked the Column Manager role issue. It is not a permission problem and the UI is sending the selected role correctly.
+When I select Admin, the app sends admin to the column update API, but after saving, the server still returns Supervisor.
+So the backend/API seems to be ignoring or overwriting the column role / role_setting field.
+Temporary workaround added: the app now saves the selected column role in project preferences and reapplies it when Column Manager opens.
+Could you check whether the backend update endpoint supports saving role / role_setting?
+Endpoint:
+PUT /api/projects/{project}/tracker/columns/{columnID}
