@@ -865,14 +865,36 @@ class DataWidget(QWidget):
         self._directEditGroups = None
         changeData = {key: value}
 
-        if len(targetGroups) > 1:
+        existingValueGroups: list[str] = []
+        for targetGroup in targetGroups:
+            entity = self._entities.get(targetGroup)
+            oldValue = entity.data().get(key, '') if entity is not None else ''
+            if oldValue is not None and str(oldValue) != '' and str(oldValue) != str(value):
+                existingValueGroups.append(targetGroup)
+
+        if existingValueGroups:
+            if len(existingValueGroups) == 1:
+                message = (
+                    f'"{column.displayName()}" already has an old value '
+                    f'for "{existingValueGroups[0]}".\n\n'
+                    'Click Ok to replace the old value with the new value, '
+                    'or Cancel to keep the old value.'
+                )
+            else:
+                previewGroups = ', '.join(existingValueGroups[:5])
+                if len(existingValueGroups) > 5:
+                    previewGroups += f', and {len(existingValueGroups) - 5} more'
+                message = (
+                    f'"{column.displayName()}" already has old values in '
+                    f'{len(existingValueGroups)} selected rows:\n'
+                    f'{previewGroups}\n\n'
+                    'Click Ok to replace the old values with the new value, '
+                    'or Cancel to keep the old values.'
+                )
             confirm = QMessageBox.question(
                 self,
-                'Edit Selected Cells',
-                (
-                    f'Apply "{column.displayName()}" to '
-                    f'{len(targetGroups)} selected rows?'
-                ),
+                'Confirm Replace Values',
+                message,
                 QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
                 QMessageBox.StandardButton.Cancel,
             )
