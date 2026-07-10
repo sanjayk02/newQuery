@@ -935,14 +935,16 @@ class DataWidget(QWidget):
         if not index.isValid():
             return
 
-        menu = QMenu(view)
-        editAction = menu.addAction('Edit in Cell')
         selectedGroups = self._getSelection()
         clickedGroup = index.data(self.GROUPPATH_ROLE)
         isMultiSelectedClick = clickedGroup in selectedGroups and len(selectedGroups) > 1
+        if isMultiSelectedClick:
+            return
+
+        menu = QMenu(view)
+        editAction = menu.addAction('Edit in Cell')
         editAction.setEnabled(
-            not isMultiSelectedClick
-            and self.canDirectEditCell(index, showWarning=False)
+            self.canDirectEditCell(index, showWarning=False)
         )
 
         selectedAction = menu.exec(view.viewport().mapToGlobal(pos))
