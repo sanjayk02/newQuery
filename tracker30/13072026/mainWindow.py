@@ -193,43 +193,47 @@ class KeywordFilterProxyModel(QSortFilterProxyModel):
 
 class RefreshDataTask(QObject):
     # Fetch startup/refresh data off the UI thread; widgets are updated after emit.
-    refreshLoaded = Signal(object, object, bool)
+    refreshLoaded = Signal(object, object, object, object, bool)
     refreshFailed = Signal(str)
 
     def __init__(
         self,
         api: ApiClient,
-        service: Service,
+        pipelineSetting: DesktopPipelineSetting,
+        service: Service | None,
         dataRepo: DataRepository,
+        state: State,
         project: str,
         roots: list[str],
         sortSettings: dict[str, tuple[str, int]],
         columns: list[Column],
-        roleOverrides: dict[str, dict[str, str]],
         rebuildColumns: bool,
         force: bool,
     ) -> None:
         super().__init__()
         self._api = api
+        self._pipelineSetting = pipelineSetting
         self._service = service
         self._dataRepo = dataRepo
+        self._state = state
         self._project = project
         self._roots = roots
         self._sortSettings = sortSettings
         self._columns = columns
-        self._roleOverrides = roleOverrides
         self._rebuildColumns = rebuildColumns
         self._force = force
 
     def run(self) -> None:
         try:
+            service = self._service or Service(self._pipelineSetting)
+            roleData = self._state.loadRoleData() if self._rebuildColumns else None
             columns = self._buildColumns() if self._rebuildColumns else self._columns
             payload: dict[str, dict[str, Any]] = {}
             for root in self._roots:
                 # Keep this worker limited to plain data loading, not Qt model changes.
                 sortKey, sortDirection = self._sortSettings[root]
                 entities = self._api.searchEntities('', root, sortKey, sortDirection)
-                groupKeyNames = [grp.keyName() for grp in self._service.iterGroups(root)]
+                groupKeyNames = [grp.keyName() for grp in service.iterGroups(root)]
                 payload[root] = {
                     'columns': [
                         col
@@ -239,7 +243,7 @@ class RefreshDataTask(QObject):
                     'entities': entities,
                     'groups': groupKeyNames,
                 }
-            self.refreshLoaded.emit(columns, payload, self._force)
+            self.refreshLoaded.emit(columns, payload, roleData, service, self._force)
         except Exception as ex:
             self.refreshFailed.emit(str(ex))
 
@@ -257,7 +261,7 @@ class RefreshDataTask(QObject):
                         tempColumns[i] = column
                         break
         for root in ('assets', 'shots'):
-            roleOverrides = self._roleOverrides.get(root, {})
+            roleOverrides = self._state.columnRoleOverrides(root)
             if not roleOverrides:
                 continue
             tempColumns = [
@@ -278,6 +282,9 @@ class CornerWidget(QWidget):
         self._layout.addWidget(self._label)
         self.setLayout(self._layout)
 
+    def setText(self, text: str) -> None:
+        self._label.setText(text)
+
 
 class MainWindow(QMainWindow, Ui_MainWindow):
     def __init__(
@@ -291,7 +298,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._appInfo = appInfo
         self._state = state
         self._pipelineSetting = state.pipelineSetting()
-        self._service = Service(self._pipelineSetting)
+        self._service: Service | None = None
         self._isDev = isDev
         _project = self._pipelineSetting.project()
         assert _project is not None, 'No project selected in pipeline setting.'
@@ -367,10 +374,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             'assets': self._assetsTableWidget,
             'shots': self._shotsTreeWidget,
         }
+        self._loadedRoots: set[str] = set()
 
         self._aboutDialog = None
         self._cornerWidget = None
         self._isRefreshing = False
+        self._pendingRefreshRoot: str | None = None
 
         self.refreshButton.clicked.connect(self._onRefreshClicked)
         self._rootsButtonGroup.buttonToggled.connect(self.changeRootButtonToggled)
@@ -387,8 +396,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._setRootButton(self._currentRoot)
         self.roleManagerButton.setVisible(self._state.isAdmin())
 
-        # Show MainWindow first, then load columns/data asynchronously.
-        QTimer.singleShot(0, lambda: self._startRefresh(True, rebuildColumns=True))
+        # Show MainWindow first, then load only the visible root asynchronously.
+        QTimer.singleShot(0, lambda: self._startRefresh(rebuildColumns=True))
 
     def _genaratedMenu(self):
         # Help Menu
@@ -427,13 +436,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def _startRefresh(self, force: bool = False, rebuildColumns: bool = False) -> None:
         if self._isRefreshing:
+            self._pendingRefreshRoot = self._currentRoot
             return
         self._setLoading(True)
         roots = ['assets', 'shots'] if force else [self._currentRoot]
-        roleOverrides = {
-            'assets': self._state.columnRoleOverrides('assets'),
-            'shots': self._state.columnRoleOverrides('shots'),
-        }
         sortSettings = {
             root: (
                 self._dataWidgets[root]._currentSortKey,
@@ -444,51 +450,76 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # Start background data load; _onRefreshLoaded applies results on UI thread.
         self._refreshTask = RefreshDataTask(
             self._api,
+            self._pipelineSetting,
             self._service,
             self._dataRepo,
+            self._state,
             self._project.keyName(),
             roots,
             sortSettings,
             self._columns,
-            roleOverrides,
             rebuildColumns,
             force,
         )
         self._refreshTask.refreshLoaded.connect(self._onRefreshLoaded)
         self._refreshTask.refreshFailed.connect(self._onRefreshFailed)
-        self._service.threadStart(self._refreshTask)
+        self._threadPool.start(self._refreshTask)
 
     def _onRefreshLoaded(
         self,
         columns: list[Column],
         payload: dict[str, dict[str, Any]],
+        roleData: object,
+        service: Service,
         force: bool,
     ) -> None:
+        self._service = service
+        if roleData is not None:
+            self._state.applyRoleData(roleData)
+            self._roleManager = self._state.roleManager()
+            self._updateRoleUi()
         self._columns = columns
         for root, data in payload.items():
             widget = self._dataWidgets.get(root)
             if widget is not None:
+                widget.setService(service)
                 # Safe Qt model update point: this slot runs back on the main thread.
                 widget.refreshFromData(
                     data.get('columns', []),
                     data.get('entities', []),
                     data.get('groups', []),
                 )
+                self._loadedRoots.add(root)
 
         root = None if force else self._currentRoot
         self._resetTasks(root)
         self._loadThumbnail(root)
         self._refreshTask = None
         self._setLoading(False)
+        if self._pendingRefreshRoot is not None:
+            pendingRoot = self._pendingRefreshRoot
+            self._pendingRefreshRoot = None
+            if pendingRoot not in self._loadedRoots:
+                self._startRefresh()
 
     def _onRefreshFailed(self, message: str) -> None:
         self._refreshTask = None
         self._setLoading(False)
         QMessageBox.critical(self, 'Error', message)
 
+    def _updateRoleUi(self) -> None:
+        text = (
+            f'{self._studio.displayName()}'
+            f' / {self._roleManager.userName()}'
+            f' / {self._roleManager.currentRoleName()}'
+        )
+        if self._cornerWidget is not None:
+            self._cornerWidget.setText(text)
+        self.roleManagerButton.setVisible(self._state.isAdmin())
+
     def _onRefreshClicked(self) -> None:
-        for cache in self._thumbnailCache.values():
-            cache.clear()
+        self._thumbnailCache[self._currentRoot].clear()
+        self._loadedRoots.discard(self._currentRoot)
         self._startRefresh()
 
     def _onExportCsvClicked(self) -> None:
@@ -620,6 +651,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         widget.onThumbnailUpdated(groupPath, icon)
 
     def _loadThumbnailTask(self, path: str, thumbPaths: ThumbnailPaths) -> None:
+        if self._service is None:
+            return
         if path not in self._thumbnailPathsTasks:
             return
         self._thumbnailPathsTasks.pop(path)
@@ -642,6 +675,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._service.threadStart(task)
 
     def _loadThumbnail(self, root: str | None = None) -> None:
+        if self._service is None:
+            return
         for value in self._service.iterLatestThumbnailValues():
             if root is not None and not value.location().startswith(root + '/'):
                 continue
@@ -675,6 +710,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self._currentRoot = root
                 self._assetsTableWidget.setVisible(root == 'assets')
                 self._shotsTreeWidget.setVisible(root == 'shots')
+                if root not in self._loadedRoots:
+                    self._startRefresh()
 
 
 class CheckableButton(QPushButton):
@@ -694,7 +731,7 @@ class DataWidget(QWidget):
 
     def __init__(
         self,
-        service: Service,
+        service: Service | None,
         api: ApiClient,
         state: State,
         columns: list[Column],
@@ -727,7 +764,7 @@ class DataWidget(QWidget):
 
         self._thumbnailItems: dict[str, QStandardItem] = {}
 
-        defaultImg = self._service.defaultThumbnail()
+        defaultImg = self._defaultThumbnail()
         scaledDefault = defaultImg.scaled(
             90,
             90,
@@ -735,6 +772,18 @@ class DataWidget(QWidget):
             Qt.TransformationMode.SmoothTransformation,
         )
         self._defaultThumbnailIcon = QIcon(QPixmap.fromImage(scaledDefault))
+
+    def setService(self, service: Service) -> None:
+        self._service = service
+
+    def _defaultThumbnail(self) -> QImage:
+        if self._service is not None:
+            return self._service.defaultThumbnail()
+        image = QImage(':/default_dark_128.png')
+        size = image.size()
+        croppedHeight = round(size.height() / 16 * 9)
+        croppedTop = round((size.height() - croppedHeight) / 2)
+        return image.copy(0, croppedTop, size.width(), croppedHeight)
 
     def _getView(self) -> QAbstractItemView:
         raise NotImplementedError
@@ -920,6 +969,8 @@ class DataWidget(QWidget):
         self._vLayout.insertWidget(0, self._filterWidget)
 
     def _getGroups(self) -> Iterator[Group]:
+        if self._service is None:
+            return
         for group in self._service.iterGroups(self._root):
             yield group
 
@@ -1454,7 +1505,7 @@ class DataWidget(QWidget):
 class TableWidget(DataWidget):
     def __init__(
         self,
-        service: Service,
+        service: Service | None,
         api: ApiClient,
         state: State,
         columns: list[Column],
@@ -1668,7 +1719,7 @@ class TableWidget(DataWidget):
 class TreeWidget(DataWidget):
     def __init__(
         self,
-        service: Service,
+        service: Service | None,
         api: ApiClient,
         state: State,
         columns: list[Column],
