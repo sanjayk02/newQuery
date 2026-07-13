@@ -9,8 +9,10 @@ from ppui.PySide.QtCore import (
     QEvent,  # noqa: F401
     QItemSelectionModel,
     QModelIndex,
+    QObject,
     QPersistentModelIndex,
     QPoint,
+    Signal,
     QTimer,
     QSize,
     QSortFilterProxyModel,
@@ -41,7 +43,6 @@ from ppui.PySide.QtWidgets import (
     QMenu,
     QMenuBar,
     QMessageBox,
-    QProgressBar,
     QPushButton,
     QSizePolicy,
     QSpacerItem,
@@ -190,6 +191,84 @@ class KeywordFilterProxyModel(QSortFilterProxyModel):
         return True
 
 
+class RefreshDataTask(QObject):
+    # Fetch startup/refresh data off the UI thread; widgets are updated after emit.
+    refreshLoaded = Signal(object, object, bool)
+    refreshFailed = Signal(str)
+
+    def __init__(
+        self,
+        api: ApiClient,
+        service: Service,
+        dataRepo: DataRepository,
+        project: str,
+        roots: list[str],
+        sortSettings: dict[str, tuple[str, int]],
+        columns: list[Column],
+        roleOverrides: dict[str, dict[str, str]],
+        rebuildColumns: bool,
+        force: bool,
+    ) -> None:
+        super().__init__()
+        self._api = api
+        self._service = service
+        self._dataRepo = dataRepo
+        self._project = project
+        self._roots = roots
+        self._sortSettings = sortSettings
+        self._columns = columns
+        self._roleOverrides = roleOverrides
+        self._rebuildColumns = rebuildColumns
+        self._force = force
+
+    def run(self) -> None:
+        try:
+            columns = self._buildColumns() if self._rebuildColumns else self._columns
+            payload: dict[str, dict[str, Any]] = {}
+            for root in self._roots:
+                # Keep this worker limited to plain data loading, not Qt model changes.
+                sortKey, sortDirection = self._sortSettings[root]
+                entities = self._api.searchEntities('', root, sortKey, sortDirection)
+                groupKeyNames = [grp.keyName() for grp in self._service.iterGroups(root)]
+                payload[root] = {
+                    'columns': [
+                        col
+                        for col in columns
+                        if col.visibled() and col.root() in ('common', root)
+                    ],
+                    'entities': entities,
+                    'groups': groupKeyNames,
+                }
+            self.refreshLoaded.emit(columns, payload, self._force)
+        except Exception as ex:
+            self.refreshFailed.emit(str(ex))
+
+    def _buildColumns(self) -> list[Column]:
+        tempColumns = list(self._dataRepo.loadTemplateColumns(self._project))
+        dbColumns = self._api.getColumns()
+        tempExistKeys = {col.key() for col in tempColumns}
+        for dbCol in dbColumns:
+            column = Column.fromDict(dbCol)
+            if dbCol['key'] not in tempExistKeys:
+                tempColumns.append(column)
+            else:
+                for i, tempCol in enumerate(tempColumns):
+                    if tempCol.key() == dbCol['key']:
+                        tempColumns[i] = column
+                        break
+        for root in ('assets', 'shots'):
+            roleOverrides = self._roleOverrides.get(root, {})
+            if not roleOverrides:
+                continue
+            tempColumns = [
+                col.withRole(roleOverrides[col.key()])
+                if col.key() in roleOverrides and col.root() in ('common', root)
+                else col
+                for col in tempColumns
+            ]
+        return sorted(tempColumns, key=lambda c: c.createdAtUtc() or '0')
+
+
 class CornerWidget(QWidget):
     def __init__(self, text: str, menuBar: QMenuBar) -> None:
         super(CornerWidget, self).__init__(parent=menuBar)
@@ -233,6 +312,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._shotsHeaderMap: list[str] = []
         self._thumbnailPathsTasks: dict[str, LoadThumbnailPathsTask] = {}
         self._thumbnailTasks: dict[str, LoadThumbnailTask] = {}
+        self._refreshTask: RefreshDataTask | None = None
         self._thumbnailCache: dict[str, dict[str, QIcon]] = {
             'assets': {},
             'shots': {},
@@ -306,8 +386,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._shotsTreeWidget.setVisible(self._currentRoot == 'shots')
         self._setRootButton(self._currentRoot)
         self.roleManagerButton.setVisible(self._state.isAdmin())
-        self._setupLoadingProgress()
 
+        # Show MainWindow first, then load columns/data asynchronously.
         QTimer.singleShot(0, lambda: self._startRefresh(True, rebuildColumns=True))
 
     def _genaratedMenu(self):
@@ -342,37 +422,69 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if url:
             webbrowser.open(url + '/toolList/ppiBreakdown/')
 
-    def _setupLoadingProgress(self) -> None:
-        self._loadingProgress = QProgressBar(self)
-        self._loadingProgress.setRange(0, 0)
-        self._loadingProgress.setMaximumWidth(180)
-        self._loadingProgress.setVisible(False)
-        self.statusbar.addPermanentWidget(self._loadingProgress)
-
-    def _setLoading(self, isLoading: bool, message: str = '') -> None:
+    def _setLoading(self, isLoading: bool) -> None:
         self._isRefreshing = isLoading
-        self._loadingProgress.setVisible(isLoading)
-        self.refreshButton.setEnabled(not isLoading)
-        if isLoading:
-            self.statusbar.showMessage(message or 'Loading data...')
-        else:
-            self.statusbar.clearMessage()
 
     def _startRefresh(self, force: bool = False, rebuildColumns: bool = False) -> None:
         if self._isRefreshing:
             return
-        message = 'Loading columns and data...' if rebuildColumns else 'Loading data...'
-        self._setLoading(True, message)
-        # Let the window/status bar paint before the current synchronous refresh starts.
-        QTimer.singleShot(50, lambda: self._runRefresh(force, rebuildColumns))
+        self._setLoading(True)
+        roots = ['assets', 'shots'] if force else [self._currentRoot]
+        roleOverrides = {
+            'assets': self._state.columnRoleOverrides('assets'),
+            'shots': self._state.columnRoleOverrides('shots'),
+        }
+        sortSettings = {
+            root: (
+                self._dataWidgets[root]._currentSortKey,
+                self._dataWidgets[root]._currentSortDirection,
+            )
+            for root in roots
+        }
+        # Start background data load; _onRefreshLoaded applies results on UI thread.
+        self._refreshTask = RefreshDataTask(
+            self._api,
+            self._service,
+            self._dataRepo,
+            self._project.keyName(),
+            roots,
+            sortSettings,
+            self._columns,
+            roleOverrides,
+            rebuildColumns,
+            force,
+        )
+        self._refreshTask.refreshLoaded.connect(self._onRefreshLoaded)
+        self._refreshTask.refreshFailed.connect(self._onRefreshFailed)
+        self._service.threadStart(self._refreshTask)
 
-    def _runRefresh(self, force: bool = False, rebuildColumns: bool = False) -> None:
-        try:
-            if rebuildColumns:
-                self._rebuildColumns()
-            self._refresh(force)
-        finally:
-            self._setLoading(False)
+    def _onRefreshLoaded(
+        self,
+        columns: list[Column],
+        payload: dict[str, dict[str, Any]],
+        force: bool,
+    ) -> None:
+        self._columns = columns
+        for root, data in payload.items():
+            widget = self._dataWidgets.get(root)
+            if widget is not None:
+                # Safe Qt model update point: this slot runs back on the main thread.
+                widget.refreshFromData(
+                    data.get('columns', []),
+                    data.get('entities', []),
+                    data.get('groups', []),
+                )
+
+        root = None if force else self._currentRoot
+        self._resetTasks(root)
+        self._loadThumbnail(root)
+        self._refreshTask = None
+        self._setLoading(False)
+
+    def _onRefreshFailed(self, message: str) -> None:
+        self._refreshTask = None
+        self._setLoading(False)
+        QMessageBox.critical(self, 'Error', message)
 
     def _onRefreshClicked(self) -> None:
         for cache in self._thumbnailCache.values():
@@ -1086,6 +1198,17 @@ class DataWidget(QWidget):
         self.refreshData()
         self._setSelection(selectedPaths)
 
+    def refreshFromData(
+        self,
+        columns: list[Column],
+        entities: list[dict[str, Any]],
+        groupKeyNames: list[str],
+    ) -> None:
+        selectedPaths = self._getSelection()
+        self.refreshColumns(columns)
+        self.applyData(entities, groupKeyNames)
+        self._setSelection(selectedPaths)
+
     def refreshColumns(self, columns: list[Column] | None = None) -> None:
         if columns is not None:
             self._columns = columns
@@ -1314,6 +1437,9 @@ class DataWidget(QWidget):
     def updateSingleEntity(self, group: str, data: dict[str, Any]) -> None:
         raise NotImplementedError
 
+    def applyData(self, entities: list[dict[str, Any]], groupKeyNames: list[str]) -> None:
+        raise NotImplementedError
+
     def refreshData(self) -> None:
         raise NotImplementedError
 
@@ -1488,10 +1614,13 @@ class TableWidget(DataWidget):
             self._currentSortKey,
             self._currentSortDirection,
         )
-        self._entities = {
-            ent.get('group'): Entity.fromDict(ent) for ent in _entities if ent.get('group')
-        }  # noqa: E501
         groupKeyNames = [grp.keyName() for grp in self._getGroups()]
+        self.applyData(_entities, groupKeyNames)
+
+    def applyData(self, entities: list[dict[str, Any]], groupKeyNames: list[str]) -> None:
+        self._entities = {
+            ent.get('group'): Entity.fromDict(ent) for ent in entities if ent.get('group')
+        }  # noqa: E501
 
         self._model.removeRows(0, self._model.rowCount())
         self._thumbnailItems.clear()
@@ -1796,10 +1925,13 @@ class TreeWidget(DataWidget):
             self._currentSortKey,
             self._currentSortDirection,
         )
-        self._entities = {
-            ent.get('group'): Entity.fromDict(ent) for ent in _entities if ent.get('group')
-        }  # noqa: E501
         groupKeyNames = [grp.keyName() for grp in self._getGroups()]
+        self.applyData(_entities, groupKeyNames)
+
+    def applyData(self, entities: list[dict[str, Any]], groupKeyNames: list[str]) -> None:
+        self._entities = {
+            ent.get('group'): Entity.fromDict(ent) for ent in entities if ent.get('group')
+        }  # noqa: E501
 
         self._model.removeRows(0, self._model.rowCount())
         self._thumbnailItems.clear()
