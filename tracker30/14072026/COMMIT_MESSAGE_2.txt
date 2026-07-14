@@ -1,0 +1,32 @@
+PPITRACKER-48: Show MainWindow before fetching data
+
+Previously, launching PPI Breakdown blocked on several synchronous
+network calls (role preferences, columns, Assets/Shots entity search)
+and a slow local image operation (default thumbnail generation)
+before the window ever appeared.
+
+Measured with identical instrumentation on both versions:
+  Old: 6.32s for MainWindow to open
+  New: ~0.8-1.0s for MainWindow to open
+  (~7x faster)
+
+- state.py: State no longer fetches role preference data on
+  construction; starts with a safe (least-privilege) default and
+  loads the real value asynchronously.
+
+- service.py: Service no longer builds the default thumbnail image
+  synchronously; shows a cheap placeholder immediately and swaps in
+  the real styled version once built on a background thread.
+
+- mainWindow.py: MainWindow no longer fetches columns or entity data
+  synchronously during construction. Data now loads via QThreadPool
+  background tasks after the window is shown, staged as
+  Columns -> Assets rows -> Assets thumbnails -> Shots rows -> Shots
+  thumbnails, with role data loading independently in parallel. Added
+  logging of window-open time and each load stage's elapsed time for
+  future verification.
+
+- launch.py: No changes required.
+
+Result: window appears in ~0.8-1.0s (was 6.32s). Data populates
+progressively in the background afterward instead of blocking the UI.
