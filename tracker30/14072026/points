@@ -1,0 +1,76 @@
+PPITRACKER-48: Show MainWindow before fetching data
+
+Previously, launching PPI Breakdown blocked on several synchronous
+network calls (role preferences, columns, Assets/Shots entity search)
+and a slow local image operation (default thumbnail generation)
+before the window ever appeared.
+
+Measured with identical instrumentation on both versions:
+  Old: 6.32s for MainWindow to open
+  New: ~0.8-1.0s for MainWindow to open
+  (~7x faster)
+
+- state.py: State no longer fetches role preference data on
+  construction; starts with a safe (least-privilege) default and
+  loads the real value asynchronously.
+
+- service.py: Service no longer builds the default thumbnail image
+  synchronously; shows a cheap placeholder immediately and swaps in
+  the real styled version once built on a background thread.
+
+- mainWindow.py: MainWindow no longer fetches columns or entity data
+  synchronously during construction. Data now loads via QThreadPool
+  background tasks after the window is shown, staged as
+  Columns -> Assets rows -> Assets thumbnails -> Shots rows -> Shots
+  thumbnails, with role data loading independently in parallel. Added
+  logging of window-open time and each load stage's elapsed time for
+  future verification.
+
+- launch.py: No changes required.
+
+Result: window appears in ~0.8-1.0s (was 6.32s). Data populates
+progressively in the background afterward instead of blocking the UI.
+
+==================================================================================
+Here is a short summary you can share:
+Implemented direct cell editing for the tracker table without changing the existing double-click behavior.
+What changed:
+Existing double-click still opens the normal edit dialog.
+
+Users can now right-click a single editable cell and choose Edit in Cell.
+The inline editor changes based on column type:text fields for string, int, float, and array columns without options
+dropdown for array columns with options
+checkbox for boolean columns
+
+Numeric values are validated before saving.
+If the cell already has an old value, the user gets a confirmation warning before it is replaced.
+Read-only columns and no-permission columns cannot be edited directly.
+
+When multiple rows are selected, Edit in Cell is hidden so users cannot accidentally bulk-edit through this feature.
+Validation:
+Python compile check passed for mainWindow.py.
+Old modal editing behavior remains unchanged.
+
+
+===================================================================================
+Important points:
+Main issue: backend/server does not persist column role changes. App sends Admin/Manager, but server returns Supervisor.
+
+Fix/workaround: save column role overrides in Project Preferences instead of relying on column DB role.
+
+Preference key format requested by Kobayashi-san:
+
+/ppiBreakdown/columnRoles/<root>/<role>
+Example:
+/ppiBreakdown/columnRoles/assets/manager
+value: dev,testColumn001
+Meaning: columns listed under that key require that role.
+
+Files mainly changed:
+state.py: reads/writes column role preferences.
+columnManagerDialog.py: saves selected role to preferences.
+mainWindow.py: applies saved role overrides when loading columns.
+tableData.py: supports applying role override to Column.
+
+UI message: should not mention server failure anymore. It should only say role will be saved in project preferences.
+
