@@ -749,6 +749,13 @@ class DataWidget(QWidget):
     SORT_ROLE = Qt.ItemDataRole.UserRole + 2
     FILTER_ROLE = Qt.ItemDataRole.UserRole + 3
 
+    # PPITRACKER-48 (testing only): artificial delay, in ms, between each
+    # row/group appended during batched population - purely so the
+    # progressive-reveal effect is visible to the eye during manual testing.
+    # Uses QTimer's delay (non-blocking) rather than time.sleep(), which
+    # would freeze the whole UI thread. SET BACK TO 0 BEFORE SHIPPING.
+    ROW_DELAY_MS = 150
+
     dataLoaded: Signal = Signal()  # type: ignore  # PPITRACKER-48 (new)
 
     def __init__(
@@ -1704,7 +1711,7 @@ class TableWidget(DataWidget):
                             )
                 break
 
-    ROWS_PER_BATCH = 20  # PPITRACKER-48 (new): rows built per event-loop tick
+    ROWS_PER_BATCH = 1  # PPITRACKER-48: one row per event-loop tick, per request
 
     def _applyEntities(
         self,
@@ -1775,7 +1782,7 @@ class TableWidget(DataWidget):
 
         if endIdx < len(groupKeyNames):
             QTimer.singleShot(
-                0,
+                self.ROW_DELAY_MS,
                 lambda: self._appendRowsBatched(groupKeyNames, endIdx, generation, onComplete),
             )
             return
@@ -2045,7 +2052,7 @@ class TreeWidget(DataWidget):
 
         _updateRecursively(self._model.invisibleRootItem())
 
-    ROWS_PER_BATCH = 20  # PPITRACKER-48 (new): groups processed per event-loop tick
+    ROWS_PER_BATCH = 1  # PPITRACKER-48: one row per event-loop tick, per request
 
     def _applyEntities(
         self,
@@ -2148,7 +2155,7 @@ class TreeWidget(DataWidget):
 
         if endIdx < len(groupKeyNames):
             QTimer.singleShot(
-                0,
+                self.ROW_DELAY_MS,
                 lambda: self._appendGroupsBatched(groupKeyNames, endIdx, generation, onComplete),
             )
             return
