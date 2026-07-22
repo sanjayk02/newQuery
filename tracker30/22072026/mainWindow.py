@@ -64,6 +64,7 @@ from ppui.PySide.QtWidgets import (
     QComboBox,
     QDialog,
     QFileDialog,
+    QFrame,
     QHeaderView,
     QHBoxLayout,
     QLabel,
@@ -73,12 +74,15 @@ from ppui.PySide.QtWidgets import (
     QMenuBar,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSpacerItem,
     QStyledItemDelegate,
     QTableView,
     QTreeView,
+    QToolButton,
     QWidget,
+    QWidgetAction,
     QVBoxLayout,
 )
 
@@ -100,6 +104,7 @@ _logger = getLogger(__name__)
 
 READ_ONLY_COLUMN_KEYS = ('name', 'thumbnail', 'cut_number')
 GENERATED_COLUMN_KEYS = ('cut_number',)
+ALWAYS_VISIBLE_COLUMN_KEYS = ('thumbnail', 'name')
 
 
 class LoadColumnsTask(QObject):  # PPITRACKER-48 (new)
@@ -347,6 +352,111 @@ class KeywordFilterProxyModel(QSortFilterProxyModel):
             if not kwFound:
                 return False
         return True
+
+
+class ColumnVisibilityComboBox(QToolButton):
+    columnVisibilityChanged: Signal = Signal(str, bool)  # type: ignore
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._isUpdatingColumns = False
+        self._columns: list[Column] = []
+        self._hiddenColumnKeys: set[str] = set()
+        self._checkboxes: dict[str, QCheckBox] = {}
+        self._menu = QMenu(self)
+        self.setMenu(self._menu)
+        self.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.setMinimumWidth(150)
+        self.setText('Columns (0/0)')
+
+    def setColumns(self, columns: list[Column], hiddenColumnKeys: set[str]) -> None:
+        self._isUpdatingColumns = True
+        try:
+            self._columns = [
+                column
+                for column in columns
+                if column.key() not in ALWAYS_VISIBLE_COLUMN_KEYS
+            ]
+            self._hiddenColumnKeys = set(hiddenColumnKeys)
+            self._rebuildMenu()
+        finally:
+            self._isUpdatingColumns = False
+        self._updateButtonText()
+
+    def _rebuildMenu(self) -> None:
+        self._menu.clear()
+        self._checkboxes.clear()
+
+        panel = QWidget(self._menu)
+        panelLayout = QVBoxLayout(panel)
+        panelLayout.setContentsMargins(10, 8, 10, 8)
+        panelLayout.setSpacing(6)
+
+        scrollArea = QScrollArea(panel)
+        scrollArea.setWidgetResizable(True)
+        scrollArea.setFrameShape(QFrame.Shape.NoFrame)
+        scrollArea.setMinimumWidth(220)
+        scrollArea.setMaximumHeight(360)
+
+        scrollContent = QWidget(scrollArea)
+        scrollLayout = QVBoxLayout(scrollContent)
+        scrollLayout.setContentsMargins(0, 0, 0, 0)
+        scrollLayout.setSpacing(4)
+
+        if self._columns:
+            for column in self._columns:
+                checkbox = QCheckBox(column.displayName(), scrollContent)
+                checkbox.setChecked(column.key() not in self._hiddenColumnKeys)
+                checkbox.toggled.connect(
+                    lambda checked, key=column.key(): self._onColumnToggled(key, checked)
+                )
+                scrollLayout.addWidget(checkbox)
+                self._checkboxes[column.key()] = checkbox
+        else:
+            emptyLabel = QLabel('No optional columns', scrollContent)
+            emptyLabel.setEnabled(False)
+            scrollLayout.addWidget(emptyLabel)
+
+        scrollLayout.addStretch(1)
+        scrollArea.setWidget(scrollContent)
+        panelLayout.addWidget(scrollArea)
+
+        buttonsLayout = QHBoxLayout()
+        hideAllButton = QPushButton('Hide All', panel)
+        showAllButton = QPushButton('Show All', panel)
+        hideAllButton.setEnabled(bool(self._columns))
+        showAllButton.setEnabled(bool(self._columns))
+        hideAllButton.clicked.connect(lambda: self._setAllVisible(False))
+        showAllButton.clicked.connect(lambda: self._setAllVisible(True))
+        buttonsLayout.addWidget(hideAllButton)
+        buttonsLayout.addWidget(showAllButton)
+        panelLayout.addLayout(buttonsLayout)
+
+        action = QWidgetAction(self._menu)
+        action.setDefaultWidget(panel)
+        self._menu.addAction(action)
+
+    def _onColumnToggled(self, key: str, visible: bool) -> None:
+        if self._isUpdatingColumns:
+            return
+        if visible:
+            self._hiddenColumnKeys.discard(key)
+        else:
+            self._hiddenColumnKeys.add(key)
+        self._updateButtonText()
+        self.columnVisibilityChanged.emit(key, visible)
+
+    def _setAllVisible(self, visible: bool) -> None:
+        for checkbox in self._checkboxes.values():
+            checkbox.setChecked(visible)
+        self._updateButtonText()
+
+    def _updateButtonText(self) -> None:
+        columnCount = len(self._columns)
+        checkedCount = len(
+            [column for column in self._columns if column.key() not in self._hiddenColumnKeys]
+        )
+        self.setText(f'Columns ({checkedCount}/{columnCount})')
 
 
 class CornerWidget(QWidget):
@@ -852,6 +962,7 @@ class DataWidget(QWidget):
         self._currentSortKey = 'name'
         self._currentSortDirection = 1
         self._headerMap: list[str] = []
+        self._hiddenColumnKeys: set[str] = set()
         self._entities: dict[str, Entity | None] = {}
 
         self._thumbnailItems: dict[str, QStandardItem] = {}
@@ -886,6 +997,9 @@ class DataWidget(QWidget):
         raise NotImplementedError
 
     def _getVisibleColumns(self) -> list[Column]:
+        raise NotImplementedError
+
+    def _updateFrozenColumns(self) -> None:
         raise NotImplementedError
 
     def _getTypedValue(self, val: Any, dtype: str) -> Any:
@@ -939,6 +1053,37 @@ class DataWidget(QWidget):
             self._onSaveProjectColumnOrder()
         elif action == resetAction:
             self._onResetColumnOrder()
+
+    def _visibleColumnCount(self) -> int:
+        return len([key for key in self._headerMap if key not in self._hiddenColumnKeys])
+
+    def _setColumnVisible(self, key: str, visible: bool) -> None:
+        if key in ALWAYS_VISIBLE_COLUMN_KEYS:
+            return
+        if visible:
+            self._hiddenColumnKeys.discard(key)
+        elif self._visibleColumnCount() > 1:
+            self._hiddenColumnKeys.add(key)
+        self._applyColumnVisibility()
+
+    def _showAllColumns(self) -> None:
+        self._hiddenColumnKeys.clear()
+        self._applyColumnVisibility()
+
+    def _applyColumnVisibility(self) -> None:
+        hiddenKeys = self._hiddenColumnKeys.intersection(self._headerMap)
+        hiddenKeys = hiddenKeys.difference(ALWAYS_VISIBLE_COLUMN_KEYS)
+        self._hiddenColumnKeys = hiddenKeys
+        view = self._getView()
+        for idx, key in enumerate(self._headerMap):
+            view.setColumnHidden(idx, key in hiddenKeys)
+        self._updateFrozenColumns()
+        self._refreshColumnVisibilityCombo()
+
+    def _refreshColumnVisibilityCombo(self) -> None:
+        combo = getattr(self, '_columnVisibilityCombo', None)
+        if combo is not None:
+            combo.setColumns(self._getVisibleColumns(), self._hiddenColumnKeys)
 
     def getColumnOrder(self) -> list[str]:
         header = self._getHorizontalHeader()
@@ -1050,6 +1195,7 @@ class DataWidget(QWidget):
         self._filterLabel = QLabel('Filter keyword: ', self)
         self._filterLineEdit = QLineEdit(self)
         self._filterLineEdit.setPlaceholderText('Space separated for AND search')
+        self._filterLineEdit.setFixedWidth(320)
         palette = self._filterLineEdit.palette()
         placeholderColor = QColor('gray')
         palette.setColor(QPalette.ColorRole.PlaceholderText, placeholderColor)
@@ -1057,9 +1203,13 @@ class DataWidget(QWidget):
         if hasattr(self._filterLineEdit, 'setClearButtonEnabled'):
             self._filterLineEdit.setClearButtonEnabled(True)
         self._filterLineEdit.textChanged.connect(self._proxyModel.setKeywordFilterPattern)
+        self._columnVisibilityCombo = ColumnVisibilityComboBox(self)
+        self._columnVisibilityCombo.setFixedWidth(140)
+        self._columnVisibilityCombo.columnVisibilityChanged.connect(self._setColumnVisible)
         self._filterLayout.addItem(self._filterSpacer)
         self._filterLayout.insertWidget(1, self._filterLabel)
         self._filterLayout.insertWidget(2, self._filterLineEdit)
+        self._filterLayout.insertWidget(3, self._columnVisibilityCombo)
         self._vLayout.insertWidget(0, self._filterWidget)
 
     def _getGroups(self) -> Iterator[Group]:
@@ -1351,6 +1501,8 @@ class DataWidget(QWidget):
         self._model.setHorizontalHeaderLabels(displayColumns)
         self._headerMap = [col.key() for col in visible_cols]
         self._proxyModel.setColumnFilterNames(visible_cols)
+        self._applyColumnVisibility()
+        self._refreshColumnVisibilityCombo()
 
     def exportCsv(self) -> None:
         filePath, _ = QFileDialog.getSaveFileName(
@@ -1721,16 +1873,20 @@ class TableWidget(DataWidget):
 
     def _updateFrozenColumns(self) -> None:
         # Mirror only the first two columns and place them over the scrolling table viewport.
-        frozenColumnCount = min(2, self._proxyModel.columnCount())
-        if frozenColumnCount == 0:
+        frozenColumns = [
+            idx
+            for idx, key in enumerate(self._headerMap[:2])
+            if key not in self._hiddenColumnKeys
+        ]
+        if not frozenColumns:
             self._frozenColumnsTableWidget.hide()
             return
 
         for col in range(self._proxyModel.columnCount()):
-            self._frozenColumnsTableWidget.setColumnHidden(col, col >= frozenColumnCount)
+            self._frozenColumnsTableWidget.setColumnHidden(col, col not in frozenColumns)
 
         frozenWidth = 0
-        for col in range(frozenColumnCount):
+        for col in frozenColumns:
             columnWidth = self._tableWidget.columnWidth(col)
             self._frozenColumnsTableWidget.setColumnWidth(col, columnWidth)
             frozenWidth += columnWidth
@@ -1833,14 +1989,17 @@ class TableWidget(DataWidget):
                     # 高速アクセスのために辞書に登録
                     self._thumbnailItems[ent] = item
                     item.setData('', self.SORT_ROLE)
+                    item.setData('', self.FILTER_ROLE)
                 elif column.key() == 'name':
                     item.setText(str(ent))
                     item.setData(str(ent).lower(), self.SORT_ROLE)
+                    item.setData(str(ent), self.FILTER_ROLE)
                 else:
                     val = _entity.data().get(column.key(), '') if _entity is not None else ''
                     item.setText(str(val))
                     item.setToolTip(str(val))
                     item.setData(self._getTypedValue(val, column.dataType()), self.SORT_ROLE)
+                    item.setData(str(val), self.FILTER_ROLE)
                 items.append(item)
             if items:
                 self._model.appendRow(items)
@@ -2057,7 +2216,7 @@ class TreeWidget(DataWidget):
         frozenColumns = [
             idx
             for idx, key in enumerate(self._headerMap)
-            if key in ('thumbnail', 'name')
+            if key in ('thumbnail', 'name') and key not in self._hiddenColumnKeys
         ]
         if not frozenColumns:
             self._frozenColumnsTreeWidget.hide()
