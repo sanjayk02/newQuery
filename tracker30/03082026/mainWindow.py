@@ -196,7 +196,8 @@ class InlineCellEditDelegate(QStyledItemDelegate):
 
         opt = QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
-        icon = opt.icon
+        iconData = index.data(Qt.ItemDataRole.DecorationRole)
+        icon = iconData if isinstance(iconData, QIcon) else opt.icon
         opt.icon = QIcon()
         featureContainer = getattr(QStyleOptionViewItem, 'ViewItemFeature', QStyleOptionViewItem)
         opt.features &= ~featureContainer.HasDecoration
@@ -212,7 +213,7 @@ class InlineCellEditDelegate(QStyledItemDelegate):
             return
 
         iconSize = self._owner.thumbnailIconSize()
-        pixmap = icon.pixmap(iconSize)
+        pixmap = icon.pixmap(iconSize, QIcon.Mode.Normal, QIcon.State.Off)
         if pixmap.isNull():
             return
         pixmapSize = pixmap.size()
