@@ -111,6 +111,7 @@ THUMBNAIL_DEFAULT_SIZE = 90
 THUMBNAIL_MAX_SIZE = 220
 ROW_DEFAULT_HEIGHT = 70
 ROW_HEIGHT_PADDING = 12
+THUMBNAIL_COLUMN_PADDING = 28
 
 
 class LoadColumnsTask(QObject):  # PPITRACKER-48 (new)
@@ -1030,6 +1031,15 @@ class DataWidget(QWidget):
     def _rowSizeHint(self) -> QSize:
         return QSize(0, self._rowHeight())
 
+    def _thumbnailColumnWidth(self) -> int:
+        return max(120, self._thumbnailSize + THUMBNAIL_COLUMN_PADDING)
+
+    def _thumbnailColumnIndex(self) -> int | None:
+        try:
+            return self._headerMap.index('thumbnail')
+        except ValueError:
+            return None
+
     def setThumbnailSize(self, size: int) -> None:
         self._thumbnailSize = size
         self._applyThumbnailSize()
@@ -1921,6 +1931,11 @@ class TableWidget(DataWidget):
         self._frozenColumnsTableWidget.setIconSize(iconSize)
         self._tableWidget.verticalHeader().setDefaultSectionSize(rowHeight)
         self._frozenColumnsTableWidget.verticalHeader().setDefaultSectionSize(rowHeight)
+        thumbnailCol = self._thumbnailColumnIndex()
+        if thumbnailCol is not None:
+            width = self._thumbnailColumnWidth()
+            self._tableWidget.setColumnWidth(thumbnailCol, width)
+            self._frozenColumnsTableWidget.setColumnWidth(thumbnailCol, width)
         for row in range(self._model.rowCount()):
             for col in range(self._model.columnCount()):
                 item = self._model.item(row, col)
@@ -1936,6 +1951,9 @@ class TableWidget(DataWidget):
         if header.count() > 1:
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
             self._tableWidget.setColumnWidth(1, 150)
+        thumbnailCol = self._thumbnailColumnIndex()
+        if thumbnailCol is not None:
+            self._tableWidget.setColumnWidth(thumbnailCol, self._thumbnailColumnWidth())
         self._updateFrozenColumns()
 
     def _updateFrozenColumns(self) -> None:
@@ -2226,6 +2244,11 @@ class TreeWidget(DataWidget):
         iconSize = QSize(self._thumbnailSize, self._thumbnailSize)
         self._treeWidget.setIconSize(iconSize)
         self._frozenColumnsTreeWidget.setIconSize(iconSize)
+        thumbnailCol = self._thumbnailColumnIndex()
+        if thumbnailCol is not None:
+            width = self._thumbnailColumnWidth()
+            self._treeWidget.setColumnWidth(thumbnailCol, width)
+            self._frozenColumnsTreeWidget.setColumnWidth(thumbnailCol, width)
         _updateRecursively(self._model.invisibleRootItem())
         self._updateThumbnailSizeLabel()
         self._updateFrozenColumns()
@@ -2266,6 +2289,9 @@ class TreeWidget(DataWidget):
         if header.count() > 0:
             header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
             self._treeWidget.setColumnWidth(0, 150)
+        thumbnailCol = self._thumbnailColumnIndex()
+        if thumbnailCol is not None:
+            self._treeWidget.setColumnWidth(thumbnailCol, self._thumbnailColumnWidth())
 
         _columns = self._getVisibleColumns()
         if (
