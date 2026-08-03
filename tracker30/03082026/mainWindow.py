@@ -197,7 +197,14 @@ class InlineCellEditDelegate(QStyledItemDelegate):
         opt = QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
         iconData = index.data(Qt.ItemDataRole.DecorationRole)
-        icon = iconData if isinstance(iconData, QIcon) else opt.icon
+        icon = opt.icon
+        pixmap = QPixmap()
+        if isinstance(iconData, QIcon):
+            icon = iconData
+        elif isinstance(iconData, QPixmap):
+            pixmap = iconData
+        elif isinstance(iconData, QImage):
+            pixmap = QPixmap.fromImage(iconData)
         opt.icon = QIcon()
         featureContainer = getattr(QStyleOptionViewItem, 'ViewItemFeature', QStyleOptionViewItem)
         opt.features &= ~featureContainer.HasDecoration
@@ -209,13 +216,17 @@ class InlineCellEditDelegate(QStyledItemDelegate):
             controlElement = QStyle.ControlElement.CE_ItemViewItem
         style.drawControl(controlElement, opt, painter, widget)
 
-        if icon.isNull():
-            return
-
         iconSize = self._owner.thumbnailIconSize()
-        pixmap = icon.pixmap(iconSize, QIcon.Mode.Normal, QIcon.State.Off)
+        if pixmap.isNull() and not icon.isNull():
+            pixmap = icon.pixmap(iconSize, QIcon.Mode.Normal, QIcon.State.Off)
         if pixmap.isNull():
             return
+        if pixmap.width() > iconSize.width() or pixmap.height() > iconSize.height():
+            pixmap = pixmap.scaled(
+                iconSize,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
         pixmapSize = pixmap.size()
         iconRect = QRect(
             option.rect.x() + (option.rect.width() - pixmapSize.width()) // 2,
