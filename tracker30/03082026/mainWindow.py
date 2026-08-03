@@ -202,19 +202,17 @@ class InlineCellEditDelegate(QStyledItemDelegate):
             return
 
         iconSize = self._owner.thumbnailIconSize()
+        pixmap = icon.pixmap(iconSize)
+        if pixmap.isNull():
+            return
+        pixmapSize = pixmap.size()
         iconRect = QRect(
-            option.rect.x() + (option.rect.width() - iconSize.width()) // 2,
-            option.rect.y() + (option.rect.height() - iconSize.height()) // 2,
-            iconSize.width(),
-            iconSize.height(),
+            option.rect.x() + (option.rect.width() - pixmapSize.width()) // 2,
+            option.rect.y() + (option.rect.height() - pixmapSize.height()) // 2,
+            pixmapSize.width(),
+            pixmapSize.height(),
         )
-        icon.paint(
-            painter,
-            iconRect,
-            Qt.AlignmentFlag.AlignCenter,
-            QIcon.Mode.Normal,
-            QIcon.State.Off,
-        )
+        painter.drawPixmap(iconRect, pixmap)
 
     def createEditor(
         self,
