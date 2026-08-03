@@ -1903,6 +1903,9 @@ class TableWidget(DataWidget):
         self._frozenColumnsTableWidget.setIconSize(
             QSize(self._thumbnailSize, self._thumbnailSize),
         )
+        self._frozenColumnsTableWidget.setItemDelegate(
+            InlineCellEditDelegate(self, self._frozenColumnsTableWidget),
+        )
         self._frozenColumnsTableWidget.setSelectionMode(
             QAbstractItemView.SelectionMode.ExtendedSelection
         )
@@ -2202,6 +2205,9 @@ class TreeWidget(DataWidget):
         self._frozenColumnsTreeWidget.setStyleSheet(treeStyleSheet)
         self._frozenColumnsTreeWidget.setIconSize(
             QSize(self._thumbnailSize, self._thumbnailSize),
+        )
+        self._frozenColumnsTreeWidget.setItemDelegate(
+            InlineCellEditDelegate(self, self._frozenColumnsTreeWidget),
         )
         self._frozenColumnsTreeWidget.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers
