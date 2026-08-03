@@ -111,7 +111,7 @@ THUMBNAIL_DEFAULT_SIZE = 90
 THUMBNAIL_MAX_SIZE = 220
 ROW_DEFAULT_HEIGHT = 70
 ROW_HEIGHT_PADDING = 12
-THUMBNAIL_COLUMN_PADDING = 28
+THUMBNAIL_COLUMN_PADDING = 60
 
 
 class LoadColumnsTask(QObject):  # PPITRACKER-48 (new)
@@ -1032,7 +1032,7 @@ class DataWidget(QWidget):
         return QSize(0, self._rowHeight())
 
     def _thumbnailColumnWidth(self) -> int:
-        return max(120, self._thumbnailSize + THUMBNAIL_COLUMN_PADDING)
+        return max(150, self._thumbnailSize + THUMBNAIL_COLUMN_PADDING)
 
     def _thumbnailColumnIndex(self) -> int | None:
         try:
