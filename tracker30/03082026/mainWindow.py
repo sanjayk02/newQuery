@@ -62,6 +62,7 @@ from ppui.PySide.QtGui import (
 )
 from ppui.PySide.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QButtonGroup,
     QCheckBox,
     QComboBox,
@@ -81,6 +82,7 @@ from ppui.PySide.QtWidgets import (
     QSizePolicy,
     QSlider,
     QSpacerItem,
+    QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
     QTableView,
@@ -196,7 +198,15 @@ class InlineCellEditDelegate(QStyledItemDelegate):
         self.initStyleOption(opt, index)
         icon = opt.icon
         opt.icon = QIcon()
-        super().paint(painter, opt, index)
+        featureContainer = getattr(QStyleOptionViewItem, 'ViewItemFeature', QStyleOptionViewItem)
+        opt.features &= ~featureContainer.HasDecoration
+        opt.text = ''
+        widget = opt.widget
+        style = widget.style() if widget is not None else QApplication.style()
+        controlElement = getattr(QStyle, 'CE_ItemViewItem', None)
+        if controlElement is None:
+            controlElement = QStyle.ControlElement.CE_ItemViewItem
+        style.drawControl(controlElement, opt, painter, widget)
 
         if icon.isNull():
             return
