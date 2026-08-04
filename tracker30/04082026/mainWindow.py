@@ -117,6 +117,40 @@ THUMBNAIL_MAX_SIZE = 220
 ROW_DEFAULT_HEIGHT = 70
 ROW_HEIGHT_PADDING = 12
 THUMBNAIL_COLUMN_PADDING = 60
+ASSIGNMENT_COLUMN_DISPLAY_NAMES = {
+    'modeling_assigned_to': 'MDL Assign to',
+    'rigging_assigned_to': 'RIG Assign to',
+    'lookdev_assigned_to': 'LDV Assign to',
+    'layout_assigned_to': 'LAY Assign to',
+    'animation_assigned_to': 'ANM Assign to',
+    'genzu_assigned_to': 'GNZ Assign to',
+    'fx_assigned_to': 'FX Assign to',
+    'display_assigned_to': 'DSP Assign to',
+    'compositing_assigned_to': 'CMP Assign to',
+}
+ASSIGNMENT_COLUMN_ORDER = (
+    'dsn_assign_to',
+    'modeling_assigned_to',
+    'rigging_assigned_to',
+    'lookdev_assigned_to',
+    'layout_assigned_to',
+    'animation_assigned_to',
+    'genzu_assigned_to',
+    'mat_assign_to',
+    'fx_assigned_to',
+    'display_assigned_to',
+    'compositing_assigned_to',
+    'cloth_assign_to',
+    'cfhair_assign_to',
+    'rtcgnz_assign_to',
+    'rtcmat_assign_to',
+    'crd_assign_to',
+    'drw_assign_to',
+    'rtcdrw_assign_to',
+)
+ASSIGNMENT_COLUMN_ORDER_INDEX = {
+    key: index for index, key in enumerate(ASSIGNMENT_COLUMN_ORDER)
+}
 
 
 class LoadColumnsTask(QObject):  # PPITRACKER-48 (new)
@@ -1006,10 +1040,31 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 else col
                 for col in tempColumns
             ]
+        tempColumns = [self._normalizeAssignmentColumn(col) for col in tempColumns]
         self._columns = sorted(tempColumns, key=lambda c: c.createdAtUtc() or '0')
 
+    def _normalizeAssignmentColumn(self, column: Column) -> Column:
+        displayName = ASSIGNMENT_COLUMN_DISPLAY_NAMES.get(column.key())
+        if displayName is None or column.displayName() == displayName:
+            return column
+        data = column.asDict()
+        data['display_name'] = displayName
+        return Column.fromDict(data)
+
     def _collectColumns(self, root: str) -> Iterator[Column]:
-        for col in self._columns:
+        columns = [
+            col
+            for col in self._columns
+            if col.visibled() and col.root() in ('common', root)
+        ]
+        columns = sorted(
+            columns,
+            key=lambda col: (
+                1 if col.key() in ASSIGNMENT_COLUMN_ORDER_INDEX else 0,
+                ASSIGNMENT_COLUMN_ORDER_INDEX.get(col.key(), 0),
+            ),
+        )
+        for col in columns:
             if not col.visibled() or col.root() not in ('common', root):
                 continue
             yield col
