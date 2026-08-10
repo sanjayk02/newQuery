@@ -2133,25 +2133,51 @@ class DataWidget(QWidget):
         if self._root == 'shots' and colKey == 'allAssets':
             cacheKey = (colKey, group)
             if cacheKey not in self._generatedValueCache:
-                self._generatedValueCache[cacheKey] = self._getPipelineGeneratedValue(
+                value = self._getPipelineGeneratedValue(
                     colKey,
-                    f'{self._root}/{group}',
+                    [f'{self._root}/{group}', group],
                 )
+                self._generatedValueCache[cacheKey] = value or '-'
             return self._generatedValueCache[cacheKey]
         return ''
 
-    def _getPipelineGeneratedValue(self, colKey: str, location: str) -> str:
+    def _getPipelineGeneratedValue(self, colKey: str, locations: list[str]) -> str:
         for parameterKey in self._pipelineParameterKeys(colKey):
-            try:
-                rawValue = self._service.pipelineParameterValue(location, parameterKey)
-            except Exception:
-                _logger.exception('Failed to load %s for %s', parameterKey, location)
-                continue
+            for location in locations:
+                value = self._getPipelineDeliveryValue(location, parameterKey)
+                if value:
+                    return value
 
-            value = self._formatGeneratedValue(rawValue)
-            if value:
-                return value
+                value = self._getLocalPipelineDbValue(location, parameterKey)
+                if value:
+                    return value
         return ''
+
+    def _getPipelineDeliveryValue(self, location: str, parameterKey: str) -> str:
+        try:
+            rawValue = self._service.pipelineParameterValue(location, parameterKey)
+        except Exception:
+            _logger.debug(
+                'PipelineParameterDelivery failed for %s at %s',
+                parameterKey,
+                location,
+                exc_info=True,
+            )
+            return ''
+        return self._formatGeneratedValue(rawValue)
+
+    def _getLocalPipelineDbValue(self, location: str, parameterKey: str) -> str:
+        try:
+            rawValue = self._service.localPipelineParameterValue(location, parameterKey)
+        except Exception:
+            _logger.debug(
+                'Local pipeline parameter DB lookup failed for %s at %s',
+                parameterKey,
+                location,
+                exc_info=True,
+            )
+            return ''
+        return self._formatGeneratedValue(rawValue)
 
     def _pipelineParameterKeys(self, colKey: str) -> list[str]:
         if colKey != 'allAssets':
