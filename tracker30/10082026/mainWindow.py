@@ -2198,6 +2198,14 @@ class DataWidget(QWidget):
             return ', '.join(str(item) for item in value)
         return str(value)
 
+    def _applyGeneratedValueToItem(self, item: QStandardItem, value: str) -> None:
+        item.setText(value)
+        item.setToolTip(value)
+        item.setData(value.lower(), self.SORT_ROLE)
+        item.setData(value, self.FILTER_ROLE)
+        if value == '-':
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
 
 class TableWidget(DataWidget):
     def __init__(
@@ -2454,10 +2462,7 @@ class TableWidget(DataWidget):
                     item.setData(str(ent), self.FILTER_ROLE)
                 elif column.key() in GENERATED_COLUMN_KEYS:
                     val = self._getGeneratedValue(column.key(), ent)
-                    item.setText(val)
-                    item.setToolTip(val)
-                    item.setData(val.lower(), self.SORT_ROLE)
-                    item.setData(val, self.FILTER_ROLE)
+                    self._applyGeneratedValueToItem(item, val)
                 else:
                     val = _entity.data().get(column.key(), '') if _entity is not None else ''
                     item.setText(str(val))
@@ -2870,10 +2875,7 @@ class TreeWidget(DataWidget):
                     item.setData('', self.FILTER_ROLE)
                 elif colDef.key() in GENERATED_COLUMN_KEYS:
                     val = self._getGeneratedValue(colDef.key(), groupKey)
-                    item.setText(val)
-                    item.setToolTip(val)
-                    item.setData(val.lower(), self.SORT_ROLE)
-                    item.setData(val, self.FILTER_ROLE)
+                    self._applyGeneratedValueToItem(item, val)
                 else:
                     val = _entity.data().get(colDef.key(), '') if _entity is not None else ''
                     item.setText(str(val))
