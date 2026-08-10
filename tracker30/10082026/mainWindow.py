@@ -109,8 +109,8 @@ from .userRole import Permission, Role
 
 _logger = getLogger(__name__)
 
-READ_ONLY_COLUMN_KEYS = ('name', 'thumbnail', 'cut_number')
-GENERATED_COLUMN_KEYS = ('cut_number',)
+READ_ONLY_COLUMN_KEYS = ('name', 'thumbnail', 'cut_number', 'allAssets')
+GENERATED_COLUMN_KEYS = ('cut_number', 'allAssets')
 ALWAYS_VISIBLE_COLUMN_KEYS = ('thumbnail', 'name')
 THUMBNAIL_DEFAULT_SIZE = 90
 THUMBNAIL_MAX_SIZE = 220
@@ -1253,6 +1253,7 @@ class DataWidget(QWidget):
         self._entitiesTask: LoadEntitiesTask | None = None
         self._pendingSelection: list[str] = []
         self._applyGeneration = 0  # PPITRACKER-48 (new): guards batched row population
+        self._generatedValueCache: dict[tuple[str, str], str] = {}
 
         defaultImg = self._service.defaultThumbnail()
         self._defaultThumbnailIcon = self._buildDefaultThumbnailIcon(defaultImg)
@@ -2096,6 +2097,7 @@ class DataWidget(QWidget):
         # restore and dataLoaded now fire from _onRowsApplied, once row
         # population has actually finished, instead of immediately here.
         self._applyGeneration += 1
+        self._generatedValueCache.clear()
         self.dataProgressChanged.emit(
             self._root,
             0,
@@ -2128,7 +2130,47 @@ class DataWidget(QWidget):
             parts = [part for part in group.split('/') if part]
             if len(parts) >= 3:
                 return '_'.join(parts)
+        if self._root == 'shots' and colKey == 'allAssets':
+            cacheKey = (colKey, group)
+            if cacheKey not in self._generatedValueCache:
+                self._generatedValueCache[cacheKey] = self._getPipelineGeneratedValue(
+                    colKey,
+                    f'{self._root}/{group}',
+                )
+            return self._generatedValueCache[cacheKey]
         return ''
+
+    def _getPipelineGeneratedValue(self, colKey: str, location: str) -> str:
+        for parameterKey in self._pipelineParameterKeys(colKey):
+            try:
+                rawValue = self._service.pipelineParameterValue(location, parameterKey)
+            except Exception:
+                _logger.exception('Failed to load %s for %s', parameterKey, location)
+                continue
+
+            value = self._formatGeneratedValue(rawValue)
+            if value:
+                return value
+        return ''
+
+    def _pipelineParameterKeys(self, colKey: str) -> list[str]:
+        if colKey != 'allAssets':
+            return [colKey]
+
+        project = self._service.project()
+        projectKey = project.keyName() if project is not None else ''
+        if projectKey == 'potoodev':
+            return ['testAllAssets', 'allAssets']
+        return ['allAssets', 'testAllAssets']
+
+    def _formatGeneratedValue(self, value: Any) -> str:
+        if value is None:
+            return ''
+        if isinstance(value, dict):
+            return ', '.join(f'{key}: {val}' for key, val in value.items())
+        if isinstance(value, (list, tuple, set)):
+            return ', '.join(str(item) for item in value)
+        return str(value)
 
 
 class TableWidget(DataWidget):
@@ -2384,6 +2426,12 @@ class TableWidget(DataWidget):
                     item.setText(str(ent))
                     item.setData(str(ent).lower(), self.SORT_ROLE)
                     item.setData(str(ent), self.FILTER_ROLE)
+                elif column.key() in GENERATED_COLUMN_KEYS:
+                    val = self._getGeneratedValue(column.key(), ent)
+                    item.setText(val)
+                    item.setToolTip(val)
+                    item.setData(val.lower(), self.SORT_ROLE)
+                    item.setData(val, self.FILTER_ROLE)
                 else:
                     val = _entity.data().get(column.key(), '') if _entity is not None else ''
                     item.setText(str(val))
@@ -2794,11 +2842,12 @@ class TreeWidget(DataWidget):
                     self._thumbnailItems[groupKey] = item
                     item.setData('', self.SORT_ROLE)
                     item.setData('', self.FILTER_ROLE)
-                elif colDef.key() == 'cut_number':
+                elif colDef.key() in GENERATED_COLUMN_KEYS:
                     val = self._getGeneratedValue(colDef.key(), groupKey)
                     item.setText(val)
                     item.setToolTip(val)
                     item.setData(val.lower(), self.SORT_ROLE)
+                    item.setData(val, self.FILTER_ROLE)
                 else:
                     val = _entity.data().get(colDef.key(), '') if _entity is not None else ''
                     item.setText(str(val))
