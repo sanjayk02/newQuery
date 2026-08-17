@@ -1,0 +1,15 @@
+Hi Kobayashi-san,
+
+I have already added the assignment columns and values in PPI Breakdown.
+
+I also added the assignment columns to PPI Tracker, but I need to confirm how to populate the values there.
+
+Is there any existing snippet, function, or API to retrieve the assignment values from PPI Breakdown / pipeline settings for DSN/MDL/RIG/LDV Assign to?
+
+Target columns:
+- DSN Assign to
+- MDL Assign to
+- RIG Assign to
+- LDV Assign to
+
+Thank you!
