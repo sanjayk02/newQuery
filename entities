@@ -1,0 +1,25 @@
+fetch('/api/projects/potoo/tracker/entities/search', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    filters: [
+      { key: 'root', operator: 'eq', value: 'assets' }
+    ],
+    fields: [
+      'group',
+      'dsn_assign_to',
+      'modeling_assigned_to',
+      'rigging_assigned_to',
+      'lookdev_assigned_to'
+    ]
+  })
+})
+  .then(res => res.json())
+  .then(data => {
+    console.log('Assignment values:', data);
+    data.forEach(item => {
+      console.log(item.group, item.data);
+    });
+  });
