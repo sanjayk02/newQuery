@@ -1462,14 +1462,18 @@ class DataWidget(QWidget):
         try:
             currentVisualIdx = 0
             for key in columnKeys:
-                if key in keyToLogical:
-                    logicalIdx = keyToLogical[key]
-                    oldVisualIdx = header.visualIndex(logicalIdx)
-                    if oldVisualIdx != currentVisualIdx:
-                        header.moveSection(oldVisualIdx, currentVisualIdx)
-                    currentVisualIdx += 1
+                if key not in keyToLogical or not self._shouldApplyColumnOrderKey(key):
+                    continue
+                logicalIdx = keyToLogical[key]
+                oldVisualIdx = header.visualIndex(logicalIdx)
+                if oldVisualIdx != currentVisualIdx:
+                    header.moveSection(oldVisualIdx, currentVisualIdx)
+                currentVisualIdx += 1
         finally:
             header.blockSignals(False)
+
+    def _shouldApplyColumnOrderKey(self, key: str) -> bool:
+        return True
 
     def getSavedColumnOrder(self, root: str) -> list[str]:
         return self._state.columnOrder(root)
@@ -2648,11 +2652,14 @@ class TreeWidget(DataWidget):
         self._updateThumbnailSizeLabel()
         self._updateFrozenColumns()
 
+    def _shouldApplyColumnOrderKey(self, key: str) -> bool:
+        return key not in GENERATED_COLUMN_KEYS
+
     def _buildColumns(self) -> list[Column]:
         _columns: list[Column] = []
+        generatedColumns: list[Column] = []
         nameColumn = None
         thumbnailColumn = None
-        cutNumberColumn = None
         for col in self._columns:
             if not col.visibled():
                 continue
@@ -2662,16 +2669,15 @@ class TreeWidget(DataWidget):
             if col.key() == 'thumbnail':
                 thumbnailColumn = col
                 continue
-            if col.key() == 'cut_number':
-                cutNumberColumn = col
+            if col.key() in GENERATED_COLUMN_KEYS:
+                generatedColumns.append(col)
                 continue
             _columns.append(col)
+        _columns.extend(generatedColumns)
         if nameColumn is not None:
             _columns.insert(0, nameColumn)
         if thumbnailColumn is not None:
             _columns.insert(1, thumbnailColumn)
-        if cutNumberColumn is not None:
-            _columns.insert(2, cutNumberColumn)
         return _columns
 
     def _getVisibleColumns(self) -> list[Column]:
