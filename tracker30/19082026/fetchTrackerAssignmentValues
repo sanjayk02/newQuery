@@ -1,0 +1,45 @@
+export const fetchTrackerAssignmentValues = async (
+  project: string,
+  signal?: AbortSignal | null,
+): Promise<TrackerAssignmentEntity[]> => {
+  const encodedProject = encodeURIComponent(project);
+  const url = `/api/projects/${encodedProject}/tracker/entities/search`;
+  const headers = {
+    ...getAuthHeader(),
+    'Content-Type': 'application/json',
+  };
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+    mode: 'cors',
+    signal: signal || undefined,
+    body: JSON.stringify({
+      filters: [
+        { key: 'root', operator: 'eq', value: 'assets' },
+      ],
+      fields: [
+        'group',
+        'dsn_assign_to',
+        'modeling_assigned_to',
+        'rigging_assigned_to',
+        'lookdev_assigned_to',
+      ],
+    }),
+  });
+
+  if (res.status === 401) throw new AuthorizationError();
+  if (!res.ok) throw new Error('Failed to fetch tracker assignment values.');
+
+  setNewToken(res);
+  const data: TrackerAssignmentEntity[] = await res.json();
+  console.log('[PPI Tracker Assign Values] raw:', data);
+  console.table(data.map((item) => ({
+    asset: item.group,
+    dsn_assign_to: item.data?.dsn_assign_to || '',
+    modeling_assigned_to: item.data?.modeling_assigned_to || '',
+    rigging_assigned_to: item.data?.rigging_assigned_to || '',
+    lookdev_assigned_to: item.data?.lookdev_assigned_to || '',
+  })));
+  return data;
+};
