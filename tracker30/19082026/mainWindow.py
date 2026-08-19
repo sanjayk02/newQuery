@@ -109,8 +109,8 @@ from .userRole import Permission, Role
 
 _logger = getLogger(__name__)
 
-READ_ONLY_COLUMN_KEYS = ('name', 'thumbnail', 'cut_number', 'allAssets')
-GENERATED_COLUMN_KEYS = ('cut_number', 'allAssets')
+READ_ONLY_COLUMN_KEYS = ('name', 'thumbnail', 'cut_number')
+GENERATED_COLUMN_KEYS = ('cut_number',)
 ALWAYS_VISIBLE_COLUMN_KEYS = ('thumbnail', 'name')
 THUMBNAIL_DEFAULT_SIZE = 90
 THUMBNAIL_MAX_SIZE = 220
@@ -2652,14 +2652,11 @@ class TreeWidget(DataWidget):
         self._updateThumbnailSizeLabel()
         self._updateFrozenColumns()
 
-    def _shouldApplyColumnOrderKey(self, key: str) -> bool:
-        return key not in GENERATED_COLUMN_KEYS
-
     def _buildColumns(self) -> list[Column]:
         _columns: list[Column] = []
-        generatedColumns: list[Column] = []
         nameColumn = None
         thumbnailColumn = None
+        cutNumberColumn = None
         for col in self._columns:
             if not col.visibled():
                 continue
@@ -2669,15 +2666,16 @@ class TreeWidget(DataWidget):
             if col.key() == 'thumbnail':
                 thumbnailColumn = col
                 continue
-            if col.key() in GENERATED_COLUMN_KEYS:
-                generatedColumns.append(col)
+            if col.key() == 'cut_number':
+                cutNumberColumn = col
                 continue
             _columns.append(col)
-        _columns.extend(generatedColumns)
         if nameColumn is not None:
             _columns.insert(0, nameColumn)
         if thumbnailColumn is not None:
             _columns.insert(1, thumbnailColumn)
+        if cutNumberColumn is not None:
+            _columns.insert(2, cutNumberColumn)
         return _columns
 
     def _getVisibleColumns(self) -> list[Column]:
