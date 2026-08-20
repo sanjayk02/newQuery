@@ -27,6 +27,7 @@
 # --------------------------------------------------------------------------
 from collections import OrderedDict
 import csv
+import re
 import time
 from logging import getLogger
 from typing import Any, Callable, Iterator
@@ -461,6 +462,28 @@ class KeywordFilterProxyModel(QSortFilterProxyModel):
             if not kwFound:
                 return False
         return True
+
+    @staticmethod
+    def _naturalSortKey(value: Any) -> tuple[tuple[int, Any], ...]:
+        if value is None:
+            return ((1, ''),)
+        parts = re.split(r'(\d+)', str(value).lower())
+        return tuple(
+            (0, int(part)) if part.isdigit() else (1, part)
+            for part in parts
+        )
+
+    def lessThan(self, left: QModelIndex, right: QModelIndex) -> bool:
+        leftData = left.data(DataWidget.SORT_ROLE)
+        rightData = right.data(DataWidget.SORT_ROLE)
+
+        if isinstance(leftData, (int, float, bool)) and isinstance(
+            rightData,
+            (int, float, bool),
+        ):
+            return leftData < rightData
+
+        return self._naturalSortKey(leftData) < self._naturalSortKey(rightData)
 
 
 class ColumnVisibilityComboBox(QToolButton):
@@ -2424,7 +2447,10 @@ class TableWidget(DataWidget):
             ent.get('group'): Entity.fromDict(ent) for ent in rawEntities if ent.get('group')
         }  # noqa: E501
 
-        groupKeyNames = [grp.keyName() for grp in self._getGroups()]
+        groupKeyNames = sorted(
+            [grp.keyName() for grp in self._getGroups()],
+            key=KeywordFilterProxyModel._naturalSortKey,
+        )
         self._model.removeRows(0, self._model.rowCount())
         self._thumbnailItems.clear()
 
@@ -2809,7 +2835,10 @@ class TreeWidget(DataWidget):
             ent.get('group'): Entity.fromDict(ent) for ent in rawEntities if ent.get('group')
         }  # noqa: E501
 
-        groupKeyNames = [grp.keyName() for grp in self._getGroups()]
+        groupKeyNames = sorted(
+            [grp.keyName() for grp in self._getGroups()],
+            key=KeywordFilterProxyModel._naturalSortKey,
+        )
         self._model.removeRows(0, self._model.rowCount())
         self._thumbnailItems.clear()
 
