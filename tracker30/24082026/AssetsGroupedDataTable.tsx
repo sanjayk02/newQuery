@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Box,
   IconButton,
@@ -89,27 +89,27 @@ const GROUPED_STICKY_NAME_WIDTH = 140;
 
 const getGroupedStickyColumnStyle = (
   colId: string,
-  options: { header?: boolean; backgroundColor?: string } = {},
+  options: { header?: boolean; backgroundColor?: string; frozenOffset?: number } = {},
 ): React.CSSProperties => {
-  const { header = false, backgroundColor = COLORS.ROW_BG } = options;
+  const { header = false, backgroundColor = COLORS.ROW_BG, frozenOffset = 0 } = options;
 
   if (colId === "thumbnail") {
     return {
-      position: "sticky",
-      left: 0,
+      position: "relative",
       zIndex: header ? 30 : 20,
       width: GROUPED_STICKY_THUMBNAIL_WIDTH,
       minWidth: GROUPED_STICKY_THUMBNAIL_WIDTH,
       maxWidth: GROUPED_STICKY_THUMBNAIL_WIDTH,
       backgroundColor,
       backgroundClip: "padding-box",
+      transform: frozenOffset ? `translateX(${frozenOffset}px)` : undefined,
+      willChange: "transform",
     };
   }
 
   if (colId === "group_1_name") {
     return {
-      position: "sticky",
-      left: GROUPED_STICKY_THUMBNAIL_WIDTH,
+      position: "relative",
       zIndex: header ? 30 : 20,
       width: GROUPED_STICKY_NAME_WIDTH,
       minWidth: GROUPED_STICKY_NAME_WIDTH,
@@ -117,6 +117,8 @@ const getGroupedStickyColumnStyle = (
       backgroundColor,
       backgroundClip: "padding-box",
       boxShadow: "2px 0 0 rgba(0, 0, 0, 0.35)",
+      transform: frozenOffset ? `translateX(${frozenOffset}px)` : undefined,
+      willChange: "transform",
     };
   }
 
@@ -619,9 +621,9 @@ function renderAssetField(
 function buildCellStyle(
   col: Column,
   phaseMeta: Record<string, { start: string; end: string }>,
-  opts: { header?: boolean; isGroupRow?: boolean } = {}
+  opts: { header?: boolean; isGroupRow?: boolean; frozenOffset?: number } = {}
 ): React.CSSProperties {
-  const { header = false, isGroupRow = false } = opts;
+  const { header = false, isGroupRow = false, frozenOffset = 0 } = opts;
 
   const meta          = col.phase ? phaseMeta[col.phase] : null;
   const isPhaseStart  = !!(meta && meta.start === col.id);
@@ -691,6 +693,7 @@ function buildCellStyle(
     ...getGroupedStickyColumnStyle(col.id, {
       header,
       backgroundColor: String(style.backgroundColor || (header ? headerBg : COLORS.ROW_BG)),
+      frozenOffset,
     }),
   };
 }
@@ -716,11 +719,12 @@ type AssetGroupedDataRowProps = {
   thumbnails?: { [key: string]: string };
   selectedRowId?: string | null;
   onRowSelect?: (rowId: string | null) => void;
+  frozenOffset: number;
 };
 
 const AssetGroupedDataRow: React.FC<AssetGroupedDataRowProps> = ({
   asset, visibleColumns, phaseMeta, dateTimeFormat, latestComponents, thumbnails,
-  selectedRowId, onRowSelect,
+  selectedRowId, onRowSelect, frozenOffset,
 }) => {
   // Stable row identity for the selection highlight.
   const rowId = `${asset.project}|${asset.group_1}|${asset.name}|${asset.relation}|${asset.component}`;
@@ -744,7 +748,7 @@ const AssetGroupedDataRow: React.FC<AssetGroupedDataRowProps> = ({
       {visibleColumns.map((col) => {
         // buildCellStyle sets a backgroundColor on every cell, which would
         // hide any row-level background. Override per-cell when row is selected/hovered.
-        const baseStyle = buildCellStyle(col, phaseMeta);
+        const baseStyle = buildCellStyle(col, phaseMeta, { frozenOffset });
         return (
           <TableCell
             key={col.id}
@@ -776,10 +780,39 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
   onRowSelect,
 }) => {
   const classes = useStyles();
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [frozenOffset, setFrozenOffset] = useState(0);
 
   const toggle = useCallback((key: string) => {
     setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+
+    let scrollParent: HTMLElement | null = root.parentElement;
+
+    while (scrollParent) {
+      const style = window.getComputedStyle(scrollParent);
+      const canScrollX = /(auto|scroll)/.test(style.overflowX);
+      if (canScrollX) break;
+      scrollParent = scrollParent.parentElement;
+    }
+
+    if (!scrollParent) return;
+
+    const handleScroll = () => {
+      setFrozenOffset(scrollParent ? scrollParent.scrollLeft : 0);
+    };
+
+    handleScroll();
+    scrollParent.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => {
+      scrollParent && scrollParent.removeEventListener("scroll", handleScroll);
+    };
   }, []);
 
   // Build full column list from this project's phase component config
@@ -832,7 +865,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
     sorting interactions. The tableFooter prop is rendered as a sticky footer if provided.
   ____________________________________________________________________________________*/
   return (
-    <Box className={classes.root}>
+    <Box ref={rootRef} className={classes.root}>
       <Box className={classes.scroller}>
         <Table size="small" stickyHeader className={classes.table}>
           {/* Percentage-based column widths — fills viewport exactly like the list view */}
@@ -859,7 +892,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                   align={col.id === "group_1_name" || col.id === "thumbnail" ? "left" : "center"}
                   onClick={() => col.sortable && onSortChange(col.id)}
                   style={{
-                    ...buildCellStyle(col, phaseMeta, { header: true }),
+                    ...buildCellStyle(col, phaseMeta, { header: true, frozenOffset }),
                     whiteSpace: "pre-wrap",
                     cursor: col.sortable ? "pointer" : "default",
                     zIndex: col.id === "thumbnail" || col.id === "group_1_name" ? 30 : 5,
@@ -963,6 +996,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                           style={{
                             ...getGroupedStickyColumnStyle(col.id, {
                               backgroundColor: COLORS.GROUP_BG,
+                              frozenOffset,
                             }),
                             backgroundColor: COLORS.GROUP_BG,
                             color: COLORS.GROUP_TEXT,
@@ -1029,6 +1063,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                         thumbnails={thumbnails}
                         selectedRowId={selectedRowId}
                         onRowSelect={onRowSelect}
+                        frozenOffset={frozenOffset}
                       />
                     ))}
                 </React.Fragment>
