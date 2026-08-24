@@ -97,11 +97,12 @@ const getGroupedStickyColumnStyle = (
     return {
       position: "sticky",
       left: 0,
-      zIndex: header ? 7 : 4,
+      zIndex: header ? 30 : 20,
       width: GROUPED_STICKY_THUMBNAIL_WIDTH,
       minWidth: GROUPED_STICKY_THUMBNAIL_WIDTH,
       maxWidth: GROUPED_STICKY_THUMBNAIL_WIDTH,
       backgroundColor,
+      backgroundClip: "padding-box",
     };
   }
 
@@ -109,11 +110,12 @@ const getGroupedStickyColumnStyle = (
     return {
       position: "sticky",
       left: GROUPED_STICKY_THUMBNAIL_WIDTH,
-      zIndex: header ? 7 : 4,
+      zIndex: header ? 30 : 20,
       width: GROUPED_STICKY_NAME_WIDTH,
       minWidth: GROUPED_STICKY_NAME_WIDTH,
       maxWidth: GROUPED_STICKY_NAME_WIDTH,
       backgroundColor,
+      backgroundClip: "padding-box",
       boxShadow: "2px 0 0 rgba(0, 0, 0, 0.35)",
     };
   }
@@ -323,17 +325,12 @@ function buildColumns(phaseComponents: { [phase: string]: string[] } | undefined
   ____________________________________________________________________________________*/
 const useStyles = makeStyles(() => ({
   root: {
-    width: "100%",
-    display: "flex",
-    flexDirection: "column",
+    display: "contents",
     background: COLORS.PAGE_BG,
-    overflow: "visible",
   },
 
   scroller: {
-    width: "100%",
-    overflowX: "visible",
-    overflowY: "visible",
+    display: "contents",
     whiteSpace: "pre-wrap",
   },
 
@@ -865,7 +862,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                     ...buildCellStyle(col, phaseMeta, { header: true }),
                     whiteSpace: "pre-wrap",
                     cursor: col.sortable ? "pointer" : "default",
-                    zIndex: col.id === "thumbnail" || col.id === "group_1_name" ? 8 : 5,
+                    zIndex: col.id === "thumbnail" || col.id === "group_1_name" ? 30 : 5,
                   }}
                 >
                   <Box
@@ -955,55 +952,68 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                     }}
                     style={{ cursor: "pointer" }}
                   >
-                    <TableCell
-                      colSpan={visibleColumns.length}
-                      style={{
-                        backgroundColor: COLORS.GROUP_BG,
-                        color: COLORS.GROUP_TEXT,
-                        borderBottom: UI.GROUP_ROW_GAP_PX + "px solid " + COLORS.TABLE_BG,
-                        padding: 0,
-                        fontWeight: 500,
-                        position: "relative",
-                      }}
-                    >
-                      <Box display="flex" alignItems="center" justifyContent="space-between">
-                        <Box display="flex" alignItems="center">
-                          <IconButton
-                            size="small"
-                            style={{ color: COLORS.GROUP_TEXT, padding: 0 }}
-                            onClick={(e) => {
-                              // ✅ clicking the chevron should only toggle (and not bubble to other handlers)
-                              e.stopPropagation();
-                              toggle(groupName);
-                            }}
-                          >
-                            {isCollapsed ? (
-                              <ChevronRightIcon fontSize="small" />
-                            ) : (
-                              <ExpandMoreIcon fontSize="small" />
-                            )}
-                          </IconButton>
+                    {visibleColumns.map((col, index) => {
+                      const isThumbnail = col.id === "thumbnail";
+                      const isName = col.id === "group_1_name";
+                      const shouldShowGroupLabel = isName || (!visibleColumns.some((visibleCol) => visibleCol.id === "group_1_name") && index === 0);
 
-                          <Typography
-                            style={{
-                              color: COLORS.GROUP_TEXT,
-                              fontSize: UI.FONT_SIZE_GROUP,
-                              fontWeight: 900,
-                            }}
-                          >
-                            {groupName.toUpperCase()}
-                          </Typography>
-                          <Typography
-                            style={{
-                              fontSize: UI.FONT_SIZE_GROUP - 1,
-                              fontWeight: 800,
-                              marginLeft: 1,
-                            }}>
-                             ({visibleCount} of {totalCount})
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </TableCell>
+                      return (
+                        <TableCell
+                          key={col.id}
+                          style={{
+                            ...getGroupedStickyColumnStyle(col.id, {
+                              backgroundColor: COLORS.GROUP_BG,
+                            }),
+                            backgroundColor: COLORS.GROUP_BG,
+                            color: COLORS.GROUP_TEXT,
+                            borderBottom: UI.GROUP_ROW_GAP_PX + "px solid " + COLORS.TABLE_BG,
+                            padding: 0,
+                            fontWeight: 500,
+                          }}
+                        >
+                          {shouldShowGroupLabel ? (
+                            <Box display="flex" alignItems="center">
+                              <IconButton
+                                size="small"
+                                style={{ color: COLORS.GROUP_TEXT, padding: 0 }}
+                                onClick={(e) => {
+                                  // ✅ clicking the chevron should only toggle (and not bubble to other handlers)
+                                  e.stopPropagation();
+                                  toggle(groupName);
+                                }}
+                              >
+                                {isCollapsed ? (
+                                  <ChevronRightIcon fontSize="small" />
+                                ) : (
+                                  <ExpandMoreIcon fontSize="small" />
+                                )}
+                              </IconButton>
+
+                              <Typography
+                                style={{
+                                  color: COLORS.GROUP_TEXT,
+                                  fontSize: UI.FONT_SIZE_GROUP,
+                                  fontWeight: 900,
+                                }}
+                              >
+                                {groupName.toUpperCase()}
+                              </Typography>
+                              <Typography
+                                style={{
+                                  fontSize: UI.FONT_SIZE_GROUP - 1,
+                                  fontWeight: 800,
+                                  marginLeft: 1,
+                                }}
+                              >
+                                ({visibleCount} of {totalCount})
+                              </Typography>
+                            </Box>
+                          ) : isThumbnail ? null : (
+                            "\u00A0"
+                          )}
+                        </TableCell>
+                      );
+                    })}
                   </TableRow>
 
                   {/* Data rows */}
