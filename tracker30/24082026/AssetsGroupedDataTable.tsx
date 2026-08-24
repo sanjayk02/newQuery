@@ -327,7 +327,7 @@ const useStyles = makeStyles(() => ({
     display: "flex",
     flexDirection: "column",
     background: COLORS.PAGE_BG,
-    overflow: "hidden",
+    overflow: "visible",
   },
 
   scroller: {
