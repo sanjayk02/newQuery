@@ -1,3 +1,4 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import React, { useCallback, useMemo, useState } from "react";
 import {
   Box,
@@ -13,6 +14,8 @@ import {
 import ExpandMoreIcon from "@material-ui/icons/ExpandMore";
 import ChevronRightIcon from "@material-ui/icons/ChevronRight";
 import { PivotGroup, SortDir } from "./types";
+import { components } from "react-select";
+
 /* ____________________________________________________________________________________
     Colors and styling constants for the grouped data table. Adjust these to match your design.
   ____________________________________________________________________________________*/
@@ -27,8 +30,10 @@ const COLORS = {
   GROUP_TEXT: "#00b7ff",
   TEXT: "#e0e0e0",
   MUTED: "#bdbdbd",
+
   // top/bottom edge line for NON-phase columns
   COL_EDGE: "#6b6b6b",
+
 /* ____________________________________________________________________________________
     Pipeline phase colors. Each phase has a line color for the vertical rails and a
     background color for the header and rows. Adjust these to match your project's pipeline design.
@@ -41,34 +46,92 @@ const COLORS = {
     ldv: { lineColor: "#fe5cff", backgroundColor: "#683566" },
   },
 };
+
 /* ____________________________________________________________________________________
     UI controls - REDUCED FOR COMPACTNESS
   ____________________________________________________________________________________*/
 const UI = {
+const UI = {
   ROW_HEIGHT: 54, // Reduced from 54
   ROW_PAD_Y: 2,
   ROW_PAD_X: 2, // Reduced from 8
+
   // ✅ move NAME + THUMB a bit left
   NAME_PAD_X: 2, // Reduced from 4
   THUMB_PAD_X: 4, // Reduced from 6
+
   ROW_GAP_PX: 0,
   GROUP_ROW_GAP_PX: 0,
   PHASE_GAP_PX: 0,
+
   RAIL_PX: 3, // Reduced from 3
+
   THUMB_WIDTH: 100, // Reduced from 90
   NAME_WIDTH: 90, // Reduced from 150
   RELATION_WIDTH: 50, // Reduced from 70
   PHASE_COL_WIDTH: 85, // Reduced from 97 - KEY REDUCTION
+
   // ✅ "top & bottom line" thickness in header
   COL_EDGE_PX: 3, // Reduced from 2
+
   // ✅ thumbs width/height
   THUMB_BOX_W: 100, // Reduced from 50
   THUMB_BOX_H: 80, // Reduced from 28
   THUMB_RADIUS: 2,
 
+  
   // ✅ Font sizes matching your image
   FONT_SIZE_HEADER: 12,    // Column headers
   FONT_SIZE_CONTENT: 13,   // Content text
+  FONT_SIZE_GROUP: 13,     // Group header text
+};
+
+const GROUPED_STICKY_THUMBNAIL_WIDTH = 130;
+const GROUPED_STICKY_NAME_WIDTH = 180;
+
+const getGroupedStickyColumnStyle = (
+  colId: string,
+  options: { header?: boolean; backgroundColor?: string } = {},
+): React.CSSProperties => {
+  const { header = false, backgroundColor = COLORS.ROW_BG } = options;
+
+  if (colId === "thumbnail") {
+    return {
+      position: "relative",
+      zIndex: header ? 30 : 20,
+      width: GROUPED_STICKY_THUMBNAIL_WIDTH,
+      minWidth: GROUPED_STICKY_THUMBNAIL_WIDTH,
+      maxWidth: GROUPED_STICKY_THUMBNAIL_WIDTH,
+      backgroundColor,
+      backgroundClip: "padding-box",
+      transform: "translate3d(var(--grouped-freeze-x, 0px), 0, 0)",
+      transition: "none",
+      backfaceVisibility: "hidden",
+      willChange: "transform",
+    };
+  }
+
+  if (colId === "group_1_name") {
+    return {
+      position: "relative",
+      zIndex: header ? 30 : 20,
+      width: GROUPED_STICKY_NAME_WIDTH,
+      minWidth: GROUPED_STICKY_NAME_WIDTH,
+      maxWidth: GROUPED_STICKY_NAME_WIDTH,
+      backgroundColor,
+      backgroundClip: "padding-box",
+      boxShadow: "2px 0 0 rgba(0, 0, 0, 0.35)",
+      transform: "translate3d(var(--grouped-freeze-x, 0px), 0, 0)",
+      transition: "none",
+      backfaceVisibility: "hidden",
+      willChange: "transform",
+    };
+  }
+
+  return {};
+};
+
+/* ____________________________________________________________________________________
   FONT_SIZE_GROUP: 13,     // Group header text
 };
 const GROUPED_STICKY_THUMBNAIL_WIDTH = 130;
@@ -122,6 +185,7 @@ const getGroupedStickyColumnStyle = (
     to identify dynamic component columns based on the project's pipeline configuration.
   ____________________________________________________________________________________*/
 type ColumnId = string;
+
 type Column = {
   id: ColumnId;
   label: string;
@@ -131,7 +195,18 @@ type Column = {
   isComponent?: boolean; // true for dynamic component columns (mdlRend, bldAnm, etc.)
   headerMode?: "phaseKind" | "label";
 };
+type Column = {
+  id: ColumnId;
+  label: string;
+  sortable?: boolean;
+  phase?: keyof typeof COLORS.PHASE; // mdl|rig|bld|dsn|ldv
+  kind?: "work" | "appr" | "submitted" | "take" | "assign";
+  isComponent?: boolean; // true for dynamic component columns (mdlRend, bldAnm, etc.)
+  headerMode?: "phaseKind" | "label";
+};
+
 /* ____________________________________________________________________________________
+    Function to extract the value used for sorting based on the column type. 
     Function to extract the value used for sorting based on the column type.
     Handles different logic for "take" columns, "submitted" columns, and dynamic component columns. This ensures
     consistent sorting behavior across different column types.
@@ -141,14 +216,18 @@ const getSortValue = (
   key: string,
   latestComponents?: Record<string, any>
 ) => {
+
   /* ----------------------------------------
      TAKE columns (numeric)
   ---------------------------------------- */
   const takeMatch = key.match(/^(mdl|rig|bld|dsn|ldv)_take$/i);
+
   if (takeMatch) {
     const val = asset[key];
     return val ? parseInt(String(val).replace(/\D/g, ""), 10) : 0;
   }
+
+
   /* ----------------------------------------
      Phase Submitted columns
      mdl_submitted, rig_submitted etc
@@ -157,17 +236,23 @@ const getSortValue = (
     const date = new Date(asset[key + "_at_utc"] || asset[key]);
     return isNaN(date.getTime()) ? 0 : date.getTime();
   }
+
+
   /* ----------------------------------------
      Dynamic Component Submitted columns
      mdlRend, bldAnm, bldRend, dsnImg etc
   ---------------------------------------- */
   if (latestComponents) {
+
     const cleanRelation = (asset.relation || "")
       .toString()
       .trim()
       .replace(/^_+|_+$/g, "");
+
     const assetKey = `${asset.group_1}-${cleanRelation}`;
+
     const componentList = latestComponents && latestComponents[assetKey] || [];
+
     const componentData =
       componentList.find((item: any) => item.component === key) ||
       componentList.find(
@@ -175,44 +260,60 @@ const getSortValue = (
           item.component &&
           item.component.toLowerCase() === key.toLowerCase()
       );
+
     if (
+      componentData && 
+      componentData.latest_document && 
       componentData &&
       componentData.latest_document &&
       componentData.latest_document.submitted_at_utc) {
+
       const date = new Date(
         componentData.latest_document.submitted_at_utc
       );
+
       return isNaN(date.getTime()) ? 0 : date.getTime();
     }
   }
+
+
   /* ----------------------------------------
      Default fallback
   ---------------------------------------- */
   return asset[key] || "";
 };
+
+
 type Props = {
   groups?: PivotGroup[];
   thumbnails?: { [key: string]: string };
+
   // sorting
   sortKey: string;
   sortDir: SortDir;
   onSortChange: (key: string) => void;
+
   // group name sorting
   groupSortDir?: SortDir;
   onGroupSortToggle?: () => void;
+
   dateTimeFormat: Intl.DateTimeFormat;
   hiddenColumns?: Set<string>;
+
   /** ✅ IMPORTANT: pass footer from Panel so it renders (sticky) */
   tableFooter?: React.ReactNode;
+
   latestComponents?: any;
 /* ____________________________________________________________________________________
     phaseComponents is a mapping of pipeline phases to their respective dynamic components.
   ____________________________________________________________________________________*/
   phaseComponents?: { [phase: string]: string[] };
+
   // row selection (single click highlights the row)
   selectedRowId?: string | null;
   onRowSelect?:   (rowId: string | null) => void;
 };
+
 /* ____________________________________________________________________________________
     Function to build dynamic component columns based on the project's pipeline configuration.
     For each phase, we check if there are any components defined in the phaseComponents config.
@@ -233,18 +334,44 @@ function buildComponentColumns(
     headerMode: "label" as const,
   }));
 }
+
 /* ____________________________________________________________________________________
     Function to build the full list of columns for the grouped data table. This includes fixed columns
+    like thumbnail and name, as well as dynamic phase columns (WORK/APPR/TAKE) and component columns 
     like thumbnail and name, as well as dynamic phase columns (WORK/APPR/TAKE) and component columns
     based on the phaseComponents config.
+    The column definitions include metadata for sorting and styling, which is used throughout the 
     The column definitions include metadata for sorting and styling, which is used throughout the
     table rendering logic to ensure consistent behavior and appearance.
   ____________________________________________________________________________________*/
 function buildColumns(phaseComponents: { [phase: string]: string[] } | undefined): Column[] {
   return [
+function buildColumns(phaseComponents: { [phase: string]: string[] } | undefined): Column[] {
+  return [
     { id: "thumbnail",    label: "THUMB" },
     { id: "group_1_name", label: "NAME", sortable: true },
+
     // DSN Phase
+    { id: "dsn_appr", label: "DSN Appr", sortable: true, phase: "dsn" as const, kind: "appr" as const },
+    { id: "dsn_work", label: "DSN Work", sortable: true, phase: "dsn" as const, kind: "work" as const },
+    { id: "dsn_take", label: "DSN TAKE", sortable: true, phase: "dsn" as const, kind: "take" as const },
+    { id: "dsn_assign_to", label: "DSN Assign to", sortable: true, phase: "dsn" as const, kind: "assign" as const, headerMode: "label" as const },
+    ...buildComponentColumns("dsn", phaseComponents),
+
+    // MDL Phase
+    { id: "mdl_appr", label: "MDL Appr", sortable: true, phase: "mdl" as const, kind: "appr" as const },
+    { id: "mdl_work", label: "MDL Work", sortable: true, phase: "mdl" as const, kind: "work" as const },
+    { id: "mdl_take", label: "MDL TAKE", sortable: true, phase: "mdl" as const, kind: "take" as const },
+    { id: "modeling_assigned_to", label: "MDL Assign to", sortable: true, phase: "mdl" as const, kind: "assign" as const, headerMode: "label" as const },
+    ...buildComponentColumns("mdl", phaseComponents),
+
+    // RIG Phase
+    { id: "rig_appr", label: "RIG Appr", sortable: true, phase: "rig" as const, kind: "appr" as const },
+    { id: "rig_work", label: "RIG Work", sortable: true, phase: "rig" as const, kind: "work" as const },
+    { id: "rig_take", label: "RIG TAKE", sortable: true, phase: "rig" as const, kind: "take" as const },
+    { id: "rigging_assigned_to", label: "RIG Assign to", sortable: true, phase: "rig" as const, kind: "assign" as const, headerMode: "label" as const },
+    ...buildComponentColumns("rig", phaseComponents),
+
     { id: "dsn_appr", label: "DSN Appr", sortable: true, phase: "dsn" as const, kind: "appr" as const },
     { id: "dsn_work", label: "DSN Work", sortable: true, phase: "dsn" as const, kind: "work" as const },
     { id: "dsn_take", label: "DSN TAKE", sortable: true, phase: "dsn" as const, kind: "take" as const },
@@ -267,7 +394,14 @@ function buildColumns(phaseComponents: { [phase: string]: string[] } | undefined
     { id: "bld_work", label: "BLD Work", sortable: true, phase: "bld" as const, kind: "work" as const },
     { id: "bld_take", label: "BLD TAKE", sortable: true, phase: "bld" as const, kind: "take" as const },
     ...buildComponentColumns("bld", phaseComponents),
+
     // LDV Phase
+    { id: "ldv_appr", label: "LDV Appr", sortable: true, phase: "ldv" as const, kind: "appr" as const },
+    { id: "ldv_work", label: "LDV Work", sortable: true, phase: "ldv" as const, kind: "work" as const },
+    { id: "ldv_take", label: "LDV TAKE", sortable: true, phase: "ldv" as const, kind: "take" as const },
+    { id: "lookdev_assigned_to", label: "LDV Assign to", sortable: true, phase: "ldv" as const, kind: "assign" as const, headerMode: "label" as const },
+    ...buildComponentColumns("ldv", phaseComponents),
+
     { id: "ldv_appr", label: "LDV Appr", sortable: true, phase: "ldv" as const, kind: "appr" as const },
     { id: "ldv_work", label: "LDV Work", sortable: true, phase: "ldv" as const, kind: "work" as const },
     { id: "ldv_take", label: "LDV TAKE", sortable: true, phase: "ldv" as const, kind: "take" as const },
@@ -276,11 +410,33 @@ function buildColumns(phaseComponents: { [phase: string]: string[] } | undefined
     { id: "relation", label: "Relation", sortable: true },
   ];
 }
+
 /* ____________________________________________________________________________________
     Styles for the grouped data table using Material-UI's makeStyles. This includes styles for the
     root container, scroller, table, group headers, and sort indicators. The styles are designed to
     match the compact design in your image, with adjustments to padding, font sizes, and colors.
   ____________________________________________________________________________________*/
+const useStyles = makeStyles(() => ({
+  root: {
+    display: "contents",
+    background: COLORS.PAGE_BG,
+  },
+
+  scroller: {
+    display: "contents",
+    whiteSpace: "pre-wrap",
+  },
+
+  // Table sizes to 100% so all columns fit without horizontal scroll — same behaviour as list view
+  table: {
+    background: COLORS.TABLE_BG,
+    width: "max-content",
+    minWidth: "100%",
+    tableLayout: "fixed",
+    borderCollapse: "separate",
+    borderSpacing: 0,
+  },
+
 const useStyles = makeStyles(() => ({
   root: {
     display: "contents",
@@ -304,15 +460,18 @@ const useStyles = makeStyles(() => ({
       backgroundColor: `${COLORS.GROUP_BG}dd !important`,
     },
   },
+  
 
   sortIndicator: {
     transition: 'color 0.2s ease-in-out',
   },
+  
 
   activeSort: {
     color: '#00b7ff !important',
   },
 }));
+
 /* ____________________________________________________________________________________
     Utility functions for rendering cell content and applying styling logic. This includes:
     - isEmptyValue: checks if a value is considered empty for display purposes
@@ -327,10 +486,12 @@ const isEmptyValue = (value: any): boolean => {
   const str = String(value).trim();
   return str === '' || str === '-' || str === '—' || str === 'null' || str === 'undefined';
 };
+
 const formatForDisplay = (value: any): string => {
   if (isEmptyValue(value)) return '—';
   return String(value).trim();
 };
+
 function getPhaseMetadata(visibleCols: Column[]) {
   const map: Record<string, { start: string; end: string }> = {};
   visibleCols.forEach((col) => {
@@ -340,20 +501,26 @@ function getPhaseMetadata(visibleCols: Column[]) {
   });
   return map;
 }
+
 function formatSubmitted(val: any, dateTimeFormat: Intl.DateTimeFormat) {
   if (isEmptyValue(val)) return '—';
+
   try {
     const d = new Date(val);
     if (isNaN(d.getTime())) return '—';
+
     const formatted = dateTimeFormat.format(d);
+    
 
     return formatted.replace('AM', '\nAM').replace('PM', '\nPM'); // Remove AM/PM for compactness
   } catch {
     return '—';
   }
 }
+
 function statusColor(status?: string) {
   if (isEmptyValue(status)) return COLORS.MUTED;
+  
 
   const s = (status || "").toLowerCase();
   if (s.includes("approved")) return "#32cd32";
@@ -363,10 +530,12 @@ function statusColor(status?: string) {
   if (s === "check") return "#e221e2";
   return COLORS.MUTED;
 }
+
 function renderThumbnail(asset: any, thumbnails?: { [key: string]: string }) {
   const url = asset.thumbnail_url || asset.thumbnail;
   const Key = `${asset.group_1}-${asset.relation}`;
   const thumbUrl = url || (thumbnails && thumbnails[Key]) || null;
+  
 
   return (
     <Box display="flex" alignItems="center" justifyContent="flex-start">
@@ -387,6 +556,7 @@ function renderThumbnail(asset: any, thumbnails?: { [key: string]: string }) {
             }}
           />
         ) : (
+          <Typography style={{ 
           <Typography style={{
             fontSize: 12,
             }}>
@@ -414,7 +584,17 @@ function renderAssetField(
 ) {
   {/* THUMBNAIL */}
   if (col.id === "thumbnail") return renderThumbnail(asset, thumbnails);
+
   {/* GROUP 1 NAME */}
+  if (col.id === "group_1_name") {
+    return (
+      <Typography noWrap style={{ 
+        fontSize: UI.FONT_SIZE_CONTENT, 
+        fontWeight: 500,
+        paddingLeft: 8,
+      }}>
+        {formatForDisplay(asset.group_1 || asset.group_1_name)}
+      </Typography>
   if (col.id === "group_1_name") {
     return (
       <Typography noWrap style={{
@@ -426,9 +606,13 @@ function renderAssetField(
       </Typography>
     );
   }
+
   {/* RELATION */}
   if (col.id === "relation") {
     return (
+      <Typography style={{ 
+        fontSize: UI.FONT_SIZE_CONTENT, 
+        fontWeight: 500 
       <Typography style={{
         fontSize: UI.FONT_SIZE_CONTENT,
         fontWeight: 500
@@ -437,17 +621,21 @@ function renderAssetField(
       </Typography>
     );
   }
+
   {/* Component columns — identified by col.isComponent flag set in buildComponentColumns() */}
   if (col.isComponent) {
     const cleanRelation = (asset.relation || "").toString().trim();
     const assetKey = `${asset.group_1}-${cleanRelation}`;
     const componentList: any[] = (latestComponents && latestComponents[assetKey]) || [];
+
     // Match by component name directly — works for any project config, no hardcoding needed
     const componentData =
       componentList.find((item: any) => item.component === col.id) ||
       componentList.find((item: any) => item.component && item.component.toLowerCase() === col.id.toLowerCase());
+
     const submittedAt = (componentData && componentData.latest_document && componentData.latest_document.submitted_at_utc) || null;
     const submittedText = submittedAt ? formatSubmitted(submittedAt, dateTimeFormat) : "—";
+
     return (
       <Typography
         style={{
@@ -460,22 +648,29 @@ function renderAssetField(
       </Typography>
     );
   }
+
   {/* Phase columns (WORK/APPR/SUBMITTED/TAKE) */}
   if (col.kind === "appr" || col.kind === "work") {
     const field = col.kind === "work" ? "work_status" : "approval_status";
     const raw = col.phase ? asset[col.phase + "_" + field] : undefined;
+
     if (isEmptyValue(raw)) {
       return <Typography style={{ fontSize: UI.FONT_SIZE_CONTENT }}>—</Typography>;
     }
+
     const text = String(raw).trim();
+
     // Split prefix and status at first capital letter
     const match = text.match(/^([a-z]+)([A-Z].*)$/);
+
     let prefix = "";
     let status = text;
+
     if (match) {
       prefix = match[1];
       status = match[2];
     }
+
     return (
       <Box
         display="flex"
@@ -494,6 +689,7 @@ function renderAssetField(
             {prefix}
           </Typography>
         )}
+
         <Typography
           style={{
             fontSize: UI.FONT_SIZE_CONTENT,
@@ -506,23 +702,43 @@ function renderAssetField(
       </Box>
     );
   }
+
   {/* Phase columns (WORK/APPR/SUBMITTED/TAKE) */}
+  if (col.kind === "take") {
   if (col.kind === "take") {
     const takeValue = col.phase ? asset[col.phase + "_take"] : undefined;
     let takeText = '—';
+    
 
     if (!isEmptyValue(takeValue)) {
       const rawTake = String(takeValue).trim();
       takeText = rawTake.slice(-4); // Last 4 characters as fallback
     }
+    
 
     return (
+      <Typography style={{ 
+        fontSize: UI.FONT_SIZE_CONTENT, 
       <Typography style={{
         fontSize: UI.FONT_SIZE_CONTENT,
         fontWeight: 400
       }}>
         {takeText}
       </Typography>
+    );
+  }
+
+  if (col.kind === "assign") {
+    return (
+      <Typography style={{
+        fontSize: UI.FONT_SIZE_CONTENT,
+        fontWeight: 400,
+      }}>
+        {formatForDisplay(asset[col.id])}
+      </Typography>
+    );
+  }
+
     );
   }
   if (col.kind === "assign") {
@@ -536,12 +752,15 @@ function renderAssetField(
     );
   }
 }
+}
+
 /* ____________________________________________________________________________________
     Function to build the style object for a table cell based on the column metadata and phase configuration.
     This function applies different background colors, text colors, padding, font sizes, and borders based on:
       - Whether the cell is in the header row or a group row
       - The phase of the column (if any) to apply phase-specific colors and vertical rails
       - The position of the column within its phase to apply edge lines and gaps
+    The logic is designed to create a visually distinct table that clearly separates different phases 
     The logic is designed to create a visually distinct table that clearly separates different phases
     and highlights important information while maintaining a compact layout.
   ____________________________________________________________________________________*/
@@ -551,14 +770,25 @@ function buildCellStyle(
   opts: { header?: boolean; isGroupRow?: boolean } = {}
 ): React.CSSProperties {
   const { header = false, isGroupRow = false } = opts;
+
+function buildCellStyle(
+  col: Column,
+  phaseMeta: Record<string, { start: string; end: string }>,
+  opts: { header?: boolean; isGroupRow?: boolean } = {}
+): React.CSSProperties {
+  const { header = false, isGroupRow = false } = opts;
   const meta          = col.phase ? phaseMeta[col.phase] : null;
   const isPhaseStart  = !!(meta && meta.start === col.id);
   const isPhaseEnd    = !!(meta && meta.end === col.id);
+
   const phaseCfg      = col.phase ? COLORS.PHASE[col.phase] : null;
   const edgeColor     = col.phase ? phaseCfg!.lineColor : COLORS.COL_EDGE;
+
   const headerBg      = col.phase ? phaseCfg!.backgroundColor : COLORS.HEADER_BG;
+
   const paddingX =
     col.id === "group_1_name" ? UI.NAME_PAD_X : col.id === "thumbnail" ? UI.THUMB_PAD_X : UI.ROW_PAD_X;
+
   const style: React.CSSProperties = {
     backgroundColor: header ? headerBg : COLORS.ROW_BG,
     color: header ? "#fff" : COLORS.TEXT,
@@ -575,9 +805,15 @@ function buildCellStyle(
       ? "1px solid " + COLORS.HEADER_BORDER
       : (isGroupRow ? UI.GROUP_ROW_GAP_PX : UI.ROW_GAP_PX) + "px solid " + COLORS.TABLE_BG,
   };
+
   // Shadow logic for header top/bottom lines
   const shadows: string[] = [];
   if (header) {
+    shadows.push(`inset 0 ${UI.COL_EDGE_PX}px 0 0 ${edgeColor}`);
+    // shadows.push(`inset 0 -${UI.COL_EDGE_PX}px 0 0 ${edgeColor}`);
+  }
+
+  if (header && col.id !== "thumbnail" && col.id !== "group_1_name") {
     shadows.push(`inset 0 ${UI.COL_EDGE_PX}px 0 0 ${edgeColor}`);
     // shadows.push(`inset 0 -${UI.COL_EDGE_PX}px 0 0 ${edgeColor}`);
   }
@@ -586,6 +822,7 @@ function buildCellStyle(
     const rail = phaseCfg!.lineColor;
     if (isPhaseStart) shadows.push(`inset ${UI.RAIL_PX}px 0 0 0 ${rail}`);
     if (isPhaseEnd) shadows.push(`inset -${UI.RAIL_PX}px 0 0 0 ${rail}`);
+
     // Gap after phase end
     if (isPhaseEnd) style.borderRight = `1px solid ${phaseCfg!.lineColor}`;
   } else {
@@ -594,6 +831,8 @@ function buildCellStyle(
       style.borderRight = "0px";
     } else if (col.id === "component") {
       // ✅ ADDED: Proper terminal rail border for COMPONENT column
+      style.borderRight = `solid ${UI.RAIL_PX}px ${COLORS.COL_EDGE}`; 
+      
       style.borderRight = `solid ${UI.RAIL_PX}px ${COLORS.COL_EDGE}`;
 
       // Add top/bottom rail shadow in header to complete the box look
@@ -604,6 +843,17 @@ function buildCellStyle(
       style.borderRight = "1px solid " + (header ? COLORS.HEADER_BORDER : COLORS.GRID_LINE);
     }
   }
+
+  if (shadows.length) style.boxShadow = shadows.join(", ");
+
+  return {
+    ...style,
+    ...getGroupedStickyColumnStyle(col.id, {
+      header,
+      backgroundColor: String(style.backgroundColor || (header ? headerBg : COLORS.ROW_BG)),
+    }),
+  };
+}
   if (shadows.length) style.boxShadow = shadows.join(", ");
   return {
     ...style,
@@ -613,6 +863,7 @@ function buildCellStyle(
     }),
   };
 }
+
 /* ____________________________________________________________________________________
     Main component to render the grouped data table. This component receives the grouped asset data,
     sorting state, column visibility settings, and pipeline configuration as props. It builds the full
@@ -629,7 +880,21 @@ type AssetGroupedDataRowProps = {
   asset: any;
   visibleColumns: Column[];
   phaseMeta: Record<string, { start: string; end: string }>;
+type AssetGroupedDataRowProps = {
+  asset: any;
+  visibleColumns: Column[];
+  phaseMeta: Record<string, { start: string; end: string }>;
   dateTimeFormat: Intl.DateTimeFormat;
+  latestComponents?: any;
+  thumbnails?: { [key: string]: string };
+  selectedRowId?: string | null;
+  onRowSelect?: (rowId: string | null) => void;
+};
+
+const AssetGroupedDataRow: React.FC<AssetGroupedDataRowProps> = ({
+  asset, visibleColumns, phaseMeta, dateTimeFormat, latestComponents, thumbnails,
+  selectedRowId, onRowSelect,
+}) => {
   latestComponents?: any;
   thumbnails?: { [key: string]: string };
   selectedRowId?: string | null;
@@ -642,12 +907,15 @@ const AssetGroupedDataRow: React.FC<AssetGroupedDataRowProps> = ({
   // Stable row identity for the selection highlight.
   const rowId = `${asset.project}|${asset.group_1}|${asset.name}|${asset.relation}|${asset.component}`;
   const isRowSelected = selectedRowId === rowId;
+
   // Hover state — gives the row a light-blue highlight on mouse over.
   const [isHovered, setIsHovered] = useState(false);
+
   // Highlight colors. Selected wins over hover when both are true.
   const SELECTED_BG = 'rgba(173, 216, 230, 0.4)'; // light blue — click/selected color
   const HOVER_BG    = 'rgba(173, 216, 230, 0.4)'; // change THIS for the hover color
   const rowBg       = isRowSelected ? SELECTED_BG : (isHovered ? HOVER_BG : undefined);
+
   return (
     <TableRow
       onClick={() => onRowSelect && onRowSelect(rowId)}
@@ -659,7 +927,16 @@ const AssetGroupedDataRow: React.FC<AssetGroupedDataRowProps> = ({
         // buildCellStyle sets a backgroundColor on every cell, which would
         // hide any row-level background. Override per-cell when row is selected/hovered.
         const baseStyle = buildCellStyle(col, phaseMeta);
+        // buildCellStyle sets a backgroundColor on every cell, which would
+        // hide any row-level background. Override per-cell when row is selected/hovered.
+        const baseStyle = buildCellStyle(col, phaseMeta);
         return (
+          <TableCell
+            key={col.id}
+            align={col.id === "thumbnail" ? "left" : "center"}
+            style={rowBg
+              ? { ...baseStyle, backgroundColor: rowBg }
+              : baseStyle}
           <TableCell
             key={col.id}
             align={col.id === "thumbnail" ? "left" : "center"}
@@ -674,6 +951,7 @@ const AssetGroupedDataRow: React.FC<AssetGroupedDataRowProps> = ({
     </TableRow>
   );
 };
+
 const AssetsGroupedDataTable: React.FC<Props> = ({
   groups = [],
   thumbnails,
@@ -689,12 +967,49 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
   onRowSelect,
 }) => {
   const classes = useStyles();
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  const toggle = useCallback((key: string) => {
+    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+
+    let scrollParent: HTMLElement | null = root.parentElement;
+
+    while (scrollParent) {
+      const style = window.getComputedStyle(scrollParent);
+      const canScrollX = /(auto|scroll)/.test(style.overflowX);
+      if (canScrollX) break;
+      scrollParent = scrollParent.parentElement;
+    }
+
+    if (!scrollParent) return;
+
+    const handleScroll = () => {
+      root.style.setProperty("--grouped-freeze-x", `${scrollParent ? scrollParent.scrollLeft : 0}px`);
+    };
+
+    handleScroll();
+    scrollParent.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => {
+      scrollParent && scrollParent.removeEventListener("scroll", handleScroll);
+    };
+  }, []);
+
+}) => {
+  const classes = useStyles();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const toggle = useCallback((key: string) => {
     setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
   // Build full column list from this project's phase component config
   const ALL_COLUMNS = useMemo(() => buildColumns(phaseComponents), [phaseComponents]);
+
   /* ____________________________________________________________________________________
     Column visibility logic for the grouped data table. This function determines whether a
     given column should be hidden based on the current hiddenColumns set and the column's
@@ -704,17 +1019,26 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
   const isGroupedColHidden = useCallback(
     (groupColId: string, col?: Column) => {
       if (!hiddenColumns || hiddenColumns.size === 0) return false;
+
       // fixed columns — always visible
       if (groupColId === "thumbnail" || groupColId === "group_1_name") return false;
       if (groupColId === "relation") return hiddenColumns.has("relation");
+
       // Component columns — id is the component name (e.g. "mdlRend", "bldAnm")
       if (col && col.isComponent) return hiddenColumns.has(groupColId);
+
+      // Phase columns — map grouped IDs to panel storage keys
+      if (col && col.kind === "assign") return hiddenColumns.has(groupColId);
+
       // Phase columns — map grouped IDs to panel storage keys
       if (col && col.kind === "assign") return hiddenColumns.has(groupColId);
       const m = groupColId.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted|take)$/i);
+      const m = groupColId.match(/^(mdl|rig|bld|dsn|ldv)_(work|appr|submitted|take)$/i);
       if (!m) return hiddenColumns.has(groupColId);
+
       const phase = m[1].toLowerCase();
       const kind  = m[2].toLowerCase();
+
       if (kind === "work") return hiddenColumns.has(`${phase}_work_status`);
       if (kind === "appr") return hiddenColumns.has(`${phase}_approval_status`);
       if (kind === "take") return hiddenColumns.has(`${phase}_take`);
@@ -722,10 +1046,13 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
     },
     [hiddenColumns],
   );
+
   const visibleColumns = useMemo(() => {
     return ALL_COLUMNS.filter((c) => !isGroupedColHidden(c.id, c));
   }, [ALL_COLUMNS, isGroupedColHidden]);
+
   const phaseMeta = useMemo(() => getPhaseMetadata(visibleColumns), [visibleColumns]);
+
   /* ____________________________________________________________________________________
     Main render function for the grouped data table. Renders the table header with sortable columns,
     and the table body with group rows and asset rows. Applies appropriate styles and content rendering
@@ -733,10 +1060,27 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
     sorting interactions. The tableFooter prop is rendered as a sticky footer if provided.
   ____________________________________________________________________________________*/
   return (
+    <div ref={rootRef} className={classes.root}>
+  return (
     <div className={classes.root}>
       <Box className={classes.scroller}>
         <Table size="small" stickyHeader className={classes.table}>
           {/* Percentage-based column widths — fills viewport exactly like the list view */}
+          <colgroup>
+            {visibleColumns.map((col) => {
+              if (col.id === "thumbnail") {
+                return <col key={col.id} style={{ width: GROUPED_STICKY_THUMBNAIL_WIDTH }} />;
+              }
+              if (col.id === "group_1_name") {
+                return <col key={col.id} style={{ width: GROUPED_STICKY_NAME_WIDTH }} />;
+              }
+              if (col.id === "relation") {
+                return <col key={col.id} style={{ width: UI.RELATION_WIDTH }} />;
+              }
+              return <col key={col.id} style={{ width: UI.PHASE_COL_WIDTH }} />;
+            })}
+          </colgroup>
+
           <colgroup>
             {visibleColumns.map((col) => {
               if (col.id === "thumbnail") {
@@ -765,17 +1109,33 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                     zIndex: col.id === "thumbnail" || col.id === "group_1_name" ? 30 : 5,
                   }}
                 >
+                  onClick={() => col.sortable && onSortChange(col.id)}
+                  style={{
+                    ...buildCellStyle(col, phaseMeta, { header: true }),
+                    whiteSpace: "pre-wrap",
+                    cursor: col.sortable ? "pointer" : "default",
+                    zIndex: col.id === "thumbnail" || col.id === "group_1_name" ? 30 : 5,
+                  }}
+                >
                   <Box
                     display="flex"
                     flexDirection="column"
                     alignItems={col.id === "group_1_name" || col.id === "thumbnail" ? "flex-start" : "center"}
                   >
+                    <Typography style={{ 
+                      fontSize: UI.FONT_SIZE_HEADER, 
                     <Typography style={{
                       fontSize: UI.FONT_SIZE_HEADER,
                       fontWeight: 500,
                       lineHeight: 1,
+                      textAlign: "center", 
                       textAlign: "center",
                     }}>
+                    {col.headerMode === "label" ? (
+                      col.label
+                    ) : col.isComponent ? (
+                      <>
+                        {col.id.toUpperCase()}
                     {col.headerMode === "label" ? (
                       col.label
                     ) : col.isComponent ? (
@@ -794,6 +1154,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                       col.label
                     )}
                     </Typography>
+
                     {sortKey === col.id && (
                       <span style={{
                         fontSize: 11,
@@ -810,32 +1171,111 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
               ))}
             </TableRow>
           </TableHead>
+
           <TableBody>
             {groups.map((group) => {
               const groupName = group.top_group_node || "UNASSIGNED";
               const isCollapsed = !!collapsed[groupName];
               const visibleCount = (group.items || []).length;
               const totalCount = (group as any).totalCount || visibleCount;
+
               const sortedItems = [...(group.items || [])];
               if (sortKey && sortDir !== "none") {
                 sortedItems.sort((a: any, b: any) => {
                   const aVal = getSortValue(a, sortKey, latestComponents);
                   const bVal = getSortValue(b, sortKey, latestComponents);
+
                   const aEmpty = aVal === null || aVal === undefined || aVal === 0 || aVal === "";
                   const bEmpty = bVal === null || bVal === undefined || bVal === 0 || bVal === "";
+
                   // push empty values to bottom
                   if (aEmpty && bEmpty) return 0;
                   if (aEmpty) return 1;
                   if (bEmpty) return -1;
+
                   if (aVal === bVal) return 0;
+
                   return sortDir === "asc"
                     ? aVal > bVal ? 1 : -1
                     : aVal < bVal ? 1 : -1;
                 });
               }
+
               return (
                 <React.Fragment key={groupName}>
                   {/* Group row (click only expands/collapses) */}
+                  <TableRow
+                    className={classes.groupHeader}
+                    onClick={() => {
+                      // ✅ Group row click should ONLY expand/collapse
+                      toggle(groupName);
+                    }}
+                    style={{ cursor: "pointer" }}
+                  >
+                    {visibleColumns.map((col, index) => {
+                      const isThumbnail = col.id === "thumbnail";
+                      const isName = col.id === "group_1_name";
+                      const shouldShowGroupLabel = isName || (!visibleColumns.some((visibleCol) => visibleCol.id === "group_1_name") && index === 0);
+
+                      return (
+                        <TableCell
+                          key={col.id}
+                          style={{
+                            ...getGroupedStickyColumnStyle(col.id, {
+                              backgroundColor: COLORS.GROUP_BG,
+                            }),
+                            backgroundColor: COLORS.GROUP_BG,
+                            color: COLORS.GROUP_TEXT,
+                            borderBottom: UI.GROUP_ROW_GAP_PX + "px solid " + COLORS.TABLE_BG,
+                            padding: 0,
+                            fontWeight: 500,
+                          }}
+                        >
+                          {shouldShowGroupLabel ? (
+                            <Box display="flex" alignItems="center" style={{ paddingLeft: isName ? 8 : 0 }}>
+                              <IconButton
+                                size="small"
+                                style={{ color: COLORS.GROUP_TEXT, padding: 0 }}
+                                onClick={(e) => {
+                                  // ✅ clicking the chevron should only toggle (and not bubble to other handlers)
+                                  e.stopPropagation();
+                                  toggle(groupName);
+                                }}
+                              >
+                                {isCollapsed ? (
+                                  <ChevronRightIcon fontSize="small" />
+                                ) : (
+                                  <ExpandMoreIcon fontSize="small" />
+                                )}
+                              </IconButton>
+
+                              <Typography
+                                style={{
+                                  color: COLORS.GROUP_TEXT,
+                                  fontSize: UI.FONT_SIZE_GROUP,
+                                  fontWeight: 900,
+                                }}
+                              >
+                                {groupName.toUpperCase()}
+                              </Typography>
+                              <Typography
+                                style={{
+                                  fontSize: UI.FONT_SIZE_GROUP - 1,
+                                  fontWeight: 800,
+                                  marginLeft: 1,
+                                }}
+                              >
+                                ({visibleCount} of {totalCount})
+                              </Typography>
+                            </Box>
+                          ) : isThumbnail ? null : (
+                            "\u00A0"
+                          )}
+                        </TableCell>
+                      );
+                    })}
+                  </TableRow>
+
                   <TableRow
                     className={classes.groupHeader}
                     onClick={() => {
@@ -899,7 +1339,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                               </Typography>
                             </Box>
                           ) : isThumbnail ? null : (
-                            " "
+                            " "
                           )}
                         </TableCell>
                       );
@@ -919,17 +1359,26 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                         selectedRowId={selectedRowId}
                         onRowSelect={onRowSelect}
                       />
+                        selectedRowId={selectedRowId}
+                        onRowSelect={onRowSelect}
+                      />
                     ))}
                 </React.Fragment>
               );
             })}
           </TableBody>
+
           {/* ✅ Sticky footer pagination */}
           {tableFooter ? tableFooter : null}
         </Table>
       </Box>
+      
+    </div>
+  );
+};
 
     </div>
   );
 };
+export default AssetsGroupedDataTable;
 export default AssetsGroupedDataTable;
