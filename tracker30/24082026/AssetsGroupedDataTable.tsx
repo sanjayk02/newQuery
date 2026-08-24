@@ -866,6 +866,7 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
   ____________________________________________________________________________________*/
   return (
     <Box ref={rootRef} className={classes.root}>
+    <div ref={rootRef} className={classes.root}>
       <Box className={classes.scroller}>
         <Table size="small" stickyHeader className={classes.table}>
           {/* Percentage-based column widths — fills viewport exactly like the list view */}
@@ -1077,6 +1078,9 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
       </Box>
       
     </Box>
+  );
+};
+    </div>
   );
 };
 
