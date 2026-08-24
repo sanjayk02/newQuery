@@ -332,7 +332,7 @@ const useStyles = makeStyles(() => ({
 
   scroller: {
     width: "100%",
-    overflowX: "auto",
+    overflowX: "visible",
     overflowY: "visible",
     whiteSpace: "pre-wrap",
   },
