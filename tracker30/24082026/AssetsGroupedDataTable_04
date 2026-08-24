@@ -84,8 +84,6 @@ const UI = {
   FONT_SIZE_GROUP: 13,     // Group header text
 };
 
-const GROUPED_STICKY_THUMBNAIL_WIDTH = UI.THUMB_WIDTH + UI.THUMB_PAD_X * 2;
-const GROUPED_STICKY_NAME_WIDTH = 140;
 const GROUPED_STICKY_THUMBNAIL_WIDTH = 130;
 const GROUPED_STICKY_NAME_WIDTH = 180;
 
@@ -104,7 +102,9 @@ const getGroupedStickyColumnStyle = (
       maxWidth: GROUPED_STICKY_THUMBNAIL_WIDTH,
       backgroundColor,
       backgroundClip: "padding-box",
-      transform: "translateX(var(--grouped-freeze-x, 0px))",
+      transform: "translate3d(var(--grouped-freeze-x, 0px), 0, 0)",
+      transition: "none",
+      backfaceVisibility: "hidden",
       willChange: "transform",
     };
   }
@@ -119,7 +119,9 @@ const getGroupedStickyColumnStyle = (
       backgroundColor,
       backgroundClip: "padding-box",
       boxShadow: "2px 0 0 rgba(0, 0, 0, 0.35)",
-      transform: "translateX(var(--grouped-freeze-x, 0px))",
+      transform: "translate3d(var(--grouped-freeze-x, 0px), 0, 0)",
+      transition: "none",
+      backfaceVisibility: "hidden",
       willChange: "transform",
     };
   }
@@ -478,14 +480,6 @@ function renderAssetField(
     return (
       <Typography noWrap style={{ 
         fontSize: UI.FONT_SIZE_CONTENT, 
-        fontWeight: 500 
-      }}>
-        {formatForDisplay(asset.group_1 || asset.group_1_name)}
-      </Typography>
-  if (col.id === "group_1_name") {
-    return (
-      <Typography noWrap style={{ 
-        fontSize: UI.FONT_SIZE_CONTENT, 
         fontWeight: 500,
         paddingLeft: 8,
       }}>
@@ -811,22 +805,14 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
 
     if (!scrollParent) return;
 
-    let frameId = 0;
-
     const handleScroll = () => {
-      if (frameId) return;
-
-      frameId = window.requestAnimationFrame(() => {
-        frameId = 0;
-        root.style.setProperty("--grouped-freeze-x", `${scrollParent ? scrollParent.scrollLeft : 0}px`);
-      });
+      root.style.setProperty("--grouped-freeze-x", `${scrollParent ? scrollParent.scrollLeft : 0}px`);
     };
 
     handleScroll();
     scrollParent.addEventListener("scroll", handleScroll, { passive: true });
 
     return () => {
-      if (frameId) window.cancelAnimationFrame(frameId);
       scrollParent && scrollParent.removeEventListener("scroll", handleScroll);
     };
   }, []);
@@ -1021,7 +1007,6 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
                           }}
                         >
                           {shouldShowGroupLabel ? (
-                            <Box display="flex" alignItems="center">
                             <Box display="flex" alignItems="center" style={{ paddingLeft: isName ? 8 : 0 }}>
                               <IconButton
                                 size="small"
