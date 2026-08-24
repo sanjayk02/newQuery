@@ -865,7 +865,6 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
     sorting interactions. The tableFooter prop is rendered as a sticky footer if provided.
   ____________________________________________________________________________________*/
   return (
-    <Box ref={rootRef} className={classes.root}>
     <div ref={rootRef} className={classes.root}>
       <Box className={classes.scroller}>
         <Table size="small" stickyHeader className={classes.table}>
@@ -1077,9 +1076,6 @@ const AssetsGroupedDataTable: React.FC<Props> = ({
         </Table>
       </Box>
       
-    </Box>
-  );
-};
     </div>
   );
 };
