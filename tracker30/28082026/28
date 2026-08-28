@@ -1,6 +1,4 @@
-http://localhost:3000/api/projects/HM/collections/comment/documents?order_by=-_id&page=1&per_page=5
-
-fetch('/api/projects/HM/collections/comment/documents?order_by=-_id&page=1&per_page=5', {
+fetch('/api/projects/pol/collections/comment/documents?order_by=-_id&page=1&per_page=5', {
   headers: {
     Authorization: `Bearer ${localStorage.getItem('access_token')}`
   }
