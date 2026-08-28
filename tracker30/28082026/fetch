@@ -1,0 +1,7 @@
+fetch('/api/projects/HM/collections/comment/documents?order_by=-_id&page=1&per_page=5', {
+  headers: {
+    Authorization: localStorage.getItem('access_token')
+  }
+})
+  .then(r => r.json())
+  .then(console.log)
