@@ -1,2 +1,9 @@
 http://localhost:3000/api/projects/HM/collections/comment/documents?order_by=-_id&page=1&per_page=5
-http://localhost:3000/api/projects/HM/collections/comment/documents?path=shared/publish/assets/washiNormal/{relation}/mdl/_review&order_by=-_id&page=1&per_page=1
+
+fetch('/api/projects/HM/collections/comment/documents?order_by=-_id&page=1&per_page=5', {
+  headers: {
+    Authorization: `Bearer ${localStorage.getItem('access_token')}`
+  }
+})
+  .then(r => r.json())
+  .then(console.log)
