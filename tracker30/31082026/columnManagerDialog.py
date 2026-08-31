@@ -189,14 +189,17 @@ class ColumnEditDialog(QDialog):
         self.pasteBtn = QPushButton('Paste')
         self.pasteBtn.setVisible(self._column is None)
 
-        nameLayout = QHBoxLayout()
-        nameLayout.addWidget(self.nameEdit)
+        topButtonLayout = QHBoxLayout()
+        topButtonLayout.addItem(
+            QSpacerItem(1, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        )
         if self._column is not None:
-            nameLayout.addWidget(self.copyBtn)
+            topButtonLayout.addWidget(self.copyBtn)
         else:
-            nameLayout.addWidget(self.pasteBtn)
+            topButtonLayout.addWidget(self.pasteBtn)
 
-        self._layout.addRow('Display Name:', nameLayout)
+        self._layout.addRow('', topButtonLayout)
+        self._layout.addRow('Display Name:', self.nameEdit)
         self._layout.addRow('Key (Unique):', self.keyEdit)
         self._layout.addRow('Data Type:', self.typeCombo)
         self._layout.addRow('Options (if array):', self.optionsEdit)
