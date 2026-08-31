@@ -184,7 +184,19 @@ class ColumnEditDialog(QDialog):
                 self.globalChk.setEnabled(False)
                 self.excludeEdit.setEnabled(False)
 
-        self._layout.addRow('Display Name:', self.nameEdit)
+        self.copyBtn = QPushButton('Copy')
+        self.copyBtn.setVisible(self._column is not None)
+        self.pasteBtn = QPushButton('Paste')
+        self.pasteBtn.setVisible(self._column is None)
+
+        nameLayout = QHBoxLayout()
+        nameLayout.addWidget(self.nameEdit)
+        if self._column is not None:
+            nameLayout.addWidget(self.copyBtn)
+        else:
+            nameLayout.addWidget(self.pasteBtn)
+
+        self._layout.addRow('Display Name:', nameLayout)
         self._layout.addRow('Key (Unique):', self.keyEdit)
         self._layout.addRow('Data Type:', self.typeCombo)
         self._layout.addRow('Options (if array):', self.optionsEdit)
@@ -197,19 +209,7 @@ class ColumnEditDialog(QDialog):
         self._layout.addRow('Role:', self.roleCombo)
 
         self.saveBtn = QPushButton('Save' if self._column else 'Create')
-        self.copyBtn = QPushButton('Copy')
-        self.copyBtn.setVisible(self._column is not None)
-        self.pasteBtn = QPushButton('Paste')
-        self.pasteBtn.setVisible(self._column is None)
-
-        buttonLayout = QHBoxLayout()
-        if self._column is not None:
-            buttonLayout.addWidget(self.copyBtn)
-        else:
-            buttonLayout.addWidget(self.pasteBtn)
-        buttonLayout.addWidget(self.saveBtn)
-        self._layout.addRow(buttonLayout)
-
+        self._layout.addRow(self.saveBtn)
         self.nameEdit.textEdited.connect(self.onDisplayNameEdited)
         self._completer.activated[str].connect(self.onDisplayNameEdited)
         self.typeCombo.currentIndexChanged.connect(self.onDataTypeChanged)
