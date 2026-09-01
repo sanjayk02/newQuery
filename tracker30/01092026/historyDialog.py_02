@@ -54,7 +54,7 @@ class HistoryDialog(QDialog):
         self._scrollContent = QWidget(self._scrollArea)
         self._historyLayout = QVBoxLayout(self._scrollContent)
         self._historyLayout.setContentsMargins(0, 0, 0, 0)
-        self._historyLayout.setSpacing(10)
+        self._historyLayout.setSpacing(8)
         self._scrollArea.setWidget(self._scrollContent)
         self._layout.addWidget(self._scrollArea)
 
@@ -64,13 +64,19 @@ class HistoryDialog(QDialog):
         self._clearLayout(self._historyLayout)
         hasHistory = False
 
-        for entityID, entityName in self._entityItems:
+        for index, (entityID, entityName) in enumerate(self._entityItems):
             histories = self._histories
             if histories is None or len(self._entityItems) > 1:
                 histories = self._api.getHistory(entityID)
             if histories:
                 hasHistory = True
-            self._renderEntityHistory(entityID, entityName, histories or [])
+            section = self._buildEntitySection(
+                entityID,
+                entityName,
+                histories or [],
+                expanded=index == 0,
+            )
+            self._historyLayout.addWidget(section)
 
         if not hasHistory:
             emptyLabel = QLabel('No update history found.', self._scrollContent)
@@ -80,31 +86,59 @@ class HistoryDialog(QDialog):
 
         self._historyLayout.addStretch(1)
 
-    def _renderEntityHistory(
+    def _buildEntitySection(
         self,
         entityID: Any,
         entityName: str,
         histories: list[Any],
-    ) -> None:
-        header = QLabel(entityName, self._scrollContent)
-        header.setFrameShape(QFrame.Shape.StyledPanel)
-        header.setMinimumHeight(28)
-        header.setContentsMargins(8, 4, 8, 4)
-        self._historyLayout.addWidget(header)
+        expanded: bool,
+    ) -> QWidget:
+        section = QFrame(self._scrollContent)
+        section.setFrameShape(QFrame.Shape.StyledPanel)
+        sectionLayout = QVBoxLayout(section)
+        sectionLayout.setContentsMargins(0, 0, 0, 0)
+        sectionLayout.setSpacing(0)
 
-        if not histories:
-            emptyLabel = QLabel('No update history found for this row.', self._scrollContent)
-            emptyLabel.setContentsMargins(14, 8, 8, 8)
-            self._historyLayout.addWidget(emptyLabel)
-            return
+        headerButton = QPushButton(section)
+        headerButton.setCheckable(True)
+        headerButton.setChecked(expanded)
+        headerButton.setMinimumHeight(30)
+        headerButton.setStyleSheet('QPushButton { text-align: left; padding-left: 8px; }')
 
-        for history in histories:
-            if not isinstance(history, dict):
-                continue
-            self._historyLayout.addWidget(self._buildHistoryBlock(entityID, history))
+        content = QWidget(section)
+        contentLayout = QVBoxLayout(content)
+        contentLayout.setContentsMargins(8, 8, 8, 8)
+        contentLayout.setSpacing(10)
 
-    def _buildHistoryBlock(self, entityID: Any, history: dict[str, Any]) -> QWidget:
-        block = QFrame(self._scrollContent)
+        if histories:
+            for history in histories:
+                if not isinstance(history, dict):
+                    continue
+                contentLayout.addWidget(self._buildHistoryBlock(entityID, history, content))
+        else:
+            emptyLabel = QLabel('No update history found for this row.', content)
+            emptyLabel.setContentsMargins(8, 8, 8, 8)
+            contentLayout.addWidget(emptyLabel)
+
+        sectionLayout.addWidget(headerButton)
+        sectionLayout.addWidget(content)
+
+        def updateExpanded(checked: bool) -> None:
+            content.setVisible(checked)
+            prefix = '-' if checked else '+'
+            headerButton.setText(f'{prefix} {entityName}')
+
+        headerButton.toggled.connect(updateExpanded)
+        updateExpanded(expanded)
+        return section
+
+    def _buildHistoryBlock(
+        self,
+        entityID: Any,
+        history: dict[str, Any],
+        parent: QWidget,
+    ) -> QWidget:
+        block = QFrame(parent)
         block.setFrameShape(QFrame.Shape.StyledPanel)
         block.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
 
