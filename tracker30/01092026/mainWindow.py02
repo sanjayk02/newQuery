@@ -1722,8 +1722,7 @@ class DataWidget(QWidget):
         clickedGroup = index.data(self.GROUPPATH_ROLE)
         isMultiSelectedClick = clickedGroup in selectedGroups and len(selectedGroups) > 1
 
-        entity = self._entities.get(clickedGroup)
-        entityID = entity.id() if entity is not None else ''
+        historyItems = self._historyItemsForSelection(clickedGroup, selectedGroups)
 
         menu = QMenu(view)
         editAction = menu.addAction('Edit in Cell')
@@ -1731,16 +1730,41 @@ class DataWidget(QWidget):
             not isMultiSelectedClick and self.canDirectEditCell(index, showWarning=False)
         )
         historyAction = menu.addAction('History')
-        historyAction.setEnabled(bool(clickedGroup and entityID))
+        historyAction.setEnabled(bool(historyItems))
 
         selectedAction = menu.exec(view.viewport().mapToGlobal(pos))
         if selectedAction == editAction:
             self.beginDirectCellEdit(index)
         elif selectedAction == historyAction:
-            self.showHistoryDialog(entityID, str(clickedGroup))
+            self.showHistoryDialog(historyItems)
 
-    def showHistoryDialog(self, entityID: str, entityName: str) -> None:
-        dialog = HistoryDialog(self._api, entityID, entityName, parent=self)
+    def _historyItemsForSelection(
+        self,
+        clickedGroup: str | None,
+        selectedGroups: list[str],
+    ) -> list[tuple[str, str]]:
+        groups = selectedGroups if clickedGroup in selectedGroups else [clickedGroup]
+        historyItems: list[tuple[str, str]] = []
+        for group in groups:
+            if not group:
+                continue
+            entity = self._entities.get(group)
+            entityID = entity.id() if entity is not None else ''
+            if entityID:
+                historyItems.append((entityID, str(group)))
+        return historyItems
+
+    def showHistoryDialog(self, historyItems: list[tuple[str, str]]) -> None:
+        if not historyItems:
+            return
+        entityID, entityName = historyItems[0]
+        dialog = HistoryDialog(
+            self._api,
+            entityID,
+            entityName,
+            entityItems=historyItems,
+            parent=self,
+        )
         dialog.exec()
 
     def onDoubleClick(self, index: QModelIndex):
