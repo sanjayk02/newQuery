@@ -108,6 +108,7 @@ class HistoryDialog(QDialog):
         contentLayout.setSpacing(10)
 
         if histories:
+            histories = self._prepareHistories(histories)
             for history in histories:
                 if not isinstance(history, dict):
                     continue
@@ -128,6 +129,54 @@ class HistoryDialog(QDialog):
         headerButton.toggled.connect(updateExpanded)
         updateExpanded(expanded)
         return section
+
+    def _prepareHistories(self, histories: list[Any]) -> list[dict[str, Any]]:
+        prepared = [history for history in histories if isinstance(history, dict)]
+        prepared.sort(key=lambda history: str(self._historyDate(history)), reverse=True)
+
+        for index, history in enumerate(prepared):
+            olderHistory = prepared[index + 1] if index + 1 < len(prepared) else None
+            history['_display_changes'] = self._diffSnapshotData(history, olderHistory)
+        return prepared
+
+    def _snapshotData(self, history: dict[str, Any] | None) -> dict[str, Any]:
+        if not history:
+            return {}
+        snapshot = history.get('snapshot', {})
+        data = snapshot.get('data', {}) if isinstance(snapshot, dict) else {}
+        return data if isinstance(data, dict) else {}
+
+    def _diffSnapshotData(
+        self,
+        history: dict[str, Any],
+        olderHistory: dict[str, Any] | None,
+    ) -> list[dict[str, Any]]:
+        currentData = self._snapshotData(history)
+        olderData = self._snapshotData(olderHistory)
+        if not currentData:
+            return []
+
+        if not olderData:
+            return [
+                {'column': key, 'value': self._formatValue(value)}
+                for key, value in currentData.items()
+                if self._hasDisplayValue(value)
+            ]
+
+        changes: list[dict[str, Any]] = []
+        for key, value in currentData.items():
+            if olderData.get(key) != value:
+                changes.append({'column': key, 'value': self._formatValue(value)})
+        return changes
+
+    def _hasDisplayValue(self, value: Any) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        if isinstance(value, (list, tuple, set, dict)):
+            return bool(value)
+        return True
 
     def _buildHistoryBlock(
         self,
@@ -211,6 +260,10 @@ class HistoryDialog(QDialog):
         )
 
     def _historyChanges(self, history: dict[str, Any]) -> list[dict[str, Any]]:
+        displayChanges = history.get('_display_changes')
+        if isinstance(displayChanges, list):
+            return displayChanges
+
         changes = history.get('changes') or history.get('diff') or history.get('updated_data')
         if isinstance(changes, list):
             return [self._normalizeChange(change) for change in changes]
