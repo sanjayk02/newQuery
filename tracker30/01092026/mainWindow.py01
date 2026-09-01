@@ -1721,8 +1721,6 @@ class DataWidget(QWidget):
         selectedGroups = self._getSelection()
         clickedGroup = index.data(self.GROUPPATH_ROLE)
         isMultiSelectedClick = clickedGroup in selectedGroups and len(selectedGroups) > 1
-        if isMultiSelectedClick:
-            return
 
         entity = self._entities.get(clickedGroup)
         entityID = entity.id() if entity is not None else ''
@@ -1730,7 +1728,7 @@ class DataWidget(QWidget):
         menu = QMenu(view)
         editAction = menu.addAction('Edit in Cell')
         editAction.setEnabled(
-            self.canDirectEditCell(index, showWarning=False)
+            not isMultiSelectedClick and self.canDirectEditCell(index, showWarning=False)
         )
         historyAction = menu.addAction('History')
         historyAction.setEnabled(bool(clickedGroup and entityID))
