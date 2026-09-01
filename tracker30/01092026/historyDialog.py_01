@@ -25,12 +25,12 @@ class HistoryDialog(QDialog):
         entityID: Any,
         entityName: str | None = None,
         histories: list[Any] | None = None,
+        entityItems: list[tuple[Any, str]] | None = None,
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
         self._api = api
-        self._entityID = entityID
-        self._entityName = entityName or str(entityID)
+        self._entityItems = entityItems or [(entityID, entityName or str(entityID))]
         self._histories = histories
         self.setWindowTitle('Update History')
         self.resize(760, 560)
@@ -39,7 +39,10 @@ class HistoryDialog(QDialog):
         self._layout.setContentsMargins(12, 12, 12, 12)
         self._layout.setSpacing(10)
 
-        self._titleLabel = QLabel(self._entityName, self)
+        title = self._entityItems[0][1]
+        if len(self._entityItems) > 1:
+            title = f'{len(self._entityItems)} selected rows'
+        self._titleLabel = QLabel(title, self)
         self._titleLabel.setFrameShape(QFrame.Shape.StyledPanel)
         self._titleLabel.setMinimumHeight(28)
         self._titleLabel.setContentsMargins(8, 4, 8, 4)
@@ -58,30 +61,49 @@ class HistoryDialog(QDialog):
         self.loadHistory()
 
     def loadHistory(self):
-        histories = self._histories
-        if histories is None:
-            histories = self._api.getHistory(self._entityID)
-        self._renderHistories(histories)
-
-    def _renderHistories(self, histories: list[Any]) -> None:
         self._clearLayout(self._historyLayout)
+        hasHistory = False
 
-        if not histories:
+        for entityID, entityName in self._entityItems:
+            histories = self._histories
+            if histories is None or len(self._entityItems) > 1:
+                histories = self._api.getHistory(entityID)
+            if histories:
+                hasHistory = True
+            self._renderEntityHistory(entityID, entityName, histories or [])
+
+        if not hasHistory:
             emptyLabel = QLabel('No update history found.', self._scrollContent)
             emptyLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            emptyLabel.setMinimumHeight(120)
+            emptyLabel.setMinimumHeight(80)
             self._historyLayout.addWidget(emptyLabel)
-            self._historyLayout.addStretch(1)
+
+        self._historyLayout.addStretch(1)
+
+    def _renderEntityHistory(
+        self,
+        entityID: Any,
+        entityName: str,
+        histories: list[Any],
+    ) -> None:
+        header = QLabel(entityName, self._scrollContent)
+        header.setFrameShape(QFrame.Shape.StyledPanel)
+        header.setMinimumHeight(28)
+        header.setContentsMargins(8, 4, 8, 4)
+        self._historyLayout.addWidget(header)
+
+        if not histories:
+            emptyLabel = QLabel('No update history found for this row.', self._scrollContent)
+            emptyLabel.setContentsMargins(14, 8, 8, 8)
+            self._historyLayout.addWidget(emptyLabel)
             return
 
         for history in histories:
             if not isinstance(history, dict):
                 continue
-            self._historyLayout.addWidget(self._buildHistoryBlock(history))
+            self._historyLayout.addWidget(self._buildHistoryBlock(entityID, history))
 
-        self._historyLayout.addStretch(1)
-
-    def _buildHistoryBlock(self, history: dict[str, Any]) -> QWidget:
+    def _buildHistoryBlock(self, entityID: Any, history: dict[str, Any]) -> QWidget:
         block = QFrame(self._scrollContent)
         block.setFrameShape(QFrame.Shape.StyledPanel)
         block.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
@@ -99,7 +121,7 @@ class HistoryDialog(QDialog):
         grid.addWidget(QLabel(str(self._historyUser(history)), block), 1, 1)
         layout.addLayout(grid)
 
-        for row, change in enumerate(self._historyChanges(history)):
+        for change in self._historyChanges(history):
             rowLayout = QHBoxLayout()
             rowLayout.setSpacing(10)
 
@@ -111,7 +133,8 @@ class HistoryDialog(QDialog):
             rollbackButton = QPushButton('Rollback', block)
             rollbackButton.setMinimumWidth(120)
             rollbackButton.clicked.connect(
-                lambda checked=False, h=history, c=change: self.doRollback(
+                lambda checked=False, eid=entityID, h=history, c=change: self.doRollback(
+                    eid,
                     self._historyID(h),
                     str(c.get('column', '')),
                 )
@@ -124,7 +147,7 @@ class HistoryDialog(QDialog):
 
         allRollbackButton = QPushButton('Rollback', block)
         allRollbackButton.clicked.connect(
-            lambda checked=False, h=history: self.doRollback(self._historyID(h))
+            lambda checked=False, eid=entityID, h=history: self.doRollback(eid, self._historyID(h))
         )
         layout.addWidget(allRollbackButton)
 
@@ -212,7 +235,7 @@ class HistoryDialog(QDialog):
             if widget is not None:
                 widget.deleteLater()
 
-    def doRollback(self, historyID: str, columnName: str = ''):
+    def doRollback(self, entityID: Any, historyID: str, columnName: str = ''):
         message = 'Revert to this state?'
         if columnName:
             message = f'Revert "{columnName}" to this state?'
@@ -224,5 +247,5 @@ class HistoryDialog(QDialog):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if confirm == QMessageBox.StandardButton.Yes:
-            self._api.rollback(self._entityID, historyID)
+            self._api.rollback(entityID, historyID)
             self.accept()
