@@ -272,23 +272,12 @@ class ApiClient(object):
         )
 
     def getHistory(self, entityID: str) -> list[Any]:
-        url = f'{self._baseUrl}/api/tracker/entities/{entityID}/history'
-        try:
-            print(f'[History Debug] GET {url}')
-            r = requests.get(
-                url,
-                headers=self._getHeader(),
-                timeout=self.TIMEOUT,
-            )
-            print(f'[History Debug] Status: {r.status_code}')
-            body = r.text
-            if len(body) > 4000:
-                body = body[:4000] + '... <truncated>'
-            print(f'[History Debug] Body: {body}')
-            return r.json() if r.status_code == 200 else []
-        except Exception as e:
-            print(f'[History Debug] Error getting history: {e}')
-            return []
+        r = requests.get(
+            f'{self._baseUrl}/api/tracker/entities/{entityID}/history',
+            headers=self._getHeader(),
+            timeout=self.TIMEOUT,
+        )
+        return r.json() if r.status_code == 200 else []
 
     def rollback(self, entityID: str, historyID: str) -> None:
         payload: dict[str, Any] = {
