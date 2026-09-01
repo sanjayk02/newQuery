@@ -33,20 +33,17 @@ class HistoryDialog(QDialog):
         self._entityItems = entityItems or [(entityID, entityName or str(entityID))]
         self._histories = histories
         self.setWindowTitle('Update History')
-        self.resize(760, 560)
+        self.setWindowFlags(
+            self.windowFlags()
+            | Qt.WindowType.WindowMinimizeButtonHint
+            | Qt.WindowType.WindowMaximizeButtonHint
+        )
+        self.resize(680, 560)
 
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(12, 12, 12, 12)
         self._layout.setSpacing(10)
 
-        title = self._entityItems[0][1]
-        if len(self._entityItems) > 1:
-            title = f'{len(self._entityItems)} selected rows'
-        self._titleLabel = QLabel(title, self)
-        self._titleLabel.setFrameShape(QFrame.Shape.StyledPanel)
-        self._titleLabel.setMinimumHeight(28)
-        self._titleLabel.setContentsMargins(8, 4, 8, 4)
-        self._layout.addWidget(self._titleLabel)
 
         self._scrollArea = QScrollArea(self)
         self._scrollArea.setWidgetResizable(True)
