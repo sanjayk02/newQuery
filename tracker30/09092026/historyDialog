@@ -1,0 +1,374 @@
+from typing import Any
+
+from ppui.PySide.QtCore import Qt
+from ppui.PySide.QtWidgets import (
+    QDialog,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
+
+from .apiClient import ApiClient
+
+
+class HistoryDialog(QDialog):
+    def __init__(
+        self,
+        api: ApiClient,
+        entityID: Any,
+        entityName: str | None = None,
+        histories: list[Any] | None = None,
+        entityItems: list[tuple[Any, str]] | None = None,
+        parent: QWidget | None = None,
+    ):
+        super().__init__(parent)
+        self._api = api
+        self._entityItems = entityItems or [(entityID, entityName or str(entityID))]
+        self._histories = histories
+        self.setWindowTitle('Update History')
+        self.setWindowFlags(
+            self.windowFlags()
+            | Qt.WindowType.WindowMinimizeButtonHint
+            | Qt.WindowType.WindowMaximizeButtonHint
+        )
+        self.resize(680, 560)
+
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(12, 12, 12, 12)
+        self._layout.setSpacing(10)
+
+
+        self._scrollArea = QScrollArea(self)
+        self._scrollArea.setWidgetResizable(True)
+        self._scrollArea.setFrameShape(QFrame.Shape.NoFrame)
+        self._scrollContent = QWidget(self._scrollArea)
+        self._historyLayout = QVBoxLayout(self._scrollContent)
+        self._historyLayout.setContentsMargins(0, 0, 0, 0)
+        self._historyLayout.setSpacing(8)
+        self._scrollArea.setWidget(self._scrollContent)
+        self._layout.addWidget(self._scrollArea)
+
+        self.loadHistory()
+
+    def loadHistory(self):
+        self._clearLayout(self._historyLayout)
+        hasHistory = False
+
+        for index, (entityID, entityName) in enumerate(self._entityItems):
+            histories = self._histories
+            if histories is None or len(self._entityItems) > 1:
+                histories = self._api.getHistory(entityID)
+            if histories:
+                hasHistory = True
+            section = self._buildEntitySection(
+                entityID,
+                entityName,
+                histories or [],
+                expanded=index == 0,
+            )
+            self._historyLayout.addWidget(section)
+
+        if not hasHistory:
+            emptyLabel = QLabel('No update history found.', self._scrollContent)
+            emptyLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            emptyLabel.setMinimumHeight(80)
+            self._historyLayout.addWidget(emptyLabel)
+
+        self._historyLayout.addStretch(1)
+
+    def _buildEntitySection(
+        self,
+        entityID: Any,
+        entityName: str,
+        histories: list[Any],
+        expanded: bool,
+    ) -> QWidget:
+        section = QFrame(self._scrollContent)
+        section.setFrameShape(QFrame.Shape.StyledPanel)
+        sectionLayout = QVBoxLayout(section)
+        sectionLayout.setContentsMargins(0, 0, 0, 0)
+        sectionLayout.setSpacing(0)
+
+        headerButton = QPushButton(section)
+        headerButton.setCheckable(True)
+        headerButton.setChecked(expanded)
+        headerButton.setMinimumHeight(30)
+        headerButton.setStyleSheet('QPushButton { text-align: left; padding-left: 8px; }')
+
+        content = QWidget(section)
+        contentLayout = QVBoxLayout(content)
+        contentLayout.setContentsMargins(8, 8, 8, 8)
+        contentLayout.setSpacing(10)
+
+        if histories:
+            histories = self._prepareHistories(histories)
+            for history in histories:
+                if not isinstance(history, dict):
+                    continue
+                contentLayout.addWidget(self._buildHistoryBlock(entityID, history, content))
+        else:
+            emptyLabel = QLabel('No update history found for this row.', content)
+            emptyLabel.setContentsMargins(8, 8, 8, 8)
+            contentLayout.addWidget(emptyLabel)
+
+        sectionLayout.addWidget(headerButton)
+        sectionLayout.addWidget(content)
+
+        def updateExpanded(checked: bool) -> None:
+            content.setVisible(checked)
+            prefix = '-' if checked else '+'
+            headerButton.setText(f'{prefix} {entityName}')
+
+        headerButton.toggled.connect(updateExpanded)
+        updateExpanded(expanded)
+        return section
+
+    def _prepareHistories(self, histories: list[Any]) -> list[dict[str, Any]]:
+        prepared = [history for history in histories if isinstance(history, dict)]
+        prepared.sort(key=lambda history: str(self._historyDate(history)), reverse=True)
+
+        for index, history in enumerate(prepared):
+            olderHistory = prepared[index + 1] if index + 1 < len(prepared) else None
+            history['_display_changes'] = self._diffSnapshotData(history, olderHistory)
+        return prepared
+
+    def _snapshotData(self, history: dict[str, Any] | None) -> dict[str, Any]:
+        if not history:
+            return {}
+        snapshot = history.get('snapshot', {})
+        data = snapshot.get('data', {}) if isinstance(snapshot, dict) else {}
+        return data if isinstance(data, dict) else {}
+
+    def _diffSnapshotData(
+        self,
+        history: dict[str, Any],
+        olderHistory: dict[str, Any] | None,
+    ) -> list[dict[str, Any]]:
+        currentData = self._snapshotData(history)
+        olderData = self._snapshotData(olderHistory)
+        if not currentData:
+            return []
+
+        if not olderData:
+            return [
+                {'column': key, 'value': self._formatValue(value)}
+                for key, value in currentData.items()
+                if self._hasDisplayValue(value)
+            ]
+
+        changes: list[dict[str, Any]] = []
+        for key, value in currentData.items():
+            if olderData.get(key) != value:
+                changes.append({'column': key, 'value': self._formatValue(value)})
+        return changes
+
+    def _hasDisplayValue(self, value: Any) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        if isinstance(value, (list, tuple, set, dict)):
+            return bool(value)
+        return True
+
+    def _buildHistoryBlock(
+        self,
+        entityID: Any,
+        history: dict[str, Any],
+        parent: QWidget,
+    ) -> QWidget:
+        block = QFrame(parent)
+        block.setFrameShape(QFrame.Shape.StyledPanel)
+        block.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+
+        layout = QVBoxLayout(block)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(10)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(8)
+        grid.setColumnMinimumWidth(0, 150)
+        grid.setColumnMinimumWidth(2, 140)
+        grid.setColumnStretch(1, 1)
+
+        grid.addWidget(QLabel('Date:', block), 0, 0)
+        grid.addWidget(QLabel(str(self._historyDate(history)), block), 0, 1)
+        grid.addWidget(QLabel('Name:', block), 1, 0)
+        grid.addWidget(QLabel(str(self._historyUser(history)), block), 1, 1)
+
+        row = 2
+        for change in self._historyChanges(history):
+            columnLabel = QLabel(str(change.get('column', '')), block)
+            valueLabel = QLabel(str(change.get('value', '')), block)
+            valueLabel.setWordWrap(True)
+            valueLabel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            rollbackButton = QPushButton('Rollback', block)
+            rollbackButton.setMinimumWidth(120)
+            rollbackButton.clicked.connect(
+                lambda checked=False, eid=entityID, h=history, c=change: self.doRollback(
+                    eid,
+                    self._historyID(h),
+                    str(c.get('column', '')),
+                    h,
+                )
+            )
+
+            grid.addWidget(columnLabel, row, 0)
+            grid.addWidget(valueLabel, row, 1)
+            grid.addWidget(rollbackButton, row, 2)
+            row += 1
+
+        layout.addLayout(grid)
+
+        allRollbackButton = QPushButton('Rollback', block)
+        allRollbackButton.clicked.connect(
+            lambda checked=False, eid=entityID, h=history: self.doRollback(eid, self._historyID(h))
+        )
+        layout.addWidget(allRollbackButton)
+
+        return block
+
+    def _historyID(self, history: dict[str, Any]) -> str:
+        return str(
+            history.get('id')
+            or history.get('_id')
+            or history.get('history_id')
+            or ''
+        )
+
+    def _historyDate(self, history: dict[str, Any]) -> Any:
+        return (
+            history.get('modified_at_utc')
+            or history.get('modified_at')
+            or history.get('created_at_utc')
+            or history.get('date')
+            or ''
+        )
+
+    def _historyUser(self, history: dict[str, Any]) -> Any:
+        return (
+            history.get('modified_by')
+            or history.get('created_by')
+            or history.get('user')
+            or history.get('name')
+            or ''
+        )
+
+    def _historyRoot(self, history: dict[str, Any]) -> str:
+        snapshot = history.get('snapshot', {})
+        if isinstance(snapshot, dict):
+            return str(snapshot.get('root') or history.get('root') or '')
+        return str(history.get('root') or '')
+
+    def _historyGroup(self, history: dict[str, Any]) -> str:
+        snapshot = history.get('snapshot', {})
+        if isinstance(snapshot, dict):
+            return str(snapshot.get('group') or history.get('group') or '')
+        return str(history.get('group') or '')
+
+    def _historyColumnValue(self, history: dict[str, Any], columnName: str) -> Any:
+        data = self._snapshotData(history)
+        if columnName not in data:
+            raise KeyError(f'History data does not contain column: {columnName}')
+        return data[columnName]
+
+    def _historyChanges(self, history: dict[str, Any]) -> list[dict[str, Any]]:
+        displayChanges = history.get('_display_changes')
+        if isinstance(displayChanges, list):
+            return displayChanges
+
+        changes = history.get('changes') or history.get('diff') or history.get('updated_data')
+        if isinstance(changes, list):
+            return [self._normalizeChange(change) for change in changes]
+        if isinstance(changes, dict):
+            return [
+                {'column': key, 'value': self._formatValue(value)}
+                for key, value in changes.items()
+            ]
+
+        snapshot = history.get('snapshot', {})
+        data = snapshot.get('data', {}) if isinstance(snapshot, dict) else {}
+        if isinstance(data, dict):
+            return [
+                {'column': key, 'value': self._formatValue(value)}
+                for key, value in data.items()
+            ]
+
+        return [{'column': 'Update Data', 'value': self._formatValue(history)}]
+
+    def _normalizeChange(self, change: Any) -> dict[str, Any]:
+        if not isinstance(change, dict):
+            return {'column': 'Update Data', 'value': self._formatValue(change)}
+
+        column = (
+            change.get('column')
+            or change.get('column_name')
+            or change.get('key')
+            or change.get('field')
+            or 'Update Data'
+        )
+        value = (
+            change.get('value')
+            if 'value' in change
+            else change.get('new_value')
+            if 'new_value' in change
+            else change.get('updated_value')
+            if 'updated_value' in change
+            else change.get('data', '')
+        )
+        return {'column': column, 'value': self._formatValue(value)}
+
+    def _formatValue(self, value: Any) -> str:
+        if isinstance(value, dict):
+            return ', '.join(f'{key}: {val}' for key, val in value.items())
+        if isinstance(value, (list, tuple, set)):
+            return ', '.join(str(item) for item in value)
+        return str(value)
+
+    def _clearLayout(self, layout: QVBoxLayout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def doRollback(
+        self,
+        entityID: Any,
+        historyID: str,
+        columnName: str = '',
+        history: dict[str, Any] | None = None,
+    ):
+        message = 'Revert to this state?'
+        if columnName:
+            message = f'Revert "{columnName}" to this state?'
+
+        confirm = QMessageBox.question(
+            self,
+            'Confirm',
+            message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if confirm == QMessageBox.StandardButton.Yes:
+            try:
+                if columnName and history is not None:
+                    root = self._historyRoot(history)
+                    group = self._historyGroup(history)
+                    value = self._historyColumnValue(history, columnName)
+                    if not root or not group:
+                        raise ValueError('History data does not contain root/group for column rollback.')
+                    self._api.updateEntity(entityID, root, group, {columnName: value})
+                else:
+                    self._api.rollback(entityID, historyID)
+            except Exception as e:
+                QMessageBox.critical(self, 'Rollback Failed', str(e))
+                return
+            self.accept()
