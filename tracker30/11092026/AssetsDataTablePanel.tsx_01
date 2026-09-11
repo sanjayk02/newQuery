@@ -674,9 +674,9 @@ const AssetsDataTablePanel: React.FC<RouteComponentProps> = () => {
     viewMode,
   );
 
-  const normalizedGroups = useMemo(() => {
+  const normalizedGroups = useMemo<PivotGroup[]>(() => {
     if (groups && groups.length > 0) {
-      return groups;
+      return groups as PivotGroup[];
     }
     return buildAssetGroups((assets || rawAssets || []) as Asset[]);
   }, [groups, assets, rawAssets]);
@@ -1318,7 +1318,7 @@ const AssetsDataTablePanel: React.FC<RouteComponentProps> = () => {
     };
 
     // 1) Top-group filter
-    let baseGroups = list;
+    let baseGroups: PivotGroup[] = list;
 
     // NO selection -> show EVERYTHING
     if (selectedTopGroups.length > 0) {
