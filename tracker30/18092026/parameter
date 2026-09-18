@@ -1,0 +1,9 @@
+from ppilib.core.centralclient.pipelineParameter import SQLiteRepository
+
+repo = SQLiteRepository(pipelineSetting)
+
+for parameter in repo.iterParameters():
+    print('Parameter:', parameter)
+    print('Type:', type(parameter))
+    print('Methods:', dir(parameter))
+    break
