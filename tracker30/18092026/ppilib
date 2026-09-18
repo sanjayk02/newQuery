@@ -3,3 +3,13 @@
 "%PYTHON_EXE%" -c "print('Starting'); from ppilib.desktop.setting import DesktopSectionManager; print('DesktopSectionManager OK')"
 
 "%PYTHON_EXE%" -c "print('Starting'); from ppilib.core.centralclient.pipelineParameter import SQLiteRepository, CentralWebRepository; print('Repositories OK')"
+
+
+
+from ppilib.desktop.setting import DesktopSectionManager
+from ppilib.core.centralclient.pipelineParameter import (
+    CentralWebRepository,
+    SQLiteRepository,
+)
+
+print('PipelineParameter APIs available')
