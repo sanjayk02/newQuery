@@ -1,0 +1,26 @@
+def pipelineParameterValues(self, parameter: str) -> dict[str, Any]:
+    if parameter not in self._pipelineParameterValueCache:
+        if self._useCentralWeb:
+            project = self._project.keyName()
+            params = ListValueParams(parameter, None, project)
+            iterator = self._centralWebRepo.iterValues(params)
+
+            print("Project:", project)
+            print("Parameter:", parameter)
+        else:
+            iterator = self._sqLiteRepo.iterValues(parameter=parameter)
+
+        values = {}
+
+        for value in iterator:
+            location = str(value.location()).strip("/")
+            parameterValue = value.value()
+
+            print("Location:", location)
+            print("Value:", parameterValue)
+
+            values[location] = parameterValue
+
+        self._pipelineParameterValueCache[parameter] = values
+
+    return self._pipelineParameterValueCache[parameter]
