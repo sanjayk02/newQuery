@@ -1,0 +1,72 @@
+def updateColumn(
+    self,
+    columnID: str,
+    displayName: str,
+    dataType: str,
+    options: list[Any] = [],
+    isMultiSelect: bool = False,
+    visibled: bool = True,
+    isGlobal: bool = False,
+    excludeProjects: list[str] = [],
+    isSystem: bool = False,
+    role: str = Role.Supervisor.keyName,
+    parameterIndex: int | None = None,
+    root: str = '',
+    key: str = '',
+) -> dict[str, Any] | None:
+    roleKey = Role.fromKeyName(role).keyName
+
+    payload: dict[str, Any] = {
+        'role': roleKey,
+        'role_setting': roleKey,
+        'project': self._projectName,
+        'display_name': displayName,
+        'data_type': dataType,
+        'config': {
+            'options': options,
+            'multi_select': isMultiSelect,
+            'role': roleKey,
+            'role_setting': roleKey,
+        },
+        'visibled': visibled,
+        'scope': 'global' if isGlobal else 'project',
+        'exclude_projects': excludeProjects,
+        'is_system': isSystem,
+        'user': getuser(),
+    }
+
+    if dataType == 'pipeline_parameter':
+        if parameterIndex is None:
+            raise ValueError(
+                'parameterIndex is required for a pipeline_parameter column.'
+            )
+
+        payload['config']['parameter_index'] = int(parameterIndex)
+
+    if root:
+        payload['root'] = root
+
+    if key:
+        payload['key'] = key
+
+    print('UPDATE COLUMN PAYLOAD:', payload, flush=True)
+
+    response = requests.put(
+        (
+            f'{self._baseUrl}/api/projects/'
+            f'{self._projectName}/tracker/columns/{columnID}'
+        ),
+        json=payload,
+        headers=self._getHeader(),
+        timeout=self.TIMEOUT,
+    )
+
+    print(
+        'UPDATE COLUMN RESPONSE:',
+        response.status_code,
+        response.text,
+        flush=True,
+    )
+
+    self._raiseForColumnError(response, 'update')
+    return response.json() if response.content else None
