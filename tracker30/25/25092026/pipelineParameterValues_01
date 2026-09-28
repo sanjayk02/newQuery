@@ -1,0 +1,49 @@
+def pipelineParameterValues(
+    self,
+    parameter: str,
+) -> dict[str, Any]:
+    if parameter in self._pipelineParameterValueCache:
+        return self._pipelineParameterValueCache[parameter]
+
+    project = self._project.keyName()
+
+    if self._useCentralWeb:
+        params = ListValueParams(
+            parameter,
+            None,
+            project,
+        )
+        iterator = self._centralWebRepo.iterValues(params)
+    else:
+        iterator = self._sqLiteRepo.iterValues(
+            parameter=parameter,
+        )
+
+    returnedValues = list(iterator)
+
+    print(
+        "PIPELINE LOOKUP:",
+        "centralWeb=", self._useCentralWeb,
+        "project=", project,
+        "parameter=", parameter,
+        "count=", len(returnedValues),
+        flush=True,
+    )
+
+    values: dict[str, Any] = {}
+
+    for value in returnedValues:
+        location = str(value.location()).strip("/")
+        parameterValue = value.value()
+
+        print(
+            "PIPELINE RESULT:",
+            "location=", location,
+            "value=", parameterValue,
+            flush=True,
+        )
+
+        values[location] = parameterValue
+
+    self._pipelineParameterValueCache[parameter] = values
+    return values
