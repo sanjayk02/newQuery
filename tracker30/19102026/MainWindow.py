@@ -2613,12 +2613,16 @@ class TableWidget(DataWidget):
 
         header = self._tableWidget.horizontalHeader()
         viewportRect = self._tableWidget.viewport().geometry()
-        self._frozenColumnsTableWidget.horizontalHeader().setFixedHeight(header.height())
+        # Leave the top header edge visible without shifting the data rows.
+        headerTopInset = 1
+        self._frozenColumnsTableWidget.horizontalHeader().setFixedHeight(
+            max(0, viewportRect.y() - header.y() - headerTopInset),
+        )
         self._frozenColumnsTableWidget.setGeometry(
             viewportRect.x(),
-            header.y(),
+            header.y() + headerTopInset,
             frozenWidth,
-            viewportRect.bottom() + 1 - header.y(),
+            viewportRect.bottom() + 1 - header.y() - headerTopInset,
         )
         self._frozenColumnsTableWidget.updateGeometries()
         self._frozenColumnsTableWidget.verticalScrollBar().setValue(
