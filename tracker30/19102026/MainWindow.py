@@ -1379,9 +1379,8 @@ class DataWidget(QWidget):
         )
 
     def _rowHeight(self) -> int:
-        if self._thumbnailSize <= THUMBNAIL_DEFAULT_SIZE:
-            return ROW_DEFAULT_HEIGHT
-        return self._thumbnailSize + ROW_HEIGHT_PADDING
+        # Keep space for the full thumbnail and padding at every slider value.
+        return max(ROW_DEFAULT_HEIGHT, self._thumbnailSize + ROW_HEIGHT_PADDING)
 
     def _rowSizeHint(self) -> QSize:
         return QSize(0, self._rowHeight())
@@ -2474,6 +2473,12 @@ class TableWidget(DataWidget):
 
         # Keep Thumbnail and Name visible while scrolling horizontally.
         self._frozenColumnsTableWidget = QTableView(self._tableWidget)
+        # The overlay shares the main table's cell coordinates and grid edges.
+        self._frozenColumnsTableWidget.setFrameShape(QFrame.Shape.NoFrame)
+        self._tableWidget.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self._frozenColumnsTableWidget.setVerticalScrollMode(
+            QAbstractItemView.ScrollMode.ScrollPerPixel,
+        )
         self._frozenColumnsTableWidget.setModel(self._proxyModel)
         self._frozenColumnsTableWidget.setSelectionModel(self._tableWidget.selectionModel())
         self._frozenColumnsTableWidget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -2508,6 +2513,14 @@ class TableWidget(DataWidget):
         self._tableWidget.viewport().installEventFilter(self)
         self._tableWidget.horizontalHeader().sectionResized.connect(
             self._updateFrozenColumns
+        )
+        self._tableWidget.horizontalHeader().geometriesChanged.connect(
+            self._updateFrozenColumns,
+        )
+        self._tableWidget.verticalHeader().sectionResized.connect(
+            lambda row, oldSize, newSize: self._frozenColumnsTableWidget.setRowHeight(
+                row, newSize,
+            )
         )
         self._tableWidget.verticalScrollBar().valueChanged.connect(
             self._frozenColumnsTableWidget.verticalScrollBar().setValue
@@ -2598,14 +2611,18 @@ class TableWidget(DataWidget):
             self._frozenColumnsTableWidget.setColumnWidth(col, columnWidth)
             frozenWidth += columnWidth
 
-        self._frozenColumnsTableWidget.setFixedWidth(frozenWidth)
-        self._frozenColumnsTableWidget.setFixedHeight(
-            self._tableWidget.viewport().height()
-            + self._tableWidget.horizontalHeader().height()
+        header = self._tableWidget.horizontalHeader()
+        viewportRect = self._tableWidget.viewport().geometry()
+        self._frozenColumnsTableWidget.horizontalHeader().setFixedHeight(header.height())
+        self._frozenColumnsTableWidget.setGeometry(
+            viewportRect.x(),
+            header.y(),
+            frozenWidth,
+            viewportRect.bottom() + 1 - header.y(),
         )
-        self._frozenColumnsTableWidget.move(
-            self._tableWidget.verticalHeader().width() + self._tableWidget.frameWidth(),
-            self._tableWidget.frameWidth(),
+        self._frozenColumnsTableWidget.updateGeometries()
+        self._frozenColumnsTableWidget.verticalScrollBar().setValue(
+            self._tableWidget.verticalScrollBar().value(),
         )
         self._frozenColumnsTableWidget.show()
         self._frozenColumnsTableWidget.raise_()
