@@ -389,9 +389,9 @@ const ShotDataRow: React.FC<{
     const isRowSelected = selectedRowId === rowId;
     const [isHovered, setIsHovered] = useState(false);
     const rowSelectedBg = 'rgb(7, 192, 253)';
-    const rowHoverBg = '#4e4e4e';
+    const rowHoverBg = '#6b7c82';
     const stickyCellBg = (isCellSelected: boolean) =>
-        isRowSelected ? rowSelectedBg : isCellSelected ? '#345562' : isHovered ? rowHoverBg : '#3f3f3f';
+        isRowSelected ? rowSelectedBg : isHovered ? rowHoverBg : isCellSelected ? '#345562' : '#3f3f3f';
 
     const getCellSel = (colId: string) => {
         const cellId = `${rowId}::${colId}`;
@@ -437,6 +437,7 @@ const ShotDataRow: React.FC<{
                 return (
                     <TableCell
                         onDoubleClick={sel.onDblCellClick}
+                        onMouseEnter={() => setIsHovered(true)}
                         style={{
                             ...getStickyShotColumnStyle('thumbnail', { backgroundColor: stickyCellBg(sel.isCellSelected) }),
                             cursor: onCellSelect ? 'pointer' : 'default',
@@ -453,11 +454,13 @@ const ShotDataRow: React.FC<{
 
             {/* NAME 1 — empty, shown in group_1 header */}
             <TableCell
+                onMouseEnter={() => setIsHovered(true)}
                 style={getStickyShotColumnStyle('group_1_name', { backgroundColor: stickyCellBg(false) })}
             />
 
             {/* NAME 2 — empty, shown in group_2 header */}
             <TableCell
+                onMouseEnter={() => setIsHovered(true)}
                 style={getStickyShotColumnStyle('group_2_name', { backgroundColor: stickyCellBg(false) })}
             />
 
@@ -467,6 +470,7 @@ const ShotDataRow: React.FC<{
                 return (
                     <TableCell
                         onDoubleClick={sel.onDblCellClick}
+                        onMouseEnter={() => setIsHovered(true)}
                         style={{
                             ...getStickyShotColumnStyle('group_3_name', { backgroundColor: stickyCellBg(sel.isCellSelected) }),
                             fontWeight: 500,
@@ -719,21 +723,25 @@ const Group2HeaderRow: React.FC<{
     phaseComponents: { [key: string]: string[] };
 }> = ({ group2, visibleShots, totalShots, isExpanded, onToggle, columnsState, phaseComponents }) => {
     const orderedPhases = getOrderedPhases(phaseComponents);
+    const [isHovered, setIsHovered] = useState(false);
+    const rowBg = isHovered ? '#6b7c82' : '#474747';
 
     return (
         <TableRow
             onClick={onToggle}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
             style={{
                 cursor: 'pointer',
-                backgroundColor: 'rgba(255,255,255,0.04)',
+                backgroundColor: rowBg,
             }}
         >
-            <TableCell style={getStickyShotColumnStyle('thumbnail', { backgroundColor: 'rgba(255,255,255,0.04)' })} />
-            <TableCell style={getStickyShotColumnStyle('group_1_name', { backgroundColor: 'rgba(255,255,255,0.04)' })} />
+            <TableCell style={getStickyShotColumnStyle('thumbnail', { backgroundColor: rowBg })} />
+            <TableCell style={getStickyShotColumnStyle('group_1_name', { backgroundColor: rowBg })} />
 
             {/* NAME 2 */}
             <TableCell style={{
-                ...getStickyShotColumnStyle('group_2_name', { backgroundColor: 'rgba(255,255,255,0.04)' }),
+                ...getStickyShotColumnStyle('group_2_name', { backgroundColor: rowBg }),
                 fontWeight: 500,
                 color: '#ffffff',
                 whiteSpace: 'nowrap',
@@ -751,7 +759,7 @@ const Group2HeaderRow: React.FC<{
                 </span>
             </TableCell>
 
-            <TableCell style={getStickyShotColumnStyle('group_3_name', { backgroundColor: 'rgba(255,255,255,0.04)' })} />
+            <TableCell style={getStickyShotColumnStyle('group_3_name', { backgroundColor: rowBg })} />
 
             {/* Empty phase cells (dynamic) */}
             {orderedPhases.map(phase => {
@@ -794,20 +802,24 @@ const Group1HeaderRow: React.FC<{
     phaseComponents: { [key: string]: string[] };
 }> = ({ group1, allShots, visibleGroup2s, totalGroup2s, isExpanded, onToggle, columnsState, phaseComponents }) => {
     const orderedPhases = getOrderedPhases(phaseComponents);
+    const [isHovered, setIsHovered] = useState(false);
+    const rowBg = isHovered ? '#6b7c82' : '#4c4c4c';
 
     return (
         <TableRow
             onClick={onToggle}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
             style={{
                 cursor: 'pointer',
-                backgroundColor: 'rgba(255,255,255,0.07)',
+                backgroundColor: rowBg,
             }}
         >
-            <TableCell style={getStickyShotColumnStyle('thumbnail', { backgroundColor: 'rgba(255,255,255,0.07)' })} />
+            <TableCell style={getStickyShotColumnStyle('thumbnail', { backgroundColor: rowBg })} />
 
             {/* NAME 1 */}
             <TableCell style={{
-                ...getStickyShotColumnStyle('group_1_name', { backgroundColor: 'rgba(255,255,255,0.07)' }),
+                ...getStickyShotColumnStyle('group_1_name', { backgroundColor: rowBg }),
                 fontWeight: 500,
                 color: '#ffffff',
                 whiteSpace: 'nowrap',
@@ -825,8 +837,8 @@ const Group1HeaderRow: React.FC<{
                 </span>
             </TableCell>
 
-            <TableCell style={getStickyShotColumnStyle('group_2_name', { backgroundColor: 'rgba(255,255,255,0.07)' })} />
-            <TableCell style={getStickyShotColumnStyle('group_3_name', { backgroundColor: 'rgba(255,255,255,0.07)' })} />
+            <TableCell style={getStickyShotColumnStyle('group_2_name', { backgroundColor: rowBg })} />
+            <TableCell style={getStickyShotColumnStyle('group_3_name', { backgroundColor: rowBg })} />
 
             {/* Empty phase cells (dynamic) */}
             {orderedPhases.map(phase => {
