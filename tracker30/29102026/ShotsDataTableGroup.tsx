@@ -387,9 +387,11 @@ const ShotDataRow: React.FC<{
     const compKey = `${shot.group_1}-${shot.group_2}-${shot.group_3}-${shot.relation}`;
     const rowId = `${shot.root}|${shot.project}|${shot.group_1}|${shot.group_2}|${shot.group_3}|${shot.relation}|${shot.component}`;
     const isRowSelected = selectedRowId === rowId;
+    const [isHovered, setIsHovered] = useState(false);
     const rowSelectedBg = 'rgb(7, 192, 253)';
+    const rowHoverBg = '#4e4e4e';
     const stickyCellBg = (isCellSelected: boolean) =>
-        isRowSelected ? rowSelectedBg : isCellSelected ? '#345562' : '#3f3f3f';
+        isRowSelected ? rowSelectedBg : isCellSelected ? '#345562' : isHovered ? rowHoverBg : '#3f3f3f';
 
     const getCellSel = (colId: string) => {
         const cellId = `${rowId}::${colId}`;
@@ -422,8 +424,10 @@ const ShotDataRow: React.FC<{
             hover
             onClick={handleRowClick}
             onDoubleClick={handleRowDoubleClick}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
             style={{
-                backgroundColor: isRowSelected ? rowSelectedBg : undefined,
+                backgroundColor: isRowSelected ? rowSelectedBg : isHovered ? rowHoverBg : undefined,
                 cursor: onRowSelect ? 'pointer' : 'default',
             }}
         >
