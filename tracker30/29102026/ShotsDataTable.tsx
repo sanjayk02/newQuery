@@ -413,9 +413,9 @@ const ShotRow: React.FC<ShotRowProps> = ({
     const isRowSelected = selectedRowId === rowId;
     const [isHovered, setIsHovered] = useState(false);
     const rowSelectedBg = 'rgb(12, 132, 245)';
-    const rowHoverBg = '#4e4e4e';
+    const rowHoverBg = '#6b7c82';
     const stickyCellBg = (isCellSelected: boolean) =>
-        isRowSelected ? rowSelectedBg : isCellSelected ? '#345562' : isHovered ? rowHoverBg : '#3f3f3f';
+        isRowSelected ? rowSelectedBg : isHovered ? rowHoverBg : isCellSelected ? '#345562' : '#3f3f3f';
 
     const getCellSel = (colId: string) => {
         const cellId = `${rowId}::${colId}`;
@@ -461,6 +461,7 @@ const ShotRow: React.FC<ShotRowProps> = ({
                 return (
                     <TableCell
                         onDoubleClick={sel.onDblCellClick}
+                        onMouseEnter={() => setIsHovered(true)}
                         style={{
                             ...getStickyShotColumnStyle('thumbnail', { backgroundColor: stickyCellBg(sel.isCellSelected) }),
                             cursor: onCellSelect ? 'pointer' : 'default',
@@ -485,6 +486,7 @@ const ShotRow: React.FC<ShotRowProps> = ({
                 return (
                     <TableCell
                         onDoubleClick={sel.onDblCellClick}
+                        onMouseEnter={() => setIsHovered(true)}
                         style={{
                             ...getStickyShotColumnStyle('group_1_name', { backgroundColor: stickyCellBg(sel.isCellSelected) }),
                             textAlign: 'center',
@@ -501,6 +503,7 @@ const ShotRow: React.FC<ShotRowProps> = ({
                 return (
                     <TableCell
                         onDoubleClick={sel.onDblCellClick}
+                        onMouseEnter={() => setIsHovered(true)}
                         style={{
                             ...getStickyShotColumnStyle('group_2_name', { backgroundColor: stickyCellBg(sel.isCellSelected) }),
                             textAlign: 'center',
@@ -517,6 +520,7 @@ const ShotRow: React.FC<ShotRowProps> = ({
                 return (
                     <TableCell
                         onDoubleClick={sel.onDblCellClick}
+                        onMouseEnter={() => setIsHovered(true)}
                         style={{
                             ...getStickyShotColumnStyle('group_3_name', { backgroundColor: stickyCellBg(sel.isCellSelected) }),
                             textAlign: 'center',
