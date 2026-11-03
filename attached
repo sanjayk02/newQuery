@@ -1,0 +1,5 @@
+I’ve attached a PDF explaining the old and updated PipelineParameter processing, with examples and verification results.
+
+The legacy special handling has been removed. Columns now use the explicitly selected PipelineParameter, preserve list and dictionary structure, and display empty values as blank.
+
+The tested Assets values matched CentralWeb. Please review the attachment and let me know if any further adjustments are needed.
