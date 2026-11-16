@@ -1,0 +1,14 @@
+Hi   Kobayashi,  
+
+Yes, your understanding is correct. The lock status will be stored centrally in the database so that all PPI Tracker users can check whether a cell or entity is currently being edited.  
+
+The lock information will be stored separately from the actual tracker data as temporary lock records. Each record will identify the project, target cell or entity, user who started editing, a secure lock token, and an expiry time.  
+
+For direct “Edit in Cell,” the system will store a lock for the specific cell. For the full Edit Entity dialog, the system will store a lock for the selected entity. When multiple entities are edited together, the system will store locks for all selected entities as one batch.  
+
+The lock will be removed when the user saves, cancels, or closes the editor. If the application closes unexpectedly, the lock will expire automatically after a short period. While the user is editing, the application will renew the lock periodically.  
+
+In addition, the system will check the latest data revision when saving, as a safeguard against accidental overwrites.  
+
+Best regards,
+Sanjay
