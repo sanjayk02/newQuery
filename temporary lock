@@ -1,0 +1,16 @@
+Hi Kobayashi,
+
+Thank you.
+
+We should store the temporary lock data in MySQL together with the existing PPI Tracker backend data. MongoDB is not required for this feature.
+
+The lock data will be stored separately from the actual tracker values. It will include the project, entity, optional field name, current editor, lock token, and expiry time.
+
+For the full Edit Entity dialog, the system will create a lock for the selected entity or entities. For Edit in Cell, the system will create a lock only for the specific cell.
+
+The lock will be released when the user saves, cancels, or closes the editor. If the application closes unexpectedly, the lock will expire automatically after a short period.
+
+I have prepared the MySQL table design separately.
+
+Best regards,
+Sanjay
