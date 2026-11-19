@@ -1,0 +1,176 @@
+Project: PPI Tracker
+
+Goal:
+Prevent two users from editing the same tracker data at the same time.
+
+Important:
+- Do not overwrite or remove existing user changes.
+- Do not create or apply MySQL tables until confirming whether the supervisor has already created them.
+- This workspace currently contains the PPI Tracker desktop client. The backend repository is not available here, so backend API and database work requires the backend project.
+- Keep the existing Edit in Cell and Edit Entity user flows.
+
+Current desktop code locations:
+- src/ppiTracker/mainWindow.py
+  - onDoubleClick(): opens the full Edit Entity dialog.
+  - beginDirectCellEdit(): starts direct Edit in Cell.
+  - saveDirectCellEdit(): saves a direct cell edit.
+  - showCellContextMenu(): contains the right-click Edit in Cell action.
+- src/ppiTracker/entityEditorDialog.py
+  - EntityEditorDialog.save(): saves full-entity and multi-row edits.
+- src/ppiTracker/apiClient.py
+  - updateEntity(): sends entity updates to the backend.
+
+Final required behavior:
+
+1. Normal click
+- Clicking a cell or row only selects it.
+- Do not create a lock.
+
+2. Edit in Cell
+- Right-click -> Edit in Cell.
+- Before opening the editor, acquire a lock only for that cell.
+- Example: anitaHero / Status.
+- If another user owns the lock, do not open the editor.
+- Show: “Status for anitaHero is currently being edited by User A.”
+- Release the lock on Save, Cancel, Escape, or editor close.
+
+3. Full Edit Entity dialog
+- Before opening the full dialog for one row, acquire an entity/row lock.
+- An entity lock prevents another user from opening the full dialog for the same row.
+- It also prevents direct cell editing inside that row while the full dialog is open.
+- Release the lock on Save, Cancel, or close.
+
+4. Multiple selected rows
+- When opening Edit Entity for multiple selected rows, lock all selected rows as one batch.
+- This must be all-or-nothing.
+- If every selected row is available, lock all and open the dialog.
+- If one row is locked, lock none and do not open the dialog.
+- Show the locked entity and lock owner.
+
+5. Lock hierarchy
+- An entity lock blocks every cell lock for that entity.
+- A cell lock blocks another lock for the same cell.
+- A cell lock for Status does not block a cell lock for Notes in the same entity.
+- A cell lock blocks an entity lock for the same entity.
+
+6. Lock expiry
+- Locks are temporary.
+- Lock duration: 2 to 5 minutes.
+- Renew active locks every 30 to 60 seconds while the editor is open.
+- If the app crashes, expired locks become available automatically.
+- If renewal fails, preserve the user draft and disable Save until the state is refreshed.
+
+7. Revision check on every save
+- Store and return a revision number for every editable cell.
+- The client saves with the revision that existed when editing began.
+- The backend accepts the save only if that revision still matches.
+- If data changed while editing, return HTTP 409 Conflict and do not overwrite newer data.
+- Locks prevent normal collisions; revisions protect against expired locks, imports, scripts, rollbacks, and other update paths.
+
+MySQL lock-table requirements:
+
+Table name:
+tracker_edit_locks
+
+Required columns:
+- id
+- project_id
+- entity_id
+- lock_scope VARCHAR(32) NOT NULL
+- field_key VARCHAR(255) NOT NULL
+- studio VARCHAR(255) NOT NULL
+- user_id VARCHAR(255) NOT NULL
+- lock_token CHAR(64) NOT NULL
+- created_at
+- updated_at
+- expires_at
+
+Rules:
+- lock_scope currently supports: entity and cell.
+- Use VARCHAR(32), not ENUM, to support future scopes.
+- Backend must validate allowed lock_scope values.
+- field_key is * for an entity lock.
+- field_key is the real field name, such as status, for a cell lock.
+- studio distinguishes users with the same username.
+- The user and studio must not be part of the lock-target unique rule.
+- Only one user may own the same target at one time.
+- Backend transaction logic must enforce entity-versus-cell lock conflicts.
+
+Suggested lock API:
+
+POST /api/tracker/locks/acquire
+PATCH /api/tracker/locks/{lock_token}
+DELETE /api/tracker/locks/{lock_token}
+
+Cell-lock request:
+{
+  "scope": "cell",
+  "project_id": "project-name",
+  "entity_id": "entity-id",
+  "field_key": "status"
+}
+
+Entity-lock batch request:
+{
+  "scope": "entity",
+  "project_id": "project-name",
+  "entity_ids": [
+    "anitaHero-id",
+    "bipedHero-id"
+  ]
+}
+
+Successful response:
+{
+  "lock_token": "secure-server-token",
+  "expires_at": "UTC date and time"
+}
+
+Conflict response:
+HTTP 409 Conflict
+
+{
+  "error": "locked",
+  "conflicts": [
+    {
+      "entity_id": "anitaHero-id",
+      "field_key": "status",
+      "locked_by": "User A",
+      "studio": "studio-name"
+    }
+  ]
+}
+
+Save request changes:
+Extend updateEntity() so saves include:
+- changed values
+- expected cell revisions
+- lock token
+
+Multi-row saves:
+- Add an atomic batch-update backend endpoint.
+- Save all selected rows together, or save none if any lock or revision conflict exists.
+- Do not keep the current behavior where some rows can save before a later row fails.
+
+Development order:
+1. Confirm MySQL table status with supervisor.
+2. Implement MySQL migration only if the table does not already exist.
+3. Implement backend lock acquire, renew, release, expiry, and conflict handling.
+4. Implement per-cell revision storage and guarded saves.
+5. Add atomic batch update.
+6. Add API client methods.
+7. Add direct-cell lock behavior.
+8. Add entity-dialog and multi-row batch-lock behavior.
+9. Add clear conflict messages.
+10. Test all flows.
+
+Required tests:
+- User A locks one cell; User B cannot lock the same cell.
+- User A locks Status; User B can lock Notes in the same row.
+- User A locks an entity; User B cannot lock any cell or the entity in that row.
+- A multi-row request with one locked row locks none of the requested rows.
+- Save after another update returns conflict and preserves draft.
+- Cancel and close release locks.
+- Expired locks can be acquired by another user.
+- Simulate User A and User B in automated backend tests by using different user and studio values.
+- After development, manually test on two systems connected to the same backend.
