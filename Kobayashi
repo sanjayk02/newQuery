@@ -1,7 +1,12 @@
-Hi Shohei-san,
+Hi Kobayashi,  
 
-Thank you for the detailed instructions.
+Thank you for checking this. I agree with both suggestions.  
 
-I will follow these steps to set up the local environment and debug the thumbnails. Please let me know if there are any additional points I should be aware of.
+For lock_scope, please change it from ENUM('entity', 'cell') to VARCHAR(32). This gives us flexibility to add new lock scopes later without changing the database column definition. The backend will still validate the supported values, currently entity and cell.  
 
-Thank you.
+I also agree with adding a studio column. This will help distinguish lock owners when users have the same username in different studios. Please add studio VARCHAR(255) NOT NULL.  
+
+The unique lock constraint should remain based on project_id, entity_id, and field_key. It should not include the username or studio, because only one user should be able to lock the same target at a time.  
+
+Best regards,
+Sanjay
