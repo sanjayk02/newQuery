@@ -1,0 +1,15 @@
+Hi Kobayashi,
+
+I found the PPI Tracker backend source code.
+
+The current backend is written in Go and the existing tracker entity data is stored in MongoDB. The new cell-lock feature needs temporary lock data storage.
+
+Could you please confirm which option we should use?
+1. Store the edit-lock data in the existing MongoDB backend.
+2. Add a MySQL connection to the Go backend and store the edit-lock data in the MySQL table.
+MongoDB will be simpler because the PPI Tracker backend already uses it. MySQL is also possible, but it requires additional database connection and configuration work.
+
+Once confirmed, I can implement the lock endpoints.
+
+Best regards,
+Sanjay
