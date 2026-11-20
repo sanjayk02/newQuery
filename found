@@ -1,12 +1,19 @@
 Hi Kobayashi,
 
-After checking the PPI Tracker backend, I recommend using MongoDB for the temporary edit-lock data.
+Yes, that is correct.
 
-The current PPI Tracker backend is written in Go and already uses MongoDB for tracker data. We can add a separate lock collection with automatic expiry. This avoids adding a new MySQL connection, credentials, and configuration.
+The MongoDB lock data will contain the same logical information as the MySQL design:
+- Project
+- Entity/row ID
+- Lock scope (entity or cell)
+- Field key for a cell lock
+- User name
+- Studio name
+- Lock token (stored securely as a hash)
+- Created time and expiry time
+The difference is only the storage format. MySQL uses rows in tables, while MongoDB uses documents in a lock collection.
 
-The lock records will be temporary only. They will be created when a user starts editing and removed on Save, Cancel, or Close. If the application closes unexpectedly, the lock will expire automatically.
-
-Please let me know if MongoDB is acceptable. Once confirmed, I can proceed with the lock endpoint implementation.
+For a multi-row edit, multiple lock documents share the same lock token. This allows all selected rows to be managed and released together.
 
 Best regards,
 Sanjay
