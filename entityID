@@ -1,0 +1,9 @@
+Hi, I am implementing the PPI Tracker cell-locking feature.
+The desktop client code is ready to call the lock APIs, but I need the backend project/source code where the existing endpoint below is implemented:
+
+PUT /api/tracker/entities/{entityID}
+
+Could you please provide the backend repository or tell me the file/folder where this endpoint is defined?
+I need to add the lock endpoints for acquire, renew, release, and bulk update, connected to the MySQL lock table.
+
+Thank you.
